@@ -1,0 +1,53 @@
+2026-04-12 08:04:26 [WARNING] EURUSD HOLD conf=0% action=MARKET_CLOSED | Market closed - weekend
+2026-04-13 01:07:06 [INFO] EURUSD SELL conf=81% action=DRY_RUN | H4 BEARISH | H1 BEARISH | RSI 83 extreme | ADX strong (60) | Stoch BEARISH
+2026-04-13 01:07:39 [INFO] GBPUSD HOLD conf=48% action=HOLD | While H4 and H1 confirm bearish bias and factors meet SELL criteria, M15 shows b
+2026-04-13 01:08:04 [INFO] USDJPY HOLD conf=42% action=HOLD | M15 shows strong bearish momentum (ADX=48, -DI=44, RSI=12.4 oversold) which dire
+2026-04-13 01:09:22 [INFO] EURUSD HOLD conf=48% action=HOLD | M15 RSI 83 is extremely overbought and signals imminent reversal; conflicting H4
+2026-04-13 01:09:54 [INFO] GBPUSD SELL conf=81% action=DRY_RUN | H4 and H1 both bearish with ADX=51 confirming strong downtrend, RSI extreme at 8
+2026-04-13 01:10:35 [INFO] USDJPY HOLD conf=48% action=HOLD | While H4 and H1 confirm bullish bias and RSI is extremely oversold (12.4) sugges
+2026-04-13 01:12:11 [INFO] EURUSD SELL conf=81% action=DRY_RUN | H4 and H1 bearish confluence confirms direction, ADX=60 confirms strong trend, R
+2026-04-13 01:12:56 [INFO] GBPUSD HOLD conf=45% action=HOLD | M15 timeframe conflicts with H4/H1 bearish bias (bullish EMA/RSI 80.8/MACD bulli
+2026-04-13 01:13:16 [INFO] USDJPY HOLD conf=42% action=HOLD | Timeframe conflict: H4/H1 bullish but M15 bearish with extreme oversold RSI (12.
+2026-04-13 01:14:47 [INFO] EURUSD SELL conf=81% action=DRY_RUN | Higher timeframes confirm strong bearish bias (H4/H1 bearish, ADX=40/25), with M
+2026-04-13 01:15:18 [INFO] GBPUSD HOLD conf=48% action=HOLD | While H4/H1 bearish and technical conditions for SELL are met, M15 bullish momen
+2026-04-13 01:15:58 [INFO] EURUSD HOLD conf=45% action=HOLD | While H4/H1 bearish alignment exists, M15 is counter-trend with extreme overboug
+2026-04-13 01:16:14 [INFO] GBPUSD HOLD conf=45% action=HOLD | Timeframe conflict: M15 shows BULLISH momentum (EMA, MACD, ADX=53, RSI=80) again
+2026-04-13 01:17:25 [INFO] EURUSD HOLD conf=48% action=HOLD | Timeframe conflict exists with H4/H1 bearish but M15 showing extreme bullish sig
+2026-04-13 01:17:42 [INFO] GBPUSD SELL conf=78% action=DRY_RUN | H4 bearish trend (F1=-10) aligns with H1 bearish context, and 4+ factors score >
+2026-04-13 01:18:01 [INFO] USDJPY HOLD conf=42% action=HOLD | While H4/H1 are bullish, M15 momentum is strongly bearish (ADX=52, -DI=42) and c
+2026-04-13 01:18:21 [INFO] GOLD.i# HOLD conf=45% action=HOLD | H4 bearish trend conflicts with strong H1/M15 bullish momentum creating timefram
+2026-04-13 01:19:38 [INFO] EURUSD HOLD conf=45% action=HOLD | Timeframe conflict: H4/H1 bearish vs M15 bullish with overbought RSI (79.4) and 
+2026-04-13 01:20:43 [INFO] GBPUSD SELL conf=76% action=DRY_RUN | H4 BEARISH | H1 BEARISH | RSI 80 extreme | ADX strong (53)
+2026-04-13 01:20:59 [INFO] USDJPY HOLD conf=45% action=HOLD | M15 bearish (EMA, MACD, ADX 52) conflicts with H4/H1 bullish bias while RSI at 1
+2026-04-13 01:21:21 [INFO] GOLD.i# HOLD conf=42% action=HOLD | H4 bearish but only 3 factors meet the >= 6 threshold (need 4 for SELL), and M15
+2026-04-13 01:22:59 [INFO] EURUSD SELL conf=58% action=HOLD | H4/H1 bearish trend (F1=-10, F2=-10) confirms higher timeframe bias, and extreme
+2026-04-13 01:23:17 [INFO] GBPUSD SELL conf=82% action=DRY_RUN | H4 and H1 both BEARISH with strong ADX (34/31), extreme RSI overbought at 80 on 
+2026-04-13 01:24:06 [INFO] USDJPY HOLD conf=52% action=HOLD | Timeframe conflict exists: H4/H1 bullish but M15 EMA bearish, and recent 0.654% 
+2026-04-13 01:24:35 [INFO] GOLD.i# HOLD conf=45% action=HOLD | H4 shows MILD_BEAR bias (F1=-5) but lacks minimum 4 factors scoring >=6 for SELL
+2026-04-13 01:26:41 [INFO] EURUSD HOLD conf=45% action=HOLD | While H4 and H1 are bearish with strong ADX (40), the M15 entry shows conflictin
+2026-04-13 01:26:57 [INFO] GBPUSD HOLD conf=42% action=HOLD | M15 entry shows BULLISH momentum (RSI 80, MACD bullish, EMA bull trend) directly
+2026-04-13 01:27:21 [INFO] USDJPY HOLD conf=42% action=HOLD | M15 bearish EMA conflicts with H4/H1 bullish bias; despite extreme RSI oversold 
+2026-04-13 01:27:37 [INFO] GOLD.i# HOLD conf=45% action=HOLD | Timeframe conflict exists (H4 bearish vs H1/M15 bullish), and M15 RSI at 77.7 is
+2026-04-13 01:28:53 [INFO] EURUSD HOLD conf=45% action=HOLD | Timeframe conflict — M15 bullish entry (ADX=63, RSI=79) contradicts H4/H1 bearis
+2026-04-13 01:30:06 [INFO] EURUSD SELL conf=70% action=DRY_RUN | H4 BEARISH | H1 BEARISH | RSI 79 extreme | ADX strong (63)
+2026-04-13 01:30:32 [INFO] GBPUSD HOLD conf=42% action=HOLD | M15 BULLISH (EMA, MACD, high ADX) conflicts with H4/H1 BEARISH bias - timeframe 
+2026-04-13 01:31:26 [INFO] USDJPY BUY conf=81% action=DRY_RUN | H4 BULLISH | H1 BULLISH | RSI 16 extreme | ADX strong (56) | Stoch BULLISH
+2026-04-13 01:31:40 [INFO] GOLD.i# HOLD conf=38% action=HOLD | Timeframe conflict between bearish H4 and bullish H1 prevents directional entry;
+2026-04-13 01:32:47 [INFO] EURUSD SELL conf=70% action=DRY_RUN | H4 BEARISH | H1 BEARISH | RSI 72 extreme | ADX strong (66)
+2026-04-13 01:33:15 [INFO] GBPUSD HOLD conf=45% action=HOLD | Timeframe conflict: H4/H1 bearish but M15 showing strong bullish momentum with R
+2026-04-13 01:34:10 [INFO] USDJPY BUY conf=81% action=DRY_RUN | H4 BULLISH | H1 BULLISH | RSI 16 extreme | ADX strong (56) | Stoch BULLISH
+2026-04-13 01:34:53 [INFO] EURUSD SELL conf=68% action=DRY_RUN | H4 and H1 both bearish, RSI 72 overbought on M15 approaching resistance 1.1696 s
+2026-04-13 01:35:11 [INFO] GBPUSD SELL conf=75% action=DRY_RUN | H4 and H1 bearish alignment confirms higher timeframe trend direction, ADX=57 in
+2026-04-13 01:37:22 [INFO] GOLD.i# HOLD conf=45% action=HOLD | Timeframe conflict: H4 bearish bias contradicts H1/M15 bullish momentum and pric
+2026-04-13 01:37:47 [INFO] SILVER.i# HOLD conf=45% action=HOLD | Timeframe conflict: H4/H1 bearish vs M15 bullish with extreme RSI 76.4 overbough
+2026-04-13 01:39:14 [INFO] GOLD.i# HOLD conf=42% action=HOLD | Timeframe conflict: H4 bearish (F1=-5) but H1 bullish, creating opposing signals
+2026-04-13 01:39:32 [INFO] SILVER.i# HOLD conf=45% action=HOLD | Timeframe conflict: H4/H1 bearish vs M15 bullish momentum; M15 RSI=76.4 and Stoc
+2026-04-13 01:40:59 [INFO] GOLD.i# SELL conf=63% action=TRADE | H1 BULLISH | RSI 73 extreme | ADX strong (68)
+2026-04-13 01:41:51 [INFO] SILVER.i# SELL conf=78% action=TRADE | H4 bearish trend confirms sell bias, with 5 factors scoring >= 6 (F1/F3/F4/F5 an
+2026-04-13 01:43:08 [INFO] GOLD.i# HOLD conf=45% action=SKIP_MAX_TRADES | H4 bearish trend conflicts with M15/H1 bullish momentum; RSI at 73 on M15 signal
+2026-04-13 01:43:31 [INFO] SILVER.i# HOLD conf=45% action=SKIP_MAX_TRADES | Timeframe conflict: M15 shows strong bullish momentum with RSI=76.4 overbought a
+2026-04-13 01:45:17 [INFO] GOLD.i# HOLD conf=45% action=SKIP_MAX_TRADES | Conflicting signals between bearish H4 bias and bullish M15/H1 momentum; RSI 73 
+2026-04-13 01:45:40 [INFO] SILVER.i# SELL conf=69% action=SKIP_MAX_TRADES | H4 bearish trend with strong ADX (56) supports downside while RSI extreme (77.4)
+2026-04-13 01:47:06 [INFO] GOLD.i# HOLD conf=45% action=SKIP_MAX_TRADES | H4 trend is bearish conflicting with M15 bullish momentum; RSI/Stochastic overbo
+2026-04-13 01:48:00 [INFO] SILVER.i# HOLD conf=42% action=SKIP_MAX_TRADES | Timeframe conflict prevents entry: M15 shows BULLISH with overbought RSI (77.4) 
+2026-04-13 01:49:15 [INFO] GOLD.i# HOLD conf=48% action=SKIP_MAX_TRADES | Timeframe conflict between H4 mild bearish and H1/H4 bullish; M15 RSI 73.8 extre
