@@ -1,109 +1,71 @@
-# MT5 AI Trading Bot — Claude-Powered
+# MetatradeXM — AI-Powered MT5 Trading System
 
-## Prerequisites
+An autonomous, multi-symbol automated trading system (XAUUSD + XAGUSD) running on [MetaApi](https://metaapi.cloud/) (works on Mac/Linux/Windows) and powered by local Ollama AI.
 
-1. **MetaTrader 5** installed and running on Windows (MT5 Python lib only works on Windows)
-2. **Python 3.10+**
-3. **Anthropic API key** in your environment: `ANTHROPIC_API_KEY`
+## Features
 
-## Setup
-
-```bash
-# 1. Install dependencies
-pip install -r requirements.txt
-
-# 2. Set your API key (Windows)
-set ANTHROPIC_API_KEY=sk-ant-...
-
-# 3. Open MetaTrader 5, log in to your account (demo recommended first)
-#    Enable: Tools → Options → Expert Advisors → Allow algorithmic trading
-```
-
-## Usage (Claude Code terminal)
-
-```bash
-# Analyze current market (no trades placed)
-python bot.py analyze
-
-# Analyze a different symbol/timeframe
-python bot.py analyze --symbol GBPUSD --timeframe H1
-
-# Check account status and open positions
-python bot.py status
-
-# Run backtester on last 500 candles
-python bot.py backtest
-
-# Start live bot (DRY RUN — paper trades only, safe)
-python bot.py run
-
-# Start live bot on specific pair, disable AI (indicators only)
-python bot.py run --symbol XAUUSD --no-ai
-
-# Enable REAL trading (only when you're ready!)
-python bot.py run --live
-```
-
-## Configuration
-
-Edit the `CONFIG` dict at the top of `bot.py`:
-
-| Key | Default | Description |
-|-----|---------|-------------|
-| `symbol` | `EURUSD` | Trading pair |
-| `timeframe` | `M15` | Candle timeframe |
-| `lot_size` | `0.01` | Fallback lot (micro) |
-| `max_risk_pct` | `1.0` | Max % of balance per trade |
-| `sl_pips` | `30` | Stop loss distance |
-| `tp_pips` | `60` | Take profit distance (2:1 RR) |
-| `max_open_trades` | `3` | Max concurrent positions |
-| `loop_interval_s` | `60` | Seconds between cycles |
-| `use_claude_ai` | `True` | Enable Claude reasoning |
-| `dry_run` | `True` | Paper trade (no real orders) |
+- **Cross-Platform**: Uses MetaApi to connect to MT5 instead of the native Windows-only MT5 terminal. Runs natively on macOS, Linux, or Windows.
+- **Smart Analytics**: Real-time 9-factor scoring logic analyzing H4 and H1 timeframe confluence (Trend, RSI, MACD, ADX, Stochastic, Bollinger Bands).
+- **AI Decision Engine**: Local Ollama (minimax-m2.7:cloud model by default) processes market data and confirms trades with quantitative reasoning.
+- **Self-Improving Memory**: Logs trades to SQLite, detects patterns, and adjusts factor weights dynamically if a strategy loses edge.
+- **Smart Exit Manager**: Adaptive trade management including momentum-reversal exits, breakeven stops, time decay, and trailing stops.
+- **Position Scaling**: Adds to winning positions (pyramiding) when AI confirms continued trend strength.
+- **Live Dashboard**: Web UI (Flask) for real-time monitoring of P&L, system health, and AI reasoning.
 
 ## Architecture
 
-```
-Claude Code terminal
-        │
-        ▼
-   bot.py  (main loop + CLI)
-   ├── mt5_bridge.py   ← MetaTrader 5 API (prices, orders, account)
-   ├── analyzer.py     ← RSI, EMA, MACD, BB + Claude AI reasoning
-   ├── risk_manager.py ← Position sizing, SL/TP calculation
-   ├── logger.py       ← SQLite trade journal
-   └── backtester.py   ← Indicator backtest on historical data
-```
+![Architecture](docs/images/architecture_placeholder.png)
 
-## Indicators Used
+Read the full architecture overview in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-- **RSI (14)** — overbought/oversold
-- **EMA 20/50/200** — trend direction stack
-- **MACD (12/26/9)** — momentum crossovers
-- **Bollinger Bands (20,2)** — price extremes
-- **ATR (14)** — volatility (used in dynamic SL in future)
+## Quick Start
 
-## Claude AI Role
+### 1. Requirements
 
-When `use_claude_ai: True`, Claude receives:
-- All indicator values
-- Last 10 candles OHLCV
-- Indicator-based preliminary signal
+- Python 3.9+
+- [Ollama](https://ollama.com/) running locally (`minimax-m2.7:cloud` model)
+- A MetaApi Cloud account + MT5 Demo account (XM Global or similar)
 
-Claude returns a structured JSON:
-```json
-{
-  "direction": "BUY",
-  "confidence": 0.72,
-  "reason": "RSI oversold with bullish EMA stack and MACD crossover confirms momentum shift."
-}
+### 2. Setup
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Create .env from template
+cp .env.example .env
+# Edit .env and add your METAAPI_TOKEN and METAAPI_ACCOUNT_ID
 ```
 
-This overrides the pure indicator signal, adding contextual reasoning.
+For detailed setup, see [docs/SETUP.md](docs/SETUP.md).
 
-## Warning
+### 3. Run the System
 
-**Always test on a demo account first. Never risk money you cannot afford to lose.
-This bot is for educational purposes. Past performance does not guarantee future results.**
-# MetatradeXM
-# MetatradeXM
+The easiest way to run the entire system is using the startup script:
+
+```bash
+# Start in paper trading mode
+bash start_trading_cycle.sh --dry
+
+# Start live trading
+bash start_trading_cycle.sh
+
+# Stop everything
+bash start_trading_cycle.sh --stop
+```
+
+Check the dashboard at `http://localhost:8889` (or the IP of your server).
+
+## Documentation
+
+Full documentation is available in the `/docs` directory:
+- [System Architecture](docs/ARCHITECTURE.md)
+- [Setup & Installation](docs/SETUP.md)
+- [Configuration Guide](docs/CONFIGURATION.md)
+- [Operations & Monitoring](docs/OPERATIONS.md)
+- [Profitability & Tuning](docs/PROFITABILITY.md)
+- [Self-Improvement Engine](docs/SELF_IMPROVEMENT.md)
+
+## Legacy Entry Point
+
+The original Windows-only CLI `bot.py` is preserved for reference, but `continuous_trader.py` is the official 24/7 autonomous engine spanning Mac/Linux/Windows.

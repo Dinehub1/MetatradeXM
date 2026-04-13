@@ -69,10 +69,10 @@ SYMBOLS = [
 CONFIG = {
     "monitor_interval_s": 20,       # check positions every 20s (faster response)
     "analysis_interval_s": 60,      # full AI analysis every 60s (was 120)
-    "profit_close_pct":   3.0,      # close trade at +3% account profit (let winners run)
-    "loss_close_pct":     0.8,      # close trade at -0.8% account loss (cut faster)
-    "min_confidence":     0.45,     # minimum AI confidence to trade (calibrated)
-    "max_trades_per_sym": 3,        # allow up to 3 positions per symbol (scaling)
+    "profit_close_pct":   1.5,      # close trade at +1.5% account profit (realistic for $1k)
+    "loss_close_pct":     0.5,      # close trade at -0.5% account loss (cut losers fast)
+    "min_confidence":     0.60,     # minimum AI confidence to trade (was 0.45 = coin flip)
+    "max_trades_per_sym": 1,        # 1 position per symbol (was 3 = 3× risk)
     "dry_run":            False,    # live trading
     "use_ai":             True,     # use Ollama AI analysis
     "max_reconnect_attempts": 5,
@@ -224,8 +224,8 @@ def _save_peaks(d: dict):
 
 _peak_profit: dict = _load_peaks()   # ticket → peak profit seen
 
-def check_and_close_positions(bridge, account_balance: float, positions_by_sym: dict,
-                               state: dict, dry_run: bool) -> list:
+def check_and_close_positions(bridge, account_balance: float, positions_by_sym: dict, 
+                              state: dict, dry_run: bool, capital_mgr=None) -> list:
     """
     Close positions that hit profit or loss targets, OR if trailing SL is triggered.
     Trailing SL: once profit reaches 1% of balance, lock in 50% of peak profit.
@@ -291,8 +291,11 @@ def check_and_close_positions(bridge, account_balance: float, positions_by_sym: 
                             open_price = getattr(pos, "price_open", 0)
                             pips = profit / (pip_size * 10 * getattr(pos, "volume", 0.01))
                             mem.record_outcome(str(ticket), 0, round(pips, 1), outcome)
+                            
+                            if capital_mgr:
+                                capital_mgr.record_outcome(outcome, profit)
                         except Exception as e:
-                            log.warning(f"Memory record error: {e}")
+                            log.warning(f"Outcome record error: {e}")
                 else:
                     log.info(f"   [DRY RUN] Would close #{ticket}")
                     closed.append(broker_sym)
@@ -397,6 +400,22 @@ class ContinuousTrader:
         except Exception as e:
             log.warning(f"  [SCALER] Failed to init: {e}")
             self.scaler = None
+
+        try:
+            from smart_exit import SmartExitManager
+            self.smart_exit = SmartExitManager()
+            log.info(f"  [SMART EXIT] Adaptive exit system initialized")
+        except Exception as e:
+            log.warning(f"  [SMART EXIT] Failed to init: {e}")
+            self.smart_exit = None
+
+        try:
+            from capital_manager import CapitalManager
+            self.capital = CapitalManager()
+            log.info(f"  [CAPITAL] Dynamic capital manager initialized")
+        except Exception as e:
+            log.warning(f"  [CAPITAL] Failed to init: {e}")
+            self.capital = None
 
         # Cache for cross-symbol correlation
         self._symbol_signals = {}
@@ -555,9 +574,45 @@ class ContinuousTrader:
                     op = getattr(p, "price_open", 0)
                     log.info(f"   {disp} {d} @{op:.2f} {fmt_profit(pr)}")
 
+            # ── Profit Booking (partial closes at pip milestones) ─────────
+            if self.capital:
+                try:
+                    booked = self.capital.book_profits(
+                        bridge=self.bridge,
+                        positions_by_sym=positions_by_sym,
+                        symbols={s["display"]: s for s in SYMBOLS},
+                        dry_run=self.dry_run,
+                    )
+                    if booked:
+                        total_booked = sum(b.get("booked_usd", 0) for b in booked)
+                        log.info(f"   💵 PROFIT BOOKED: ${total_booked:.2f} across "
+                                 f"{len(booked)} partial close(s)")
+                        time.sleep(0.5)
+                        positions_by_sym = get_positions_by_symbol(self.bridge)
+                except Exception as e:
+                    log.warning(f"Capital book_profits error: {e}")
+
+            # ── Smart exit checks (momentum reversal, adaptive TP) ────────────
+            if self.smart_exit:
+                try:
+                    smart_closed = self.smart_exit.evaluate_exits(
+                        bridge=self.bridge,
+                        positions_by_sym=positions_by_sym,
+                        symbols=SYMBOLS,
+                        account_balance=balance,
+                        state=self.state,
+                        dry_run=self.dry_run,
+                    )
+                    if smart_closed:
+                        _save_state(self.state)
+                        time.sleep(1)
+                        positions_by_sym = get_positions_by_symbol(self.bridge)
+                except Exception as e:
+                    log.warning(f"Smart exit error: {e}")
+
             # ── Check close conditions ───────────────────────────────────────
             closed_syms = check_and_close_positions(
-                self.bridge, balance, positions_by_sym, self.state, self.dry_run)
+                self.bridge, balance, positions_by_sym, self.state, self.dry_run, self.capital)
             if closed_syms:
                 _save_state(self.state)
                 log.info(f"   W:{self.state['wins']} L:{self.state['losses']} "
@@ -684,12 +739,26 @@ class ContinuousTrader:
                             confidence = min(confidence + skill_result["confidence_boost"], 0.95)
                             skills_used = skill_result["skills_used"]
 
-                        # ── Build order with ATR-based SL/TP ─────────────────
+                        # ── Build order with ATR-based SL/TP ─────────────
                         atr = signal_data.get("indicators", {}).get("atr", 0)
                         order = build_order_params(
                             sym_cfg, tick, direction,
                             confidence=confidence, atr=atr,
                             lot_reduction=lot_reduction)
+
+                        # ── Dynamic lot sizing (capital manager) ──────────
+                        if self.capital:
+                            smart_lot = self.capital.compute_lot(
+                                balance=balance,
+                                atr=atr,
+                                atr_avg=atr,   # will improve once ATR history cached
+                                session=session,
+                            )
+                            if smart_lot == 0:
+                                log.info(f"   ⏭  {disp}: Capital mgr says skip")
+                                continue
+                            if smart_lot > 0:
+                                order["lot"] = smart_lot
 
                         if self.dry_run:
                             log.info(f"   📝 DRY RUN {disp} {direction} "
@@ -809,6 +878,10 @@ class ContinuousTrader:
                         if self.state["total_trades"] > 0 else 0),
                     "scale_stats": (
                         self.scaler.get_scale_stats() if self.scaler else {}),
+                    "capital": (
+                        self.capital.get_summary() if self.capital else {}),
+                    "smart_exit": (
+                        self.smart_exit.get_exit_stats() if self.smart_exit else {}),
                 },
                 "next_analysis_in": next_analysis_in,
                 # Flat fields for backward compat
@@ -826,8 +899,20 @@ class ContinuousTrader:
 
             _save_state(self.state)
 
-            # ── Self-improvement check (daily) ───────────────────────────
-            if self.improver and cycle % 100 == 0:  # check every ~50 min
+            # ── Rapid skill learning (every 5 cycles ≈ every 100s) ───────
+            if self.memory and self.skill_mgr and cycle % 5 == 0:
+                try:
+                    outcomes = self.memory.get_recent_outcomes(hours=2)
+                    if outcomes:
+                        for skill_info in self.skill_mgr.list_skills():
+                            self.skill_mgr.improve_skill(skill_info["name"], outcomes[:5])
+                        self.skill_mgr.invalidate_cache()
+                        log.debug(f"[SKILLS] Rapid learning: {len(outcomes)} recent trades")
+                except Exception as e:
+                    log.debug(f"Rapid skill learning error: {e}")
+
+            # ── Deep self-improvement review (daily / every 100 cycles) ──
+            if self.improver and cycle % 100 == 0:
                 try:
                     if self.improver.should_run_review():
                         self.improver.daily_review()

@@ -8,15 +8,16 @@
     "f7_bb": 1.0,
     "f8_h1_rsi": 0.5,
     "f9_h1_macd": 0.5,
-    "ranging_penalty": 0.8,
+    "ranging_penalty": 0.6,
     "h4_override_base": 0.5,
-    "buy_threshold": 6,
-    "sell_threshold": -6,
-    "version": 2,
+    "buy_threshold": 15,
+    "sell_threshold": -15,
+    "version": 3,
     "last_adjusted": "2026-04-13",
     "adjustment_history": [
         {"date": "2026-04-13", "change": "Initial thresholds ±18"},
         {"date": "2026-04-13", "change": "Lowered to ±12 — still too few signals"},
-        {"date": "2026-04-13", "change": "Lowered to ±6, ranging_penalty 0.8, proportional HOLD conf — fixes ranging market HOLD bias"}
+        {"date": "2026-04-13", "change": "Lowered to ±6, ranging_penalty 0.8, proportional HOLD conf — fixes ranging market HOLD bias"},
+        {"date": "2026-04-13", "change": "PROFITABILITY FIX: ±6 was far too aggressive (15% WR). Raised to ±15 for real confluence. Ranging penalty 0.6 to avoid noise trades in weak trends."}
     ]
 }
