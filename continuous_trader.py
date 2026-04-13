@@ -71,7 +71,7 @@ CONFIG = {
     "analysis_interval_s": 60,      # full AI analysis every 60s (was 120)
     "profit_close_pct":   3.0,      # close trade at +3% account profit (let winners run)
     "loss_close_pct":     0.8,      # close trade at -0.8% account loss (cut faster)
-    "min_confidence":     0.52,     # minimum AI confidence to trade (was 0.55)
+    "min_confidence":     0.45,     # minimum AI confidence to trade (calibrated)
     "max_trades_per_sym": 3,        # allow up to 3 positions per symbol (scaling)
     "dry_run":            False,    # live trading
     "use_ai":             True,     # use Ollama AI analysis

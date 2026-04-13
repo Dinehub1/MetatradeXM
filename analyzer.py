@@ -579,30 +579,44 @@ Respond with ONLY raw JSON (no markdown, no backticks):
                             break
                 data = json.loads(text)
                 ai_direction = data.get("direction", "HOLD")
+                ai_conf      = float(data.get("confidence", 0.40))
+                ind_score    = base_signal.get("score", 0.0)
+                ind_direction = base_signal.get("direction", "HOLD")
 
-                # GRADUATED H4 override (replaces blunt 50% penalty)
+                # ── Strong-score override: if indicators strongly agree but AI says HOLD,
+                #    trust the indicators (|score| >= 15 = well above ±6 threshold)
+                if ai_direction == "HOLD" and ind_direction in ("BUY", "SELL"):
+                    if abs(ind_score) >= 15:
+                        ai_direction = ind_direction
+                        # Confidence: starts at 0.52, rises with score strength
+                        # Score 15 → 0.52, score 25 → 0.60, score 35+ → 0.65
+                        base_conf = min(0.52 + (abs(ind_score) - 15) * 0.008, 0.65)
+                        data["direction"]  = ai_direction
+                        data["confidence"] = round(base_conf, 4)
+                        data["reason"] = (f"[Score override {ind_score:+.1f}] "
+                                          + data.get("reason", ""))
+
+                # ── GRADUATED H4 override (penalise when H4 disagrees with AI direction)
                 f1_score = base_signal.get("factor_scores", {}).get("f1_h4_trend", 0)
                 if ai_direction in ("BUY", "SELL") and f1_score != 0:
                     h4_bullish = f1_score > 0
-                    ai_agrees  = ((ai_direction == "BUY" and h4_bullish) or
+                    ai_agrees  = ((ai_direction == "BUY"  and h4_bullish) or
                                   (ai_direction == "SELL" and not h4_bullish))
                     if not ai_agrees:
-                        # Graduated penalty: strong H4 disagreement = bigger penalty
-                        h4_strength = abs(f1_score) / 10.0  # 0.0 to 1.0
-                        penalty = 0.5 + (1.0 - h4_strength) * 0.4  # 0.5 to 0.9
-                        orig_conf = float(data.get("confidence", 0.35))
-                        data["confidence"] = max(orig_conf * penalty, 0.20)
+                        h4_strength = abs(f1_score) / 10.0
+                        penalty = 0.5 + (1.0 - h4_strength) * 0.4
+                        data["confidence"] = max(float(data.get("confidence", 0.40)) * penalty, 0.20)
                         data["reason"] = f"[H4 disagrees ×{penalty:.1f}] {data.get('reason', '')}"
 
                 return {
-                    "direction":    data.get("direction", "HOLD"),
-                    "confidence":   round(float(data.get("confidence", 0.15)), 4),
-                    "reason":       data.get("reason", "AI analysis complete."),
-                    "score":        base_signal.get("score", 0.0),
+                    "direction":     data.get("direction", "HOLD"),
+                    "confidence":    round(float(data.get("confidence", 0.40)), 4),
+                    "reason":        data.get("reason", "AI analysis complete."),
+                    "score":         ind_score,
                     "factor_scores": base_signal.get("factor_scores", {}),
-                    "indicators":   base_signal.get("indicators", {}),
-                    "h1_trend":     base_signal.get("h1_trend", ""),
-                    "h4_trend":     base_signal.get("h4_trend", ""),
+                    "indicators":    base_signal.get("indicators", {}),
+                    "h1_trend":      base_signal.get("h1_trend", ""),
+                    "h4_trend":      base_signal.get("h4_trend", ""),
                 }
             except Exception as e:
                 if attempt == 0 and "timed out" in str(e).lower():
