@@ -1,0 +1,441 @@
+"""
+skill_manager.py — Self-Improving Trading Skill System (Hermes-inspired)
+
+Trading strategies are "skills" stored as SKILL.md files with YAML frontmatter.
+Skills track their own performance and get improved by Ollama AI periodically.
+New skills can be auto-generated from detected market patterns.
+"""
+
+import json
+import os
+import re
+import logging
+import requests
+from pathlib import Path
+from datetime import datetime, timezone
+
+log = logging.getLogger("skills")
+
+SKILLS_DIR = Path(__file__).parent / "skills"
+OLLAMA_URL = "http://localhost:11434/api/chat"
+OLLAMA_MODEL = "minimax-m2.7:cloud"
+
+
+def _parse_frontmatter(text: str) -> tuple:
+    """Parse YAML frontmatter from SKILL.md. Returns (metadata_dict, body_text)."""
+    if not text.startswith("---"):
+        return {}, text
+
+    parts = text.split("---", 2)
+    if len(parts) < 3:
+        return {}, text
+
+    yaml_text = parts[1].strip()
+    body = parts[2].strip()
+
+    # Simple YAML parser (no external dependency)
+    metadata = {}
+    current_key = None
+    current_dict = None
+
+    for line in yaml_text.split("\n"):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+
+        # Nested dict
+        if line.startswith("  ") and current_dict is not None and ":" in stripped:
+            k, v = stripped.split(":", 1)
+            v = v.strip()
+            if v.lower() == "null" or v == "":
+                v = None
+            elif v.replace(".", "").replace("-", "").isdigit() and v.count(".") <= 1:
+                v = float(v) if "." in v else int(v)
+            elif v.startswith("[") and v.endswith("]"):
+                v = [x.strip().strip("'\"") for x in v[1:-1].split(",") if x.strip()]
+            current_dict[k.strip()] = v
+            continue
+
+        if ":" in stripped:
+            k, v = stripped.split(":", 1)
+            k = k.strip()
+            v = v.strip()
+
+            if v == "":
+                # Could be start of a nested dict
+                metadata[k] = {}
+                current_dict = metadata[k]
+                current_key = k
+            elif v.lower() == "null":
+                metadata[k] = None
+                current_dict = None
+            elif v.replace(".", "").replace("-", "").isdigit() and v.count(".") <= 1:
+                metadata[k] = float(v) if "." in v else int(v)
+                current_dict = None
+            elif v.startswith("[") and v.endswith("]"):
+                metadata[k] = [x.strip().strip("'\"") for x in v[1:-1].split(",") if x.strip()]
+                current_dict = None
+            elif v.lower() in ("true", "false"):
+                metadata[k] = v.lower() == "true"
+                current_dict = None
+            else:
+                metadata[k] = v
+                current_dict = None
+
+    return metadata, body
+
+
+def _write_frontmatter(metadata: dict, body: str) -> str:
+    """Serialize metadata + body back to SKILL.md format."""
+    lines = ["---"]
+    for k, v in metadata.items():
+        if isinstance(v, dict):
+            lines.append(f"{k}:")
+            for dk, dv in v.items():
+                if isinstance(dv, list):
+                    dv = "[" + ", ".join(str(x) for x in dv) + "]"
+                elif dv is None:
+                    dv = "null"
+                lines.append(f"  {dk}: {dv}")
+        elif isinstance(v, list):
+            lines.append(f"{k}: [{', '.join(str(x) for x in v)}]")
+        elif v is None:
+            lines.append(f"{k}: null")
+        else:
+            lines.append(f"{k}: {v}")
+    lines.append("---")
+    lines.append("")
+    lines.append(body)
+    return "\n".join(lines)
+
+
+class TradingSkill:
+    """Represents a single trading skill with metadata and logic."""
+
+    def __init__(self, name: str, path: Path, metadata: dict, body: str):
+        self.name = name
+        self.path = path
+        self.metadata = metadata
+        self.body = body
+        self.performance = metadata.get("performance", {})
+        self.conditions = metadata.get("conditions", {})
+
+    @property
+    def win_rate(self):
+        total = self.performance.get("total_trades", 0)
+        wins = self.performance.get("wins", 0)
+        return wins / total if total > 0 else 0.0
+
+    @property
+    def total_trades(self):
+        return self.performance.get("total_trades", 0)
+
+    def matches_conditions(self, symbol: str, session: str, adx: float) -> bool:
+        """Check if current market conditions match this skill's requirements."""
+        # Check symbol filter
+        symbols = self.conditions.get("symbols", [])
+        if symbols and symbol not in symbols:
+            return False
+
+        # Check session filter
+        sessions = self.conditions.get("sessions", [])
+        if sessions and session not in sessions:
+            return False
+
+        # Check ADX filter
+        min_adx = self.conditions.get("min_adx", 0)
+        max_adx = self.conditions.get("max_adx", 100)
+        if adx < min_adx or adx > max_adx:
+            return False
+
+        return True
+
+    def evaluate(self, symbol: str, direction: str, context: dict) -> dict:
+        """
+        Evaluate this skill against current conditions.
+        Returns {should_trade: bool, confidence_boost: float, reason: str}
+        """
+        # Default: skill doesn't modify the signal
+        result = {"should_trade": True, "confidence_boost": 0.0, "reason": ""}
+
+        session = context.get("session", "")
+        adx = context.get("adx", 0)
+        hour = context.get("hour_utc", 0)
+
+        if not self.matches_conditions(symbol, session, adx):
+            return result
+
+        # Parse skill type from metadata
+        skill_type = self.metadata.get("type", "filter")
+
+        if skill_type == "filter":
+            # Filters can veto trades
+            blocked_hours = self.conditions.get("blocked_hours", [])
+            if blocked_hours and hour in blocked_hours:
+                result["should_trade"] = False
+                result["reason"] = f"Skill '{self.name}' blocks hour {hour}"
+                return result
+
+            # Check session-direction blocks (flat format)
+            block_buy_sessions = self.conditions.get("block_buy_sessions", [])
+            block_sell_sessions = self.conditions.get("block_sell_sessions", [])
+            if isinstance(block_buy_sessions, str):
+                block_buy_sessions = [block_buy_sessions]
+            if isinstance(block_sell_sessions, str):
+                block_sell_sessions = [block_sell_sessions]
+
+            if direction == "BUY" and session in block_buy_sessions:
+                result["should_trade"] = False
+                result["reason"] = f"Skill '{self.name}' blocks BUY in {session}"
+                return result
+            if direction == "SELL" and session in block_sell_sessions:
+                result["should_trade"] = False
+                result["reason"] = f"Skill '{self.name}' blocks SELL in {session}"
+                return result
+
+        elif skill_type == "booster":
+            # Boosters add confidence when conditions are favorable
+            preferred_hours = [int(h) for h in self.conditions.get("preferred_hours", [])]
+            if hour in preferred_hours:
+                result["confidence_boost"] = self.conditions.get("boost_amount", 0.05)
+                result["reason"] = f"Skill '{self.name}' boosts at hour {hour}"
+
+        return result
+
+    def save(self):
+        """Write updated metadata back to SKILL.md."""
+        content = _write_frontmatter(self.metadata, self.body)
+        self.path.write_text(content)
+
+
+class SkillManager:
+    """Manages trading skills: load, evaluate, improve, auto-generate."""
+
+    def __init__(self, skills_dir: str = None):
+        self.skills_dir = Path(skills_dir) if skills_dir else SKILLS_DIR
+        self.skills_dir.mkdir(parents=True, exist_ok=True)
+        (self.skills_dir / "_auto_generated").mkdir(exist_ok=True)
+        self._skills_cache = None
+
+    def list_skills(self) -> list:
+        """List all skills with metadata."""
+        skills = self._load_all_skills()
+        return [{
+            "name": s.name,
+            "description": s.metadata.get("description", ""),
+            "type": s.metadata.get("type", "filter"),
+            "version": s.metadata.get("version", "1.0.0"),
+            "total_trades": s.total_trades,
+            "win_rate": round(s.win_rate * 100, 1),
+            "conditions": s.conditions,
+        } for s in skills]
+
+    def evaluate_all(self, symbol: str, direction: str, context: dict) -> dict:
+        """
+        Run all skills against current conditions.
+        Returns {allowed: bool, reasons: list, confidence_boost: float, skills_used: list}
+        """
+        skills = self._load_all_skills()
+        reasons = []
+        total_boost = 0.0
+        skills_used = []
+
+        for skill in skills:
+            result = skill.evaluate(symbol, direction, context)
+            if not result["should_trade"]:
+                reasons.append(result["reason"])
+            if result["confidence_boost"] != 0:
+                total_boost += result["confidence_boost"]
+                skills_used.append(skill.name)
+            if result["reason"]:
+                skills_used.append(skill.name)
+
+        return {
+            "allowed": len(reasons) == 0,
+            "reasons": reasons,
+            "confidence_boost": min(total_boost, 0.15),  # cap at +15%
+            "skills_used": list(set(skills_used)),
+        }
+
+    def record_outcome(self, skill_name: str, outcome: str, pips: float = 0):
+        """Update a skill's performance stats after a trade closes."""
+        skills = self._load_all_skills()
+        for skill in skills:
+            if skill.name == skill_name:
+                perf = skill.metadata.setdefault("performance", {
+                    "total_trades": 0, "wins": 0, "losses": 0,
+                    "total_pips": 0.0, "win_rate": 0.0,
+                })
+                perf["total_trades"] = perf.get("total_trades", 0) + 1
+                perf["total_pips"] = perf.get("total_pips", 0) + pips
+                if outcome == "WIN":
+                    perf["wins"] = perf.get("wins", 0) + 1
+                elif outcome == "LOSS":
+                    perf["losses"] = perf.get("losses", 0) + 1
+                total = perf["total_trades"]
+                perf["win_rate"] = round(perf.get("wins", 0) / total * 100, 1) if total > 0 else 0
+                perf["last_updated"] = datetime.now(timezone.utc).isoformat()
+                skill.metadata["performance"] = perf
+                skill.save()
+                log.info(f"[SKILLS] Updated {skill_name}: {outcome} "
+                         f"(WR: {perf['win_rate']}% over {total} trades)")
+                break
+
+    def improve_skill(self, skill_name: str, outcomes: list = None) -> dict:
+        """
+        Use Ollama to analyze skill performance and suggest improvements.
+        Returns improvement suggestions dict.
+        """
+        skills = self._load_all_skills()
+        skill = None
+        for s in skills:
+            if s.name == skill_name:
+                skill = s
+                break
+
+        if not skill:
+            return {"error": f"Skill '{skill_name}' not found"}
+
+        prompt = f"""You are a trading strategy optimizer. Analyze this trading skill:
+
+Name: {skill.name}
+Description: {skill.metadata.get('description', '')}
+Type: {skill.metadata.get('type', 'filter')}
+Conditions: {json.dumps(skill.conditions, indent=2)}
+Performance: {json.dumps(skill.performance, indent=2)}
+
+Recent trade outcomes using this skill:
+{json.dumps(outcomes[:10] if outcomes else [], indent=2)}
+
+Based on the performance data:
+1. Is this skill profitable? (win_rate > 50% AND positive avg pips)
+2. What specific parameter changes would improve it?
+3. Should any conditions be tightened or loosened?
+
+Respond with ONLY JSON:
+{{"profitable": true/false, "suggestions": ["suggestion1", "suggestion2"],
+  "param_changes": {{"key": "new_value"}}, "confidence": 0.0-1.0}}"""
+
+        try:
+            resp = requests.post(OLLAMA_URL, json={
+                "model": OLLAMA_MODEL,
+                "stream": False,
+                "messages": [
+                    {"role": "system", "content": "You are a quantitative trading strategy optimizer."},
+                    {"role": "user", "content": prompt},
+                ],
+            }, timeout=30)
+            resp.raise_for_status()
+            text = resp.json()["message"]["content"].strip()
+            if "```" in text:
+                for part in text.split("```"):
+                    part = part.strip().lstrip("json").strip()
+                    if part.startswith("{"):
+                        text = part
+                        break
+            result = json.loads(text)
+            log.info(f"[SKILLS] Improvement for '{skill_name}': {result.get('suggestions', [])}")
+            return result
+        except Exception as e:
+            log.warning(f"[SKILLS] Improve error for '{skill_name}': {e}")
+            return {"error": str(e)}
+
+    def auto_generate_skill(self, pattern: dict) -> str:
+        """
+        Auto-generate a new skill from a detected market pattern.
+        Returns the skill name if created, or empty string on failure.
+        """
+        prompt = f"""Create a trading skill based on this detected pattern:
+
+Pattern: {json.dumps(pattern, indent=2)}
+
+Generate a SKILL.md file with:
+1. A descriptive name (lowercase-with-dashes, max 30 chars)
+2. Clear entry/exit conditions based on the pattern
+3. Appropriate filter conditions (symbols, sessions, hours, ADX range)
+
+Respond with ONLY JSON:
+{{"name": "skill-name", "description": "what it does",
+  "type": "filter" or "booster",
+  "conditions": {{"symbols": [...], "sessions": [...], "min_adx": N}},
+  "body": "# Strategy\\n\\nDetailed rules here..."}}"""
+
+        try:
+            resp = requests.post(OLLAMA_URL, json={
+                "model": OLLAMA_MODEL,
+                "stream": False,
+                "messages": [
+                    {"role": "system", "content": "You create trading strategy skills."},
+                    {"role": "user", "content": prompt},
+                ],
+            }, timeout=30)
+            resp.raise_for_status()
+            text = resp.json()["message"]["content"].strip()
+            if "```" in text:
+                for part in text.split("```"):
+                    part = part.strip().lstrip("json").strip()
+                    if part.startswith("{"):
+                        text = part
+                        break
+            data = json.loads(text)
+
+            name = data.get("name", "auto-skill")
+            skill_dir = self.skills_dir / "_auto_generated" / name
+            skill_dir.mkdir(parents=True, exist_ok=True)
+
+            metadata = {
+                "name": name,
+                "description": data.get("description", ""),
+                "type": data.get("type", "filter"),
+                "version": "1.0.0",
+                "auto_generated": True,
+                "generated_from": pattern.get("description", "detected pattern"),
+                "performance": {
+                    "total_trades": 0, "wins": 0, "losses": 0,
+                    "total_pips": 0.0, "win_rate": 0.0,
+                },
+                "conditions": data.get("conditions", {}),
+            }
+
+            body = data.get("body", f"# {name}\n\nAuto-generated strategy.")
+            content = _write_frontmatter(metadata, body)
+            (skill_dir / "SKILL.md").write_text(content)
+
+            self._skills_cache = None  # invalidate cache
+            log.info(f"[SKILLS] Auto-generated skill: {name}")
+            return name
+
+        except Exception as e:
+            log.warning(f"[SKILLS] Auto-generate error: {e}")
+            return ""
+
+    def _load_all_skills(self) -> list:
+        """Load all skills from disk. Cached between calls."""
+        if self._skills_cache is not None:
+            return self._skills_cache
+
+        skills = []
+        for skill_md in self.skills_dir.rglob("SKILL.md"):
+            try:
+                text = skill_md.read_text()
+                metadata, body = _parse_frontmatter(text)
+                name = metadata.get("name", skill_md.parent.name)
+                skills.append(TradingSkill(name, skill_md, metadata, body))
+            except Exception as e:
+                log.warning(f"Failed to load skill {skill_md}: {e}")
+
+        self._skills_cache = skills
+        return skills
+
+    def invalidate_cache(self):
+        """Force reload of skills on next access."""
+        self._skills_cache = None
+
+
+if __name__ == "__main__":
+    mgr = SkillManager()
+    print(f"Skills directory: {SKILLS_DIR}")
+    skills = mgr.list_skills()
+    print(f"Loaded {len(skills)} skills:")
+    for s in skills:
+        print(f"  {s['name']}: {s['description']} (WR: {s['win_rate']}%)")

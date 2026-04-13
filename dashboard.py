@@ -2,7 +2,7 @@
 """MT5 AI Trading Bot — Futuristic Dashboard v3.0
 Port: 8889 | Chart.js | Multi-symbol | Real-time | Glassmorphism | Threaded
 """
-import http.server, json, sqlite3
+import http.server, json, sqlite3, base64, os
 from socketserver import ThreadingMixIn
 from pathlib import Path
 
@@ -11,6 +11,11 @@ BASE_DIR     = Path(__file__).parent
 DB_FILE      = BASE_DIR / "trades.db"
 STATUS_FILE  = BASE_DIR / "bot_status.json"
 CANDLES_FILE = BASE_DIR / "candles_cache.json"
+
+# ── Simple HTTP Basic Auth (set DASH_USER / DASH_PASS env vars, or use defaults) ─
+DASH_USER = os.environ.get("DASH_USER", "admin")
+DASH_PASS = os.environ.get("DASH_PASS", "mt5bot2026!")
+_AUTH_TOKEN = base64.b64encode(f"{DASH_USER}:{DASH_PASS}".encode()).decode()
 
 # ── HTML Page ──────────────────────────────────────────────────────────────────
 HTML = r"""<!DOCTYPE html>
@@ -59,6 +64,7 @@ header{
 .pipe{color:var(--border2);user-select:none}
 .hdr-r{margin-left:auto;display:flex;align-items:center;gap:12px}
 #clockEl{font-family:var(--mono);font-size:12px;color:var(--muted)}
+#clockEl .ist{color:var(--cyan);margin-left:8px;font-size:11px}
 #cycleEl{font-family:var(--mono);font-size:11px;color:var(--muted)}
 
 /* ─ Status dot ─ */
@@ -205,7 +211,7 @@ tr:hover td{background:var(--bg3)}
   <span class="pipe">|</span>
   <span class="sbadge" id="sessLabel">LOADING</span>
   <div class="hdr-r">
-    <span id="clockEl" class="">--:--:-- UTC</span>
+    <span id="clockEl" class="">--:--:-- UTC <span class="ist">--:--:-- IST</span></span>
     <span class="pipe">|</span>
     <span id="cycleEl">Cycle —</span>
   </div>
@@ -682,7 +688,19 @@ function renderHistory(rows) {
   document.getElementById('histBody').innerHTML = rows.length
     ? rows.slice(0,50).map(r => {
         const dc = r.direction==='BUY' ? 'dbuy' : r.direction==='SELL' ? 'dsell' : 'dhold';
-        return '<tr><td class="tmono">'+(r.ts||'').substring(0,19).replace('T',' ')+'</td>' +
+        const utcTs = (r.ts||'').substring(0,19).replace('T',' ');
+        // Convert UTC ts → IST (+5:30). Trim to 19 chars first to drop microseconds.
+        let istTs = '';
+        try {
+          const clean = utcTs.replace(' ','T') + 'Z'; // "2026-04-13T11:16:11Z"
+          const d = new Date(clean);
+          if (!isNaN(d)) {
+            const ist = new Date(d.getTime() + 5.5*3600000);
+            const p = x => String(x).padStart(2,'0');
+            istTs = ist.getUTCFullYear()+'-'+p(ist.getUTCMonth()+1)+'-'+p(ist.getUTCDate())+' '+p(ist.getUTCHours())+':'+p(ist.getUTCMinutes())+':'+p(ist.getUTCSeconds());
+          }
+        } catch(e) {}
+        return '<tr><td class="tmono" style="line-height:1.6">'+utcTs+'<br><span style="color:var(--cyan);font-size:10px">'+istTs+' IST</span></td>' +
           '<td class="tmono">'+(r.symbol||'—')+'</td>' +
           '<td class="'+dc+'">'+(r.direction||'—')+'</td>' +
           '<td class="tmono">'+Math.round((r.confidence||0)*100)+'%</td>' +
@@ -696,7 +714,19 @@ function renderHistory(rows) {
 function updateClock() {
   const n = new Date();
   const pad = x => String(x).padStart(2,'0');
-  document.getElementById('clockEl').textContent = pad(n.getUTCHours())+':'+pad(n.getUTCMinutes())+':'+pad(n.getUTCSeconds())+' UTC';
+  // UTC time
+  const utcStr = pad(n.getUTCHours())+':'+pad(n.getUTCMinutes())+':'+pad(n.getUTCSeconds())+' UTC';
+  // IST = UTC + 5:30
+  const istOffset = 5.5 * 60; // minutes
+  const istMs = n.getTime() + istOffset * 60000;
+  const ist = new Date(istMs);
+  const istStr = pad(ist.getUTCHours())+':'+pad(ist.getUTCMinutes())+':'+pad(ist.getUTCSeconds())+' IST';
+  const clockEl = document.getElementById('clockEl');
+  if (clockEl) {
+    clockEl.childNodes[0].textContent = utcStr + ' ';
+    const istSpan = clockEl.querySelector('.ist');
+    if (istSpan) istSpan.textContent = istStr;
+  }
   const needle = document.getElementById('sessNeedle');
   if (needle) needle.style.left = ((n.getUTCHours()+n.getUTCMinutes()/60)/24*100).toFixed(2)+'%';
 }
@@ -746,7 +776,23 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _check_auth(self) -> bool:
+        """Return True if request is authenticated."""
+        auth = self.headers.get("Authorization", "")
+        if auth.startswith("Basic "):
+            token = auth[6:].strip()
+            if token == _AUTH_TOKEN:
+                return True
+        # Not authenticated — send 401
+        self.send_response(401)
+        self.send_header("WWW-Authenticate", 'Basic realm="MT5 Trading Dashboard"')
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+        return False
+
     def do_GET(self):
+        if not self._check_auth():
+            return
         path = self.path.split('?')[0]
 
         if path in ('/', '/index.html'):

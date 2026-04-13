@@ -29,9 +29,10 @@ class MarketAnalyzer:
 
     # ── Public API ────────────────────────────────────────────────────────────
 
-    def analyze(self, candles, tick, symbol: str) -> dict:
+    def analyze(self, candles, tick, symbol: str, memory_context: str = "") -> dict:
         """
         candles: single DataFrame (M15) OR dict {"M15": df, "H1": df, "H4": df}
+        memory_context: optional past trade memory for AI reasoning
         Returns signal dict with direction, confidence, reason, indicators, session
         """
         # Normalise input: accept both single df and multi-tf dict
@@ -50,7 +51,8 @@ class MarketAnalyzer:
 
         if self.use_claude:
             signal = self._ai_reasoning(symbol, tick, ind_m15, ind_h1, ind_h4,
-                                        base_signal, tf_data["M15"])
+                                        base_signal, tf_data["M15"],
+                                        memory_context=memory_context)
         else:
             signal = base_signal
 
@@ -249,122 +251,218 @@ class MarketAnalyzer:
 
     def _get_factor_scores(self, m15: dict, h1: dict, h4: dict) -> dict:
         """
-        Returns 7 individual factor scores (each 0-10 magnitude) + regime flag.
-        Used to prime the AI with structured pre-analysis and to drive
-        confidence-weighted position sizing in risk_manager.py.
+        Returns 9 DIRECTIONALLY SIGNED factor scores + regime flag.
+        Positive = bullish, negative = bearish.  The signed sum directly
+        determines direction — no more magnitude × direction_sign trick.
+
+        Adaptive weights are loaded from scoring_weights.json when available,
+        so the self-improvement engine can tune them over time.
         """
-        # F1: H4 EMA trend (sign = direction, magnitude = strength)
+        weights = self._load_weights()
+
+        # F1: H4 EMA trend (±10) — unchanged, already signed
         h4_map = {'BULLISH': 10, 'MILD_BULL': 5, 'MIXED': 0,
                   'MILD_BEAR': -5, 'BEARISH': -10}
         f1 = h4_map.get(h4['ema_trend'], 0)
 
-        # F2: H1 EMA trend
+        # F2: H1 EMA trend (±10) — unchanged
         h1_map = {'BULLISH': 10, 'MILD_BULL': 5, 'MIXED': 0,
                   'MILD_BEAR': -5, 'BEARISH': -10}
         f2 = h1_map.get(h1['ema_trend'], 0)
 
-        # F3: RSI zone — 0-10 from |RSI-50|/2 (higher = more extreme)
-        f3 = min(abs(m15['rsi'] - 50) / 2, 10)
+        # F3: RSI zone — NOW DIRECTIONALLY SIGNED
+        # RSI < 30 = oversold = bullish (+), RSI > 70 = overbought = bearish (-)
+        rsi = m15['rsi']
+        if rsi < 30:
+            f3 = min((50 - rsi) / 2, 10)     # +10 at RSI 30, +12.5 at RSI 25
+        elif rsi > 70:
+            f3 = -min((rsi - 50) / 2, 10)    # -10 at RSI 70, -12.5 at RSI 75
+        elif rsi < 40:
+            f3 = (50 - rsi) / 5              # mild bullish +2 at RSI 40
+        elif rsi > 60:
+            f3 = -(rsi - 50) / 5             # mild bearish -2 at RSI 60
+        else:
+            f3 = 0                            # neutral zone 40-60
 
-        # F4: MACD momentum magnitude
+        # F4: MACD momentum — NOW DIRECTIONALLY SIGNED
         macd_sig = m15['macd_signal']
-        if 'BULLISH_CROSS' in macd_sig:   f4 = 10
-        elif 'BULLISH' in macd_sig:        f4 = 6
-        elif 'BEARISH_CROSS' in macd_sig:  f4 = 10
-        elif 'BEARISH' in macd_sig:        f4 = 6
+        if macd_sig == 'BULLISH_CROSS':    f4 = 10
+        elif macd_sig == 'BULLISH':        f4 = 6
+        elif macd_sig == 'BEARISH_CROSS':  f4 = -10
+        elif macd_sig == 'BEARISH':        f4 = -6
         else:                              f4 = 0
 
-        # F5: ADX trend strength (only counts if trending, 0 if ranging)
+        # F5: ADX trend strength — SIGNED using +DI/-DI direction
         adx = m15['adx']
-        if adx >= 30:   f5 = min(adx / 3, 10)
-        elif adx >= 20: f5 = max((adx - 18) * 2, 0)
-        else:           f5 = 0
+        plus_di  = m15.get('plus_di', 0)
+        minus_di = m15.get('minus_di', 0)
+        if adx >= 20:
+            strength = min(adx / 3, 10)
+            di_sign = 1 if plus_di > minus_di else -1
+            f5 = strength * di_sign
+        else:
+            f5 = 0  # ranging — no directional signal
 
-        # F6: Stochastic confirmation magnitude
+        # F6: Stochastic confirmation — NOW DIRECTIONALLY SIGNED
         stoch = m15['stoch_cross']
-        if stoch == 'BULLISH':    f6 = 8
-        elif stoch == 'BEARISH':  f6 = 8
-        elif m15['stoch_k'] < 20: f6 = 4
-        elif m15['stoch_k'] > 80: f6 = 4
-        else:                     f6 = 0
+        stoch_k = m15['stoch_k']
+        if stoch == 'BULLISH':
+            f6 = 8
+        elif stoch == 'BEARISH':
+            f6 = -8
+        elif stoch_k < 20:
+            f6 = 4     # oversold = bullish
+        elif stoch_k > 80:
+            f6 = -4    # overbought = bearish
+        else:
+            f6 = 0
 
-        # F7: Bollinger Band action magnitude
+        # F7: Bollinger Band action — NOW DIRECTIONALLY SIGNED
         bb = m15['bb_position']
-        if bb == 'BELOW_LOWER':   f7 = 8
-        elif bb == 'ABOVE_UPPER': f7 = 8
-        elif bb in ('ABOVE_MID', 'BELOW_MID'): f7 = 3
-        else:                     f7 = 0
-        if m15['bb_squeeze']: f7 = max(f7, 6)
+        if bb == 'BELOW_LOWER':
+            f7 = 8     # mean revert long
+        elif bb == 'ABOVE_UPPER':
+            f7 = -8    # mean revert short
+        elif bb == 'ABOVE_MID':
+            f7 = 2     # mild bullish
+        elif bb == 'BELOW_MID':
+            f7 = -2    # mild bearish
+        else:
+            f7 = 0
+        # Squeeze adds volatility awareness but NO direction
+        # (squeeze means breakout imminent, not which direction)
+
+        # F8: H1 RSI direction — NEW, half weight of M15
+        h1_rsi = h1['rsi']
+        if h1_rsi < 35:
+            f8 = min((50 - h1_rsi) / 4, 5)    # max +5
+        elif h1_rsi > 65:
+            f8 = -min((h1_rsi - 50) / 4, 5)   # max -5
+        else:
+            f8 = 0
+
+        # F9: H1 MACD direction — NEW, half weight of M15
+        h1_macd = h1['macd_signal']
+        if h1_macd == 'BULLISH_CROSS':    f9 = 5
+        elif h1_macd == 'BULLISH':        f9 = 3
+        elif h1_macd == 'BEARISH_CROSS':  f9 = -5
+        elif h1_macd == 'BEARISH':        f9 = -3
+        else:                             f9 = 0
 
         regime = 'RANGING' if adx < 18 else 'TRENDING'
 
         return {
-            'f1_h4_trend':       f1,
-            'f2_h1_trend':        f2,
-            'f3_rsi_zone':        f3,
-            'f4_macd_momentum':   f4,
-            'f5_adx_strength':    f5,
-            'f6_stoch_confirm':   f6,
-            'f7_bb_action':       f7,
-            'adx_regime':         regime,
+            'f1_h4_trend':       round(f1 * weights.get('f1_h4_trend', 1.0), 1),
+            'f2_h1_trend':       round(f2 * weights.get('f2_h1_trend', 1.0), 1),
+            'f3_rsi_zone':       round(f3 * weights.get('f3_rsi', 1.0), 1),
+            'f4_macd_momentum':  round(f4 * weights.get('f4_macd', 1.0), 1),
+            'f5_adx_strength':   round(f5 * weights.get('f5_adx', 1.0), 1),
+            'f6_stoch_confirm':  round(f6 * weights.get('f6_stoch', 1.0), 1),
+            'f7_bb_action':      round(f7 * weights.get('f7_bb', 1.0), 1),
+            'f8_h1_rsi':         round(f8 * weights.get('f8_h1_rsi', 0.5), 1),
+            'f9_h1_macd':        round(f9 * weights.get('f9_h1_macd', 0.5), 1),
+            'adx_regime':        regime,
+            'bb_squeeze':        m15.get('bb_squeeze', False),
         }
+
+    def _load_weights(self) -> dict:
+        """Load adaptive scoring weights from JSON file if available."""
+        try:
+            import os
+            weights_path = os.path.join(os.path.dirname(__file__), "scoring_weights.json")
+            if os.path.exists(weights_path):
+                with open(weights_path, 'r') as f:
+                    return json.load(f)
+        except Exception:
+            pass
+        return {}  # defaults handled by .get() calls
 
     # ── Multi-timeframe confluence signal ─────────────────────────────────────
 
     def _multi_tf_signal(self, m15: dict, h1: dict, h4: dict) -> dict:
         scores = self._get_factor_scores(m15, h1, h4)
+        weights = self._load_weights()
 
-        # Sum absolute factor magnitudes (0-70; old system was 0-12)
-        raw_score = (
-            abs(scores['f1_h4_trend']) +
-            abs(scores['f2_h1_trend']) +
+        # SIGNED SUM — each factor already carries its direction
+        signed_score = (
+            scores['f1_h4_trend'] +
+            scores['f2_h1_trend'] +
             scores['f3_rsi_zone'] +
             scores['f4_macd_momentum'] +
             scores['f5_adx_strength'] +
             scores['f6_stoch_confirm'] +
-            scores['f7_bb_action']
+            scores['f7_bb_action'] +
+            scores.get('f8_h1_rsi', 0) +
+            scores.get('f9_h1_macd', 0)
         )
 
-        # Direction sign driven by H4 trend (F1)
-        direction_sign = 1 if scores['f1_h4_trend'] >= 0 else -1
-        signed_score   = int(raw_score * direction_sign)
-
         # ── ADX ranging penalty ──────────────────────────────────────────
+        # Reduced from 0.6 to 0.8 — ranging market still has valid signals
+        ranging_penalty = weights.get('ranging_penalty', 0.8)
         if scores['adx_regime'] == 'RANGING':
-            signed_score = int(signed_score * 0.4)
-            regime_note  = 'RANGING ADX<18 — score reduced'
+            signed_score = signed_score * ranging_penalty
+            regime_note  = f'RANGING ADX<18 — score ×{ranging_penalty}'
         else:
             regime_note = ''
 
-        max_possible = 70
+        # ── Confluence quality bonus ─────────────────────────────────────
+        # Count how many factors agree with the direction
+        factor_vals = [scores[k] for k in ['f1_h4_trend', 'f2_h1_trend',
+                       'f3_rsi_zone', 'f4_macd_momentum', 'f5_adx_strength',
+                       'f6_stoch_confirm', 'f7_bb_action'] if scores[k] != 0]
+        if factor_vals:
+            same_sign = sum(1 for v in factor_vals if (v > 0) == (signed_score > 0))
+            confluence_ratio = same_sign / len(factor_vals)
+        else:
+            confluence_ratio = 0.5
+
+        # Max possible with 9 signed factors: ~80 (10+10+10+10+10+8+8+5+5)
+        max_possible = 80.0
+
+        buy_threshold = weights.get('buy_threshold', 18)
+        sell_threshold = weights.get('sell_threshold', -18)
 
         # ── Final decision ───────────────────────────────────────────────
-        if signed_score >= 28:
-            direction  = 'BUY' if direction_sign > 0 else 'SELL'
-            confidence = min(abs(signed_score) / max_possible, 0.92)
-        elif signed_score <= -28:
+        if signed_score >= buy_threshold:
+            direction  = 'BUY'
+            raw_conf   = min(abs(signed_score) / max_possible, 0.95)
+            confidence = raw_conf * (0.8 + 0.2 * confluence_ratio)
+        elif signed_score <= sell_threshold:
             direction  = 'SELL'
-            confidence = min(abs(signed_score) / max_possible, 0.92)
+            raw_conf   = min(abs(signed_score) / max_possible, 0.95)
+            confidence = raw_conf * (0.8 + 0.2 * confluence_ratio)
         else:
             direction  = 'HOLD'
-            confidence = 0.35
+            # Proportional confidence based on how close we are to threshold
+            # Score of 0 → 0.15, score near threshold → 0.35
+            hold_conf = 0.15 + (abs(signed_score) / max(abs(buy_threshold), 1)) * 0.20
+            confidence = round(min(hold_conf, 0.38), 4)
 
-        # Build reasons from high-scoring factors
+        # BB squeeze bonus: imminent breakout, boost confidence slightly
+        if scores.get('bb_squeeze') and direction != 'HOLD':
+            confidence = min(confidence * 1.08, 0.95)
+
+        confidence = round(min(confidence, 0.95), 4)
+
+        # Build reasons from high-scoring factors (signed now)
         reasons = []
-        if abs(scores['f1_h4_trend'])   >= 8: reasons.append(f"H4 {h4['ema_trend']}")
-        if abs(scores['f2_h1_trend'])   >= 8: reasons.append(f"H1 {h1['ema_trend']}")
-        if scores['f3_rsi_zone']       >= 8: reasons.append(f"RSI {m15['rsi']:.0f} extreme")
-        if scores['f4_macd_momentum'] >= 8: reasons.append(f"MACD {m15['macd_signal']}")
-        if scores['f5_adx_strength']   >= 8: reasons.append(f"ADX strong ({m15['adx']:.0f})")
-        if scores['f6_stoch_confirm']  >= 8: reasons.append(f"Stoch {m15['stoch_cross']}")
-        if scores['f7_bb_action']      >= 8: reasons.append(f"BB {m15['bb_position']}")
-        if regime_note:                  reasons.append(regime_note)
+        if abs(scores['f1_h4_trend'])      >= 8: reasons.append(f"H4 {h4['ema_trend']}")
+        if abs(scores['f2_h1_trend'])      >= 8: reasons.append(f"H1 {h1['ema_trend']}")
+        if abs(scores['f3_rsi_zone'])      >= 6: reasons.append(f"RSI {m15['rsi']:.0f}")
+        if abs(scores['f4_macd_momentum']) >= 6: reasons.append(f"MACD {m15['macd_signal']}")
+        if abs(scores['f5_adx_strength'])  >= 6: reasons.append(f"ADX {m15['adx']:.0f} +DI={m15['plus_di']:.0f} -DI={m15['minus_di']:.0f}")
+        if abs(scores['f6_stoch_confirm']) >= 6: reasons.append(f"Stoch {m15['stoch_cross']} K={m15['stoch_k']:.0f}")
+        if abs(scores['f7_bb_action'])     >= 6: reasons.append(f"BB {m15['bb_position']}")
+        if abs(scores.get('f8_h1_rsi', 0)) >= 3: reasons.append(f"H1-RSI {h1['rsi']:.0f}")
+        if abs(scores.get('f9_h1_macd', 0)) >= 3: reasons.append(f"H1-MACD {h1['macd_signal']}")
+        if regime_note: reasons.append(regime_note)
+        reasons.append(f"confluence={confluence_ratio:.0%}")
 
         return {
             'direction':     direction,
-            'confidence':    round(confidence, 4),
+            'confidence':    confidence,
             'reason':        ' | '.join(reasons) if reasons else 'No clear confluence',
-            'score':         signed_score,
+            'score':         round(signed_score, 1),
             'factor_scores': scores,
         }
 
@@ -372,7 +470,8 @@ class MarketAnalyzer:
     # ── AI reasoning ──────────────────────────────────────────────────────────
 
     def _ai_reasoning(self, symbol: str, tick, m15: dict, h1: dict, h4: dict,
-                      base_signal: dict, candles: pd.DataFrame) -> dict:
+                      base_signal: dict, candles: pd.DataFrame,
+                      memory_context: str = "") -> dict:
         last_candles = candles.tail(8)[["time", "o", "h", "l", "c", "vol"]].to_string(index=False)
 
         # Detect key levels: recent swing highs/lows
@@ -384,58 +483,73 @@ class MarketAnalyzer:
         session = base_signal.get("session", "UNKNOWN")
         fs = base_signal.get("factor_scores", {})
 
-        prompt = f"""Analyze this forex market data for {symbol} and give a trading decision.
+        # Count factor agreement
+        factor_vals = [fs.get(k, 0) for k in ['f1_h4_trend', 'f2_h1_trend',
+                       'f3_rsi_zone', 'f4_macd_momentum', 'f5_adx_strength',
+                       'f6_stoch_confirm', 'f7_bb_action', 'f8_h1_rsi', 'f9_h1_macd']]
+        bullish_count = sum(1 for v in factor_vals if v > 0)
+        bearish_count = sum(1 for v in factor_vals if v < 0)
 
-=== TIMEFRAME CONFLUENCE ===
-H4 (bias):  EMA trend={h4['ema_trend']}  ADX={h4['adx']:.0f}  RSI={h4['rsi']:.1f}
-H1 (context): EMA trend={h1['ema_trend']}  ADX={h1['adx']:.0f}  RSI={h1['rsi']:.1f}  MACD={h1['macd_signal']}
-M15 (entry): EMA trend={m15['ema_trend']}  ADX={m15['adx']:.0f}  RSI={m15['rsi']:.1f}
+        memory_block = ""
+        if memory_context:
+            memory_block = f"\n=== TRADE MEMORY (past performance in similar conditions) ===\n{memory_context}\n"
 
-=== M15 ENTRY INDICATORS ===
-Price:         Ask={tick.ask:.5f}  Bid={tick.bid:.5f}
-EMA 20/50/200: {m15['ema20']} / {m15['ema50']} / {m15['ema200']}
-MACD signal:   {m15['macd_signal']}  histogram={m15['macd_hist']:.6f}
-Bollinger:     {m15['bb_position']}  squeeze={m15['bb_squeeze']}
-Stochastic:    K={m15['stoch_k']:.0f}  D={m15['stoch_d']:.0f}  cross={m15['stoch_cross']}
-Williams %R:   {m15['williams_r']:.0f}
-ADX:           {m15['adx']:.0f}  +DI={m15['plus_di']:.0f}  -DI={m15['minus_di']:.0f}
-ATR:           {m15['atr']}
-Volume ratio:  {m15['vol_ratio']}x avg
+        prompt = f"""Analyze {symbol} market data and decide: BUY, SELL, or HOLD.
 
-=== KEY LEVELS (50-bar range) ===
-Resistance: {res_level}
-Support:    {sup_level}
-20-bar change: {m15['price_change']:+.3f}%
+=== MULTI-TIMEFRAME ANALYSIS ===
+H4 (trend bias): EMA={h4['ema_trend']} ADX={h4['adx']:.0f} RSI={h4['rsi']:.1f} MACD={h4['macd_signal']}
+H1 (context):    EMA={h1['ema_trend']} ADX={h1['adx']:.0f} RSI={h1['rsi']:.1f} MACD={h1['macd_signal']}
+M15 (entry):     EMA={m15['ema_trend']} ADX={m15['adx']:.0f} RSI={m15['rsi']:.1f} MACD={m15['macd_signal']}
 
-=== MARKET SESSION ===
-{session} session
+=== M15 INDICATORS ===
+Price: Ask={tick.ask:.5f} Bid={tick.bid:.5f}
+EMA 20/50/200: {m15['ema20']}/{m15['ema50']}/{m15['ema200']}
+MACD: {m15['macd_signal']} hist={m15['macd_hist']:.6f}
+BB: {m15['bb_position']} squeeze={m15['bb_squeeze']}
+Stoch: K={m15['stoch_k']:.0f} D={m15['stoch_d']:.0f} cross={m15['stoch_cross']}
+ADX: {m15['adx']:.0f} +DI={m15['plus_di']:.0f} -DI={m15['minus_di']:.0f}
+ATR: {m15['atr']}  Williams%R: {m15['williams_r']:.0f}
 
-=== PRE-AI FACTOR SCORES (0-10 each, sign in F1/F2 = direction) ===
-F1 H4 Trend:     {fs['f1_h4_trend']:+.0f}  (positive=bullish, negative=bearish)
-F2 H1 Trend:     {fs['f2_h1_trend']:+.0f}
-F3 RSI Zone:     {fs['f3_rsi_zone']:.0f}/10  (higher=more extreme from 50)
-F4 MACD Momentum: {fs['f4_macd_momentum']:.0f}/10
-F5 ADX Strength: {fs['f5_adx_strength']:.0f}/10  (>=7 = strong trend)
-F6 Stoch Confirm: {fs['f6_stoch_confirm']:.0f}/10
-F7 BB Action:    {fs['f7_bb_action']:.0f}/10
-Regime:          {fs['adx_regime']}  (TRENDING if ADX >= 18)
+=== KEY LEVELS ===
+Resistance: {res_level} | Support: {sup_level} | 20-bar change: {m15['price_change']:+.3f}%
+
+=== SESSION: {session} ===
+
+=== SIGNED FACTOR SCORES (positive=bullish, negative=bearish) ===
+F1 H4 Trend:    {fs['f1_h4_trend']:+.1f}
+F2 H1 Trend:    {fs['f2_h1_trend']:+.1f}
+F3 RSI:         {fs['f3_rsi_zone']:+.1f}
+F4 MACD:        {fs['f4_macd_momentum']:+.1f}
+F5 ADX/DI:      {fs['f5_adx_strength']:+.1f}
+F6 Stochastic:  {fs['f6_stoch_confirm']:+.1f}
+F7 Bollinger:   {fs['f7_bb_action']:+.1f}
+F8 H1-RSI:      {fs.get('f8_h1_rsi', 0):+.1f}
+F9 H1-MACD:     {fs.get('f9_h1_macd', 0):+.1f}
+Regime: {fs['adx_regime']} | Bullish factors: {bullish_count}/9 | Bearish factors: {bearish_count}/9
 
 === INDICATOR-BASED SIGNAL ===
-Direction: {base_signal['direction']} | Raw Score: {base_signal['score']} | Confidence: {base_signal['confidence']:.0%}
+{base_signal['direction']} | Score: {base_signal['score']} | Confidence: {base_signal['confidence']:.0%}
 Reasons: {base_signal['reason']}
-
+{memory_block}
 === RECENT M15 CANDLES ===
 {last_candles}
 
-Rules:
-- Only BUY if H4 trend is bullish (F1 > 0) AND at least 4 factors score >= 6
-- Only SELL if H4 trend is bearish (F1 < 0) AND at least 4 factors score >= 6
-- HOLD if timeframes conflict, ADX < 18 (RANGING), or insufficient confluence
-- CRITICAL: Do NOT cluster confidence around 0.65-0.75. Mediocre signals (no factor >= 8) should score 0.40-0.55. Exceptional signals (>= 5 factors >= 8) should score 0.78-0.92.
-- In RANGING markets (ADX < 18), reduce confidence by 0.10-0.20 regardless of other factors
-- Be conservative: when in doubt → HOLD
+DECISION RULES:
+- The signed score determines direction bias. Positive score = bullish lean, negative = bearish lean.
+- Your job: confirm or reject the indicator signal based on price action context.
+- BUY: majority of factors positive AND price near support / bouncing off EMA / oversold
+- SELL: majority of factors negative AND price near resistance / below EMAs / overbought
+- HOLD: factors are genuinely split (within 1 factor of 50/50) AND no clear price action edge
+- DO NOT default to HOLD just because ADX is low — ranging markets still have direction.
+- RANGING markets: use RSI extremes, BB extremes, and Stoch crosses as primary signals.
+- Confidence calibration:
+    0.52-0.60: marginal setup, weak confluence
+    0.60-0.75: solid directional setup
+    0.75-0.90: strong multi-factor confluence
+- NEVER output confidence below 0.40 if you say BUY or SELL — that's contradictory.
+- Be decisive. If bearish factors outnumber bullish 6:3 or more, say SELL.
 
-Respond with ONLY this JSON (no markdown):
+Respond with ONLY raw JSON (no markdown, no backticks):
 {{"direction": "BUY"|"SELL"|"HOLD", "confidence": 0.0-1.0, "reason": "1-2 sentences"}}"""
 
         for attempt in range(2):   # 1 retry on timeout
@@ -447,16 +561,15 @@ Respond with ONLY this JSON (no markdown):
                         {"role": "system", "content": SYSTEM_PROMPT},
                         {"role": "user",   "content": prompt},
                     ],
-                }, timeout=25)    # 25s per attempt — fast fail for cloud model
+                }, timeout=25)
                 resp.raise_for_status()
 
-                # Guard against empty body (cloud model occasionally returns nothing)
                 raw = resp.text.strip()
                 if not raw:
                     raise ValueError("Empty response from Ollama")
 
                 text = resp.json()["message"]["content"].strip()
-                # Strip accidental markdown fences
+                # Strip markdown fences
                 if "```" in text:
                     parts = text.split("```")
                     for part in parts:
@@ -467,19 +580,29 @@ Respond with ONLY this JSON (no markdown):
                 data = json.loads(text)
                 ai_direction = data.get("direction", "HOLD")
 
-                # Step 5: cross-validate AI direction against H4 trend (F1)
+                # GRADUATED H4 override (replaces blunt 50% penalty)
                 f1_score = base_signal.get("factor_scores", {}).get("f1_h4_trend", 0)
                 if ai_direction in ("BUY", "SELL") and f1_score != 0:
                     h4_bullish = f1_score > 0
-                    ai_agrees  = (ai_direction == "BUY" and h4_bullish) or (ai_direction == "SELL" and not h4_bullish)
+                    ai_agrees  = ((ai_direction == "BUY" and h4_bullish) or
+                                  (ai_direction == "SELL" and not h4_bullish))
                     if not ai_agrees:
-                        data["confidence"] = max(float(data.get("confidence", 0.35)) * 0.5, 0.25)
-                        data["reason"] = f"[H4 override] {data.get('reason', '')}"
+                        # Graduated penalty: strong H4 disagreement = bigger penalty
+                        h4_strength = abs(f1_score) / 10.0  # 0.0 to 1.0
+                        penalty = 0.5 + (1.0 - h4_strength) * 0.4  # 0.5 to 0.9
+                        orig_conf = float(data.get("confidence", 0.35))
+                        data["confidence"] = max(orig_conf * penalty, 0.20)
+                        data["reason"] = f"[H4 disagrees ×{penalty:.1f}] {data.get('reason', '')}"
 
                 return {
-                    "direction":  data.get("direction", "HOLD"),
-                    "confidence": float(data.get("confidence", 0.35)),
-                    "reason":     data.get("reason", "AI analysis complete."),
+                    "direction":    data.get("direction", "HOLD"),
+                    "confidence":   round(float(data.get("confidence", 0.15)), 4),
+                    "reason":       data.get("reason", "AI analysis complete."),
+                    "score":        base_signal.get("score", 0.0),
+                    "factor_scores": base_signal.get("factor_scores", {}),
+                    "indicators":   base_signal.get("indicators", {}),
+                    "h1_trend":     base_signal.get("h1_trend", ""),
+                    "h4_trend":     base_signal.get("h4_trend", ""),
                 }
             except Exception as e:
                 if attempt == 0 and "timed out" in str(e).lower():

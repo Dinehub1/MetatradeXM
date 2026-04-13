@@ -43,13 +43,20 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
+    # NOTE: systemd already captures stdout → trading.log via StandardOutput=append:
+    # Using ONLY RotatingFileHandler here would cause duplicates.
+    # Use one StreamHandler (stdout) and let systemd write it once to file.
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.handlers.RotatingFileHandler(
-            LOG_FILE, maxBytes=10 * 1024 * 1024, backupCount=5),
     ],
 )
 log = logging.getLogger("trader")
+
+# ── Silence noisy third-party loggers ────────────────────────────────────────
+for _noisy in ("socketio", "engineio", "metaapi_cloud_sdk", "asyncio",
+               "urllib3", "requests", "websockets", "aiohttp",
+               "httpx", "httpcore"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
 
 # ── Config ───────────────────────────────────────────────────────────────────
 SYMBOLS = [
@@ -60,13 +67,13 @@ SYMBOLS = [
 ]
 
 CONFIG = {
-    "monitor_interval_s": 30,       # check positions every 30s
-    "analysis_interval_s": 120,     # full AI analysis every 2 min
-    "profit_close_pct":   2.0,      # close trade at +2% account profit
-    "loss_close_pct":     1.0,      # close trade at -1% account loss
-    "min_confidence":     0.55,     # minimum AI confidence to trade
-    "max_trades_per_sym": 1,        # max 1 position per symbol
-    "dry_run":            False,    # set True for paper trading
+    "monitor_interval_s": 20,       # check positions every 20s (faster response)
+    "analysis_interval_s": 60,      # full AI analysis every 60s (was 120)
+    "profit_close_pct":   3.0,      # close trade at +3% account profit (let winners run)
+    "loss_close_pct":     0.8,      # close trade at -0.8% account loss (cut faster)
+    "min_confidence":     0.52,     # minimum AI confidence to trade (was 0.55)
+    "max_trades_per_sym": 3,        # allow up to 3 positions per symbol (scaling)
+    "dry_run":            False,    # live trading
     "use_ai":             True,     # use Ollama AI analysis
     "max_reconnect_attempts": 5,
     "reconnect_backoff_s":    10,
@@ -100,6 +107,29 @@ def _write_status(data: dict):
         STATUS_FILE.write_text(json.dumps(_sanitize(data), indent=2))
     except Exception as e:
         log.warning(f"Status write error: {e}")
+
+def _log_signal(symbol: str, direction: str, confidence: float,
+                reason: str, action: str, ticket: int = 0):
+    """Write signal to trades.db for dashboard display."""
+    import sqlite3
+    DB_FILE = ROOT / "trades.db"
+    try:
+        with sqlite3.connect(str(DB_FILE)) as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS signals (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts TEXT, symbol TEXT, direction TEXT,
+                    confidence REAL, reason TEXT, action TEXT,
+                    ticket INTEGER, order_json TEXT
+                )""")
+            conn.execute(
+                "INSERT INTO signals (ts, symbol, direction, confidence, reason, action, ticket) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (datetime.now(timezone.utc).isoformat(), symbol, direction,
+                 round(confidence, 4), reason[:200], action, ticket)
+            )
+    except Exception as e:
+        log.debug(f"Signal log error: {e}")
 
 def _load_state() -> dict:
     try:
@@ -175,23 +205,52 @@ def get_positions_by_symbol(bridge) -> dict:
         by_sym.setdefault(sym, []).append(p)
     return by_sym
 
+# ── Per-ticket peak profit tracking (persistent trailing SL) ────────────────
+_PEAK_FILE = ROOT / "peak_profits.json"
+
+def _load_peaks() -> dict:
+    try:
+        if _PEAK_FILE.exists():
+            return json.loads(_PEAK_FILE.read_text())
+    except Exception:
+        pass
+    return {}
+
+def _save_peaks(d: dict):
+    try:
+        _PEAK_FILE.write_text(json.dumps(d))
+    except Exception:
+        pass
+
+_peak_profit: dict = _load_peaks()   # ticket → peak profit seen
+
 def check_and_close_positions(bridge, account_balance: float, positions_by_sym: dict,
                                state: dict, dry_run: bool) -> list:
     """
-    Close positions that hit profit or loss targets.
+    Close positions that hit profit or loss targets, OR if trailing SL is triggered.
+    Trailing SL: once profit reaches 1% of balance, lock in 50% of peak profit.
     Returns list of closed broker symbols.
     """
     closed = []
-    profit_target = account_balance * (CONFIG["profit_close_pct"] / 100)
-    loss_limit    = account_balance * (CONFIG["loss_close_pct"] / 100)
+    profit_target  = account_balance * (CONFIG["profit_close_pct"] / 100)
+    loss_limit     = account_balance * (CONFIG["loss_close_pct"] / 100)
+    trail_trigger  = account_balance * 0.5 / 100   # start trailing at +0.5%
+    trail_lock_pct = 0.50                           # lock 50% of peak profit
 
     for sym_cfg in SYMBOLS:
         broker_sym = sym_cfg["broker"]
         positions  = positions_by_sym.get(broker_sym, [])
         for pos in positions:
             profit = getattr(pos, "profit", 0)
-            ticket = getattr(pos, "ticket", "?")
+            ticket = str(getattr(pos, "ticket", "?"))
             direction = "BUY" if getattr(pos, "type", 1) == 0 else "SELL"
+
+            # Track peak profit for trailing SL (persisted to disk)
+            prev_peak = _peak_profit.get(ticket, 0)
+            if profit > prev_peak:
+                _peak_profit[ticket] = profit
+                _save_peaks(_peak_profit)
+            peak = _peak_profit.get(ticket, 0)
 
             should_close = False
             reason = ""
@@ -201,6 +260,10 @@ def check_and_close_positions(bridge, account_balance: float, positions_by_sym: 
             elif profit <= -loss_limit:
                 should_close = True
                 reason = f"loss limit -{CONFIG['loss_close_pct']}%"
+            elif peak >= trail_trigger and profit < peak * trail_lock_pct:
+                # Trailing SL triggered: gave back >50% of peak
+                should_close = True
+                reason = f"trailing SL (peak ${peak:+.2f} → now ${profit:+.2f})"
 
             if should_close:
                 log.info(f"🎯 Closing #{ticket} {sym_cfg['display']} {direction} "
@@ -209,37 +272,77 @@ def check_and_close_positions(bridge, account_balance: float, positions_by_sym: 
                     ok = bridge.close_position(ticket)
                     if ok:
                         state["total_trades"] += 1
+                        outcome = "WIN" if profit > 0 else "LOSS"
                         if profit > 0:
                             state["wins"] += 1
                         else:
                             state["losses"] += 1
                         closed.append(broker_sym)
+
+                        # Cleanup peak profit tracking
+                        _peak_profit.pop(ticket, None)
+                        _save_peaks(_peak_profit)
+
+                        # Record outcome in trade memory
+                        try:
+                            from memory import TradeMemory
+                            mem = TradeMemory()
+                            pip_size = sym_cfg["pip"]
+                            open_price = getattr(pos, "price_open", 0)
+                            pips = profit / (pip_size * 10 * getattr(pos, "volume", 0.01))
+                            mem.record_outcome(str(ticket), 0, round(pips, 1), outcome)
+                        except Exception as e:
+                            log.warning(f"Memory record error: {e}")
                 else:
                     log.info(f"   [DRY RUN] Would close #{ticket}")
                     closed.append(broker_sym)
 
     return closed
 
-def build_order_params(sym_cfg: dict, tick, direction: str) -> dict:
+def build_order_params(sym_cfg: dict, tick, direction: str,
+                       confidence: float = 0.55, atr: float = 0,
+                       lot_reduction: float = 1.0) -> dict:
     pip = sym_cfg["pip"]
     price = tick.ask if direction == "BUY" else tick.bid
     digits = 2 if pip >= 0.01 else 5
 
-    if direction == "BUY":
-        sl = round(price - sym_cfg["sl_pips"] * pip, digits)
-        tp = round(price + sym_cfg["tp_pips"] * pip, digits)
+    # ── ATR-based dynamic SL/TP ──────────────────────────────────────────
+    if atr > 0:
+        sl_pips = max(int(atr * 2.5 / pip), sym_cfg["sl_pips"] // 3)
+        tp_pips = max(int(atr * 3.5 / pip), sym_cfg["tp_pips"] // 3)
     else:
-        sl = round(price + sym_cfg["sl_pips"] * pip, digits)
-        tp = round(price - sym_cfg["tp_pips"] * pip, digits)
+        sl_pips = sym_cfg["sl_pips"]
+        tp_pips = sym_cfg["tp_pips"]
+
+    if direction == "BUY":
+        sl = round(price - sl_pips * pip, digits)
+        tp = round(price + tp_pips * pip, digits)
+    else:
+        sl = round(price + sl_pips * pip, digits)
+        tp = round(price - tp_pips * pip, digits)
+
+    # ── Confidence-scaled position sizing ─────────────────────────────────
+    if confidence >= 0.80:
+        conf_mult = 1.0
+    elif confidence >= 0.65:
+        conf_mult = 0.7
+    elif confidence >= 0.55:
+        conf_mult = 0.5
+    else:
+        conf_mult = 0.3
+
+    lot = round(max(sym_cfg["lot"] * conf_mult * lot_reduction, 0.01), 2)
 
     return {
         "symbol":    sym_cfg["broker"],
         "direction": direction,
-        "lot":       sym_cfg["lot"],
+        "lot":       lot,
         "price":     price,
         "sl":        sl,
         "tp":        tp,
-        "comment":   f"CT-{direction}",
+        "sl_pips":   sl_pips,
+        "tp_pips":   tp_pips,
+        "comment":   f"CT-{direction}-c{confidence:.0%}",
     }
 
 # ── Main trading cycle ───────────────────────────────────────────────────────
@@ -253,6 +356,51 @@ class ContinuousTrader:
         self._stop     = False
         self._last_analysis = 0   # epoch seconds
 
+        # ── Self-improving systems ──────────────────────────────────────
+        try:
+            from memory import TradeMemory
+            self.memory = TradeMemory()
+            log.info("  [MEMORY] Trade memory system initialized")
+        except Exception as e:
+            log.warning(f"  [MEMORY] Failed to init: {e}")
+            self.memory = None
+
+        try:
+            from skill_manager import SkillManager
+            self.skill_mgr = SkillManager()
+            skills = self.skill_mgr.list_skills()
+            log.info(f"  [SKILLS] Loaded {len(skills)} trading skills")
+        except Exception as e:
+            log.warning(f"  [SKILLS] Failed to init: {e}")
+            self.skill_mgr = None
+
+        try:
+            from strategy_filters import FilterChain
+            self.filter_chain = FilterChain()
+            log.info(f"  [FILTERS] Filter chain initialized")
+        except Exception as e:
+            log.warning(f"  [FILTERS] Failed to init: {e}")
+            self.filter_chain = None
+
+        try:
+            from self_improver import PerformanceAnalyzer
+            self.improver = PerformanceAnalyzer(self.memory, self.skill_mgr)
+            log.info(f"  [IMPROVE] Self-improvement engine initialized")
+        except Exception as e:
+            log.warning(f"  [IMPROVE] Failed to init: {e}")
+            self.improver = None
+
+        try:
+            from position_scaler import PositionScaler
+            self.scaler = PositionScaler()
+            log.info(f"  [SCALER] Position scaling system initialized")
+        except Exception as e:
+            log.warning(f"  [SCALER] Failed to init: {e}")
+            self.scaler = None
+
+        # Cache for cross-symbol correlation
+        self._symbol_signals = {}
+
         # Set up signal handlers for graceful shutdown
         signal.signal(signal.SIGINT,  self._handle_stop)
         signal.signal(signal.SIGTERM, self._handle_stop)
@@ -260,6 +408,13 @@ class ContinuousTrader:
     def _handle_stop(self, sig, frame):
         log.info("\n🛑 Shutdown signal received — closing gracefully...")
         self._stop = True
+
+    def _get_other_signal(self, current_symbol: str) -> dict:
+        """Get the other metal's signal for correlation filter."""
+        for sym, sig in self._symbol_signals.items():
+            if sym != current_symbol:
+                return sig
+        return {}
 
     def _ensure_connected(self) -> bool:
         if self.connected and getattr(self.bridge, "connected", False):
@@ -276,11 +431,21 @@ class ContinuousTrader:
             return None
 
     def _run_analysis(self, sym_cfg: dict, tf_data: dict, tick) -> dict:
-        """Run multi-timeframe analysis with Ollama AI."""
+        """Run multi-timeframe analysis with Ollama AI + memory context."""
         try:
             from analyzer import MarketAnalyzer
             analyzer = MarketAnalyzer(use_claude=CONFIG["use_ai"])
-            signal_data = analyzer.analyze(tf_data, tick, sym_cfg["display"])
+
+            # Prefetch memory context for AI reasoning
+            memory_context = ""
+            if self.memory:
+                try:
+                    memory_context = self.memory.prefetch_context(sym_cfg["display"])
+                except Exception as e:
+                    log.warning(f"Memory prefetch error: {e}")
+
+            signal_data = analyzer.analyze(tf_data, tick, sym_cfg["display"],
+                                           memory_context=memory_context)
             return signal_data
         except Exception as e:
             log.warning(f"Analysis error for {sym_cfg['display']}: {e}")
@@ -411,14 +576,17 @@ class ContinuousTrader:
                     broker_sym = sym_cfg["broker"]
                     disp       = sym_cfg["display"]
 
-                    # Check max trades per symbol BEFORE analyzing
                     current_pos = positions_by_sym.get(broker_sym, [])
-                    if len(current_pos) >= CONFIG["max_trades_per_sym"]:
+                    can_open_new = len(current_pos) < CONFIG["max_trades_per_sym"]
+
+                    if not can_open_new and not self.scaler:
                         log.info(f"   ⏸  {disp}: max trades reached ({len(current_pos)})")
-                        # Still update status display
                         if disp in symbols_status:
                             symbols_status[disp]["positions"] = len(current_pos)
                         continue
+
+                    if not can_open_new:
+                        log.info(f"   ⏸  {disp}: max trades reached — checking scale only")
 
                     log.info(f"   🔍 Analyzing {disp}...")
                     tf_data = self._fetch_candles(sym_cfg)
@@ -461,31 +629,144 @@ class ContinuousTrader:
                         "broker_symbol": broker_sym,
                     }
 
-                    # Place trade if signal qualifies
-                    if (direction in ("BUY", "SELL") and
+                    # Cache signal for cross-symbol correlation
+                    self._symbol_signals[disp] = {
+                        "direction": direction,
+                        "confidence": confidence,
+                    }
+
+                    # Place trade if signal qualifies AND no existing position
+                    if (can_open_new and
+                            direction in ("BUY", "SELL") and
                             confidence >= CONFIG["min_confidence"]):
-                        order = build_order_params(sym_cfg, tick, direction)
+
+                        # ── Run strategy filters ─────────────────────────────
+                        lot_reduction = 1.0
+                        if self.filter_chain:
+                            filter_ctx = {
+                                "session": session,
+                                "indicators": signal_data.get("indicators", {}),
+                                "hour_utc": datetime.now(timezone.utc).hour,
+                                "atr_history": [],  # TODO: populate from candle data
+                                "other_symbol_signal": self._get_other_signal(disp),
+                                "xau_xag_correlation": 0,  # TODO: compute from data
+                            }
+                            allowed, veto_reasons = self.filter_chain.evaluate(
+                                disp, direction, filter_ctx)
+                            lot_reduction = filter_ctx.get("_lot_reduction", 1.0)
+
+                            if not allowed:
+                                log.info(f"   🚫 {disp}: FILTERED — {'; '.join(veto_reasons)}")
+                                _log_signal(broker_sym, direction, confidence,
+                                            '; '.join(veto_reasons), "FILTERED")
+                                if self.memory:
+                                    self.memory.record_filtered(
+                                        disp, direction, confidence, veto_reasons,
+                                        signal_data.get("factor_scores"))
+                                continue
+
+                        # ── Run skill evaluation ─────────────────────────────
+                        skills_used = []
+                        if self.skill_mgr:
+                            skill_ctx = {
+                                "session": session,
+                                "adx": signal_data.get("indicators", {}).get("adx", 0),
+                                "hour_utc": datetime.now(timezone.utc).hour,
+                            }
+                            skill_result = self.skill_mgr.evaluate_all(
+                                disp, direction, skill_ctx)
+                            if not skill_result["allowed"]:
+                                log.info(f"   🚫 {disp}: SKILL BLOCKED — "
+                                         f"{'; '.join(skill_result['reasons'])}")
+                                _log_signal(broker_sym, direction, confidence,
+                                            '; '.join(skill_result["reasons"]), "SKILL_BLOCKED")
+                                continue
+                            confidence = min(confidence + skill_result["confidence_boost"], 0.95)
+                            skills_used = skill_result["skills_used"]
+
+                        # ── Build order with ATR-based SL/TP ─────────────────
+                        atr = signal_data.get("indicators", {}).get("atr", 0)
+                        order = build_order_params(
+                            sym_cfg, tick, direction,
+                            confidence=confidence, atr=atr,
+                            lot_reduction=lot_reduction)
+
                         if self.dry_run:
                             log.info(f"   📝 DRY RUN {disp} {direction} "
-                                     f"lot={order['lot']} sl={order['sl']} tp={order['tp']}")
+                                     f"lot={order['lot']} sl={order['sl']} "
+                                     f"tp={order['tp']} conf={confidence:.0%}")
+                            _log_signal(broker_sym, direction, confidence, reason, "DRY_TRADE")
                         else:
                             result = self.bridge.place_order(order)
                             if result and hasattr(result, "order"):
                                 log.info(f"   💰 ORDER #{result.order} — "
                                          f"{disp} {direction} @{order['price']:.2f} "
-                                         f"SL={order['sl']} TP={order['tp']}")
+                                         f"SL={order['sl']} TP={order['tp']} "
+                                         f"lot={order['lot']} conf={confidence:.0%}")
+                                _log_signal(broker_sym, direction, confidence,
+                                            reason, "TRADE", ticket=result.order)
+
+                                # ── Record in trade memory ───────────────────
+                                if self.memory:
+                                    self.memory.record_entry(
+                                        ticket=str(result.order),
+                                        symbol=disp,
+                                        direction=direction,
+                                        entry_price=order['price'],
+                                        confidence=confidence,
+                                        factors=signal_data.get("factor_scores"),
+                                        conditions={
+                                            "session": session,
+                                            "atr": atr,
+                                            "adx": signal_data.get("indicators", {}).get("adx", 0),
+                                            "rsi": signal_data.get("indicators", {}).get("rsi", 0),
+                                            "h4_trend": signal_data.get("h4_trend", ""),
+                                        },
+                                        skills_used=skills_used,
+                                    )
+
                                 self.state["total_trades"] += 1
                                 _save_state(self.state)
-                                # Refresh positions
                                 time.sleep(0.5)
                                 positions_by_sym = get_positions_by_symbol(self.bridge)
                             else:
                                 log.warning(f"   ❌ {disp} order failed")
                     else:
-                        if direction == "HOLD":
+                        if not can_open_new:
+                            pass  # already logged above; don't spam DB for max-trades cases
+                        elif direction == "HOLD":
                             log.info(f"   ⏭  {disp}: HOLD — no trade")
+                            _log_signal(broker_sym, direction, confidence, reason, "HOLD")
                         else:
                             log.info(f"   ⏭  {disp}: confidence too low ({confidence:.0%})")
+                            _log_signal(broker_sym, direction, confidence, reason, "LOW_CONF")
+
+                    # ── Position scaling (pyramiding) ────────────────────────
+                    if self.scaler and current_pos:
+                        try:
+                            scales = self.scaler.evaluate(
+                                positions=current_pos,
+                                account=acct,
+                                signal_data=signal_data,
+                                sym_cfg=sym_cfg,
+                                session=session,
+                                bridge=self.bridge,
+                            )
+                            if scales:
+                                for sc in scales:
+                                    log.info(f"   📈 SCALED {disp} #{sc['scale_ticket']} "
+                                             f"{sc['direction']} +{sc['lot']}lot — {sc['reason']}")
+                                    _log_signal(broker_sym, sc["direction"], confidence,
+                                                sc["reason"], "SCALED", ticket=sc["scale_ticket"])
+                                    symbols_status.setdefault(disp, {})["last_scale"] = {
+                                        "ticket": sc["scale_ticket"],
+                                        "lot": sc["lot"],
+                                        "ts": ts,
+                                    }
+                                time.sleep(0.5)
+                                positions_by_sym = get_positions_by_symbol(self.bridge)
+                        except Exception as e:
+                            log.warning(f"   [SCALER] Error for {disp}: {e}")
 
             # ── Write dashboard status ────────────────────────────────────────
             # Build open-positions list for dashboard
@@ -526,6 +807,8 @@ class ContinuousTrader:
                     "win_rate": (
                         round(self.state["wins"] / self.state["total_trades"] * 100, 1)
                         if self.state["total_trades"] > 0 else 0),
+                    "scale_stats": (
+                        self.scaler.get_scale_stats() if self.scaler else {}),
                 },
                 "next_analysis_in": next_analysis_in,
                 # Flat fields for backward compat
@@ -542,6 +825,17 @@ class ContinuousTrader:
             })
 
             _save_state(self.state)
+
+            # ── Self-improvement check (daily) ───────────────────────────
+            if self.improver and cycle % 100 == 0:  # check every ~50 min
+                try:
+                    if self.improver.should_run_review():
+                        self.improver.daily_review()
+                        if self.skill_mgr:
+                            self.skill_mgr.invalidate_cache()
+                except Exception as e:
+                    log.warning(f"Self-improvement error: {e}")
+
             secs = CONFIG["monitor_interval_s"]
             log.info(f"   💤 Next check in {secs}s  "
                      f"(analysis in {next_analysis_in}s)  "
