@@ -1,8 +1,8 @@
 ---
-name: volatility-regime
-description: Adjust trading behavior based on current ATR vs historical ATR percentile
-type: filter
-version: 1.0.0
+name: 'volatility-regime'
+description: 'Adjust trading behavior based on current ATR vs historical ATR percentile'
+type: 'filter'
+version: '1.0.0'
 performance:
   total_trades: 0
   wins: 0
@@ -14,8 +14,9 @@ conditions:
   symbols: [XAUUSD, XAGUSD]
   min_atr_percentile: 10
   max_atr_percentile: 95
+min_atr_percentile: 40
+max_atr_percentile: 70
 ---
-
 # Volatility Regime Filter
 
 ## Concept

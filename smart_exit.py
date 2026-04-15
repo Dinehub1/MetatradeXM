@@ -15,45 +15,54 @@ This module is the "brain" that prevents the bot from:
 """
 
 import json
+import os
 import sqlite3
 import logging
 import time
-import requests
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
+from ai_client import ask_openrouter  # unified OpenRouter client (T1 → T2)
+
 log = logging.getLogger("smart_exit")
 
-OLLAMA_URL   = "http://localhost:11434/api/chat"
-OLLAMA_MODEL = "minimax-m2.7:cloud"
-DB_PATH      = Path(__file__).parent / "trade_memory.db"
+DB_PATH = Path(__file__).parent / "trade_memory.db"
 
 # ── Smart Exit Configuration ─────────────────────────────────────────────────
 EXIT_CFG = {
-    # Partial close: take 50% off when profit reaches this many pips
-    "partial_close_pips":      8,       # close half at +8 pips
-    "partial_close_fraction":  0.5,     # close 50% of the position
+    # Profit taking: let winners run with trailing stops
+    "partial_close_pips":      50,       # close 1/3 at +50 pips (let rest run)
+    "partial_close_fraction":  0.33,    # close 1/3 of position
 
-    # Breakeven: move SL to entry + buffer when profit reaches this
-    "breakeven_trigger_pips":  5,       # move SL to breakeven at +5 pips
-    "breakeven_buffer_pips":   1,       # SL at entry + 1 pip (cover spread)
+    # Breakeven: protect entry after reasonable profit
+    "breakeven_trigger_pips":  15,       # move SL to breakeven at +15 pips
+    "breakeven_buffer_pips":   1.0,     # SL at entry + 1.0 pip
 
-    # Momentum reversal: exit when indicators flip against position
+    # Momentum reversal: detect reversals
     "reversal_check_enabled":  True,
-    "reversal_min_factors":    4,       # 4+ factors against = reversal
+    "reversal_min_factors":    3,       # 3+ factors against = reversal
 
-    # Time decay: close stale trades with small profit
-    "max_trade_age_hours":     8,       # max 8 hours for a trade
-    "stale_min_profit_pips":   3,       # if <3 pips after 4h, close
-    "stale_check_hours":       4,       # check staleness after 4h
+    # Time decay: give trades time to develop
+    "max_trade_age_hours":     4,       # max 4 hours for a trade
+    "stale_min_profit_pips":   10,      # if <10 pips after 2hr, consider closing
+    "stale_check_hours":       2.0,     # check staleness after 2hr
 
-    # Trailing stop: tighten SL as profit grows
-    "trailing_start_pips":     10,      # start trailing at +10 pips
-    "trailing_distance_pips":  5,       # trail 5 pips behind price
+    # Trailing stop: wider trailing for larger moves
+    "trailing_start_pips":     30,       # start trailing at +30 pips
+    "trailing_distance_pips":  10,      # trail 10 pips behind price
 
-    # AI confirmation for exits
-    "ai_confirm_exits":        True,
-    "ai_timeout":              15,
+    # AI confirmation for exits — keep disabled for speed
+    "ai_confirm_exits":        False,
+    "ai_timeout":              10,
+
+    # Loss cut: cut losses much earlier
+    "loss_cut_pips":           82,       # close 50% at -82 pips (much larger stop for volatile market)
+    "loss_cut_fraction":       0.5,      # close 50% of position on loss
+    "loss_time_cut_minutes":   15,       # close all if negative after 15 min
+
+    # Winner protection: protect larger profits
+    "winner_peak_pips":        30,       # if trade was ever +30 pips...
+    "winner_floor_pips":       15,       # ...and drops below +15 pip, close
 }
 
 
@@ -100,6 +109,15 @@ def _record_exit(ticket, symbol, direction, exit_type, pips, usd, reason):
     except Exception as e:
         log.warning(f"[SMART EXIT] Failed to record exit: {e}")
 
+    # Also record in trade memory so self-improver has complete data
+    try:
+        from memory import TradeMemory
+        mem = TradeMemory()
+        outcome = "WIN" if (usd or 0) > 0 else "LOSS"
+        mem.record_outcome(str(ticket), 0.0, round(pips, 1), outcome)
+    except Exception as e:
+        log.debug(f"[SMART EXIT] Memory record_outcome failed: {e}")
+
 
 # ── Smart Exit Manager ───────────────────────────────────────────────────────
 
@@ -113,6 +131,8 @@ class SmartExitManager:
         _ensure_tables()
         self._partial_closed = set()   # tickets already partially closed
         self._breakeven_set  = set()   # tickets with SL moved to breakeven
+        self._loss_cut_set   = set()   # tickets already loss-cut (50%)
+        self._peak_pips      = {}      # ticket -> peak profit in pips
         self._last_reversal_check = {}  # ticket -> last reversal check time
         log.info("[SMART EXIT] Smart exit manager initialized")
 
@@ -141,8 +161,40 @@ class SmartExitManager:
                 current_tp = getattr(pos, "tp", 0.0)
                 open_time  = getattr(pos, "time", None)
 
-                # Calculate profit in pips
-                profit_pips = profit / (pip * 10 * volume) if (pip * 10 * volume) > 0 else 0
+                # Calculate profit in pips using contract_size for correct pip value
+                # pip_value_per_lot = pip * contract_size  (e.g. gold: 0.10*100=$10/pip/lot)
+                contract_size = sym_cfg.get("contract_size", 100)
+                _pip_val = pip * contract_size * volume
+                profit_pips = profit / _pip_val if _pip_val > 0 else 0
+
+                # Track peak pips for winner protection
+                prev_peak = self._peak_pips.get(ticket, 0)
+                if profit_pips > prev_peak:
+                    self._peak_pips[ticket] = profit_pips
+
+                # 0a. LOSS CUT — aggressive loss protection
+                lc_action = self._check_loss_cut(
+                    bridge, ticket, display_name, direction,
+                    profit, profit_pips, volume, open_time, dry_run
+                )
+                if lc_action:
+                    self._update_stats(state, profit, profit_pips)
+                    actions.append(lc_action)
+                    # Any loss cut action fully closes the position — skip all other checks
+                    if "dry" in lc_action.get("action", "") or lc_action.get("action") in (
+                        "loss_cut_full", "loss_time_cut", "loss_cut_50pct"
+                    ):
+                        continue
+
+                # 0b. WINNER PROTECTION — never let a winner become a loser
+                wp_action = self._check_winner_protection(
+                    bridge, ticket, display_name, direction,
+                    profit, profit_pips, dry_run
+                )
+                if wp_action:
+                    self._update_stats(state, profit, profit_pips)
+                    actions.append(wp_action)
+                    continue  # position closed
 
                 # 1. BREAKEVEN STOP — move SL to entry when in profit
                 be_action = self._check_breakeven(
@@ -384,7 +436,7 @@ class SmartExitManager:
     def _ai_reversal_check(self, symbol: str, direction: str,
                             profit_pips: float, sym_cfg: dict) -> tuple:
         """
-        Ask Ollama: has momentum reversed against our position?
+        Ask OpenRouter: has momentum reversed against our position?
         Returns (should_exit: bool, reason: str)
         """
         prompt = f"""You are monitoring an open {direction} trade on {symbol}.
@@ -404,39 +456,132 @@ Be DECISIVE. Small profits are better than turning a winner into a loser.
 Respond with ONLY JSON (no markdown):
 {{"exit": true/false, "reason": "1 sentence explanation"}}"""
 
-        try:
-            resp = requests.post(OLLAMA_URL, json={
-                "model": OLLAMA_MODEL,
-                "stream": False,
-                "messages": [
-                    {"role": "system", "content":
-                     "You protect trading capital. When in doubt, EXIT the trade. "
-                     "A small profit is infinitely better than a loss."},
-                    {"role": "user", "content": prompt},
-                ],
-            }, timeout=EXIT_CFG["ai_timeout"])
-            resp.raise_for_status()
-            text = resp.json()["message"]["content"].strip()
+        data = ask_openrouter(
+            messages=[
+                {"role": "system", "content":
+                 "You protect trading capital. When in doubt, EXIT the trade. "
+                 "A small profit is infinitely better than a loss."},
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=64,
+            label=f"exit-{symbol}",
+        )
 
-            # Parse JSON from response
-            if "```" in text:
-                for part in text.split("```"):
-                    part = part.strip().lstrip("json").strip()
-                    if part.startswith("{"):
-                        text = part
-                        break
-
-            data = json.loads(text)
+        if data:
             should_exit = bool(data.get("exit", False))
             reason = data.get("reason", "AI decision")
             return should_exit, reason
 
-        except Exception as e:
-            log.debug(f"[SMART EXIT] AI reversal check failed: {e}")
-            # Fallback: if profit is < 2 pips and positive, protect it
-            if 0 < profit_pips < 2:
-                return True, "Fallback: tiny profit, protecting capital"
-            return False, ""
+        # Fallback: if profit is < 2 pips and positive, protect it
+        log.debug(f"[SMART EXIT] AI reversal check returned no data — using fallback")
+        if 0 < profit_pips < 2:
+            return True, "Fallback: tiny profit, protecting capital"
+        return False, ""
+
+    # ── 0a. Loss Cut ────────────────────────────────────────────────────────
+
+    def _check_loss_cut(self, bridge, ticket, symbol, direction,
+                        profit, profit_pips, volume, open_time, dry_run):
+        """Aggressive loss protection: cut 50% at -3 pips, close all after 5 min if negative."""
+
+        # Rule 1: If negative after X minutes, close everything
+        if open_time is not None and profit_pips < 0:
+            try:
+                if isinstance(open_time, (int, float)):
+                    open_dt = datetime.fromtimestamp(open_time, tz=timezone.utc)
+                elif isinstance(open_time, str):
+                    open_dt = datetime.fromisoformat(open_time.replace("Z", "+00:00"))
+                else:
+                    open_dt = open_time
+                    if open_dt.tzinfo is None:
+                        open_dt = open_dt.replace(tzinfo=timezone.utc)
+
+                age_minutes = (datetime.now(timezone.utc) - open_dt).total_seconds() / 60
+                if age_minutes >= EXIT_CFG["loss_time_cut_minutes"]:
+                    reason = (f"Loss time cut: {profit_pips:.1f} pips after {age_minutes:.0f}min "
+                              f"— closing to protect capital")
+                    log.info(f"[SMART EXIT] {symbol} #{ticket}: {reason}")
+                    if not dry_run:
+                        try:
+                            bridge.close_position(ticket)
+                            _record_exit(ticket, symbol, direction, "LOSS_TIME_CUT",
+                                         profit_pips, profit, reason)
+                            return {"ticket": ticket, "action": "loss_time_cut", "reason": reason}
+                        except Exception as e:
+                            log.warning(f"[SMART EXIT] Loss time cut failed: {e}")
+                    else:
+                        return {"ticket": ticket, "action": "loss_time_cut_dry", "reason": reason}
+            except Exception:
+                pass
+
+        # Rule 2: If hits loss threshold, reduce exposure
+        if profit_pips <= -EXIT_CFG["loss_cut_pips"] and ticket not in self._loss_cut_set:
+            min_lot = 0.01
+            close_vol = round(volume * EXIT_CFG["loss_cut_fraction"], 2)
+
+            # If position is at minimum lot OR partial vol < min_lot, do full close
+            if volume <= min_lot or close_vol < min_lot:
+                reason = (f"Loss cut (full close — min lot): {profit_pips:.1f} pips "
+                          f"— closing entire {volume} lot position")
+                log.info(f"[SMART EXIT] {symbol} #{ticket}: {reason}")
+                if not dry_run:
+                    try:
+                        ok = bridge.close_position(ticket)
+                        if ok:
+                            self._loss_cut_set.add(ticket)
+                            _record_exit(ticket, symbol, direction, "LOSS_CUT_FULL",
+                                         profit_pips, profit, reason)
+                            return {"ticket": ticket, "action": "loss_cut_full", "reason": reason}
+                    except Exception as e:
+                        log.warning(f"[SMART EXIT] Loss cut full close failed: {e}")
+                else:
+                    self._loss_cut_set.add(ticket)
+                    return {"ticket": ticket, "action": "loss_cut_full_dry", "reason": reason}
+            else:
+                reason = (f"Loss cut 50%: {profit_pips:.1f} pips — reducing exposure "
+                          f"(closing {close_vol} of {volume})")
+                log.info(f"[SMART EXIT] {symbol} #{ticket}: {reason}")
+                if not dry_run:
+                    try:
+                        bridge.close_position_partial(ticket, close_vol)
+                        self._loss_cut_set.add(ticket)
+                        _record_exit(ticket, symbol, direction, "LOSS_CUT_50PCT",
+                                     profit_pips, profit, reason)
+                        return {"ticket": ticket, "action": "loss_cut_50pct", "reason": reason}
+                    except Exception as e:
+                        log.warning(f"[SMART EXIT] Loss cut partial failed: {e}")
+                else:
+                    self._loss_cut_set.add(ticket)
+                    return {"ticket": ticket, "action": "loss_cut_50pct_dry", "reason": reason}
+
+        return None
+
+    # ── 0b. Winner Protection ───────────────────────────────────────────────
+
+    def _check_winner_protection(self, bridge, ticket, symbol, direction,
+                                  profit, profit_pips, dry_run):
+        """Never let a winner become a loser. If trade was +3 pips and drops below +1, close."""
+        peak = self._peak_pips.get(ticket, 0)
+
+        if peak >= EXIT_CFG["winner_peak_pips"] and profit_pips < EXIT_CFG["winner_floor_pips"]:
+            reason = (f"Winner protection: was +{peak:.1f} pips, now +{profit_pips:.1f} pips "
+                      f"— closing to lock remaining profit")
+            log.info(f"[SMART EXIT] {symbol} #{ticket}: {reason}")
+            if not dry_run:
+                try:
+                    bridge.close_position(ticket)
+                    _record_exit(ticket, symbol, direction, "WINNER_PROTECTION",
+                                 profit_pips, profit, reason)
+                    # Cleanup peak tracking
+                    self._peak_pips.pop(ticket, None)
+                    return {"ticket": ticket, "action": "winner_protection", "reason": reason}
+                except Exception as e:
+                    log.warning(f"[SMART EXIT] Winner protection close failed: {e}")
+            else:
+                self._peak_pips.pop(ticket, None)
+                return {"ticket": ticket, "action": "winner_protection_dry", "reason": reason}
+
+        return None
 
     # ── Stats Helper ─────────────────────────────────────────────────────────
 

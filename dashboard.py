@@ -200,6 +200,21 @@ tr:hover td{background:var(--bg3)}
 .treason{color:var(--muted);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .emptyrow td{color:var(--muted);font-style:italic;padding:18px 9px}
 .mb10{margin-bottom:10px}
+/* ─ Live stats row ─ */
+.lstats{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-bottom:10px}
+@media(max-width:900px){.lstats{grid-template-columns:1fr 1fr 1fr}}
+@media(max-width:550px){.lstats{grid-template-columns:1fr 1fr}}
+.lstats .cval{font-size:18px;font-family:var(--mono);font-weight:700}
+.lstats .csub{font-size:10px;color:var(--muted);font-family:var(--mono)}
+
+/* ─ Live position timer ─ */
+@keyframes breathe{0%,100%{opacity:1}50%{opacity:.6}}
+.pos-live{animation:breathe 1.5s ease-in-out infinite}
+
+/* ─ Flash animations ─ */
+@keyframes flashGreen{0%{color:var(--green);font-size:18px}100%{color:var(--green);font-size:18px}}
+@keyframes flashRed{0%{color:var(--red);font-size:18px}100%{color:var(--red);font-size:18px}}
+
 </style>
 </head>
 <body>
@@ -251,6 +266,21 @@ tr:hover td{background:var(--bg3)}
     <div class="cval" id="sConnect" style="font-size:11px">—</div>
     <div class="csub" id="sConnSub">—</div>
   </div>
+  <div class="card">
+    <div class="clabel">Live P&L</div>
+    <div class="cval" id="sLivePnl" style="color:var(--green)">$0.00</div>
+    <div class="csub" id="sPnlPips">0 pips</div>
+  </div>
+  <div class="card">
+    <div class="clabel">Streak (W/L)</div>
+    <div class="cval" id="sStreak">W0 / L0</div>
+    <div class="csub" id="sStreakSub">—</div>
+  </div>
+  <div class="card">
+    <div class="clabel">Session P&L</div>
+    <div class="cval" id="sSessPnl">$0.00</div>
+    <div class="csub" id="sSessTrades">0 trades</div>
+  </div>
 </div>
 
 <!-- OPEN POSITIONS PANEL -->
@@ -270,6 +300,14 @@ tr:hover td{background:var(--bg3)}
       </tbody>
     </table>
   </div>
+</div>
+<div id="posTimer" style="display:none;margin-top:8px;text-align:center">
+  <span class="tmono" style="font-size:11px;color:var(--muted)">Position age: </span>
+  <span class="tmono" id="posAge" style="font-size:13px;color:var(--cyan);font-weight:600">—</span>
+</div>
+<div id="posPnLWrap" style="display:none;margin-top:4px;text-align:center">
+  <span class="tmono" style="font-size:15px;font-weight:700" id="posPnlVal">—</span>
+  <span class="tmono" style="font-size:11px;color:var(--muted);margin-left:8px" id="posPipsVal">—</span>
 </div>
 
 <!-- MAIN 3-COL -->
@@ -333,6 +371,45 @@ tr:hover td{background:var(--bg3)}
 
 </div><!-- /main3 -->
 
+<!-- LIVE STATS ROW -->
+<div class="lstats mb10">
+  <div class="card">
+    <div class="clabel">Total Pips</div>
+    <div class="cval" id="lsPips" style="color:var(--amber)">0</div>
+    <div class="csub">closed pips</div>
+  </div>
+  <div class="card">
+    <div class="clabel">Avg Win</div>
+    <div class="cval" id="lsAvgWin" style="color:var(--green)">—</div>
+    <div class="csub">pips/trade</div>
+  </div>
+  <div class="card">
+    <div class="clabel">Avg Loss</div>
+    <div class="cval" id="lsAvgLoss" style="color:var(--red)">—</div>
+    <div class="csub">pips/trade</div>
+  </div>
+  <div class="card">
+    <div class="clabel">Best Trade</div>
+    <div class="cval" id="lsBest" style="color:var(--green)">—</div>
+    <div class="csub">pips</div>
+  </div>
+  <div class="card">
+    <div class="clabel">Worst Trade</div>
+    <div class="cval" id="lsWorst" style="color:var(--red)">—</div>
+    <div class="csub">pips</div>
+  </div>
+  <div class="card">
+    <div class="clabel">Smart Exit P&L</div>
+    <div class="cval" id="lsSE" style="color:var(--cyan);font-size:16px">—</div>
+    <div class="csub" id="lsSESub">exits tracked</div>
+  </div>
+  <div class="card">
+    <div class="clabel">Avg Duration</div>
+    <div class="cval" id="lsDur" style="color:var(--muted)">—</div>
+    <div class="csub">minutes</div>
+  </div>
+</div>
+
 <!-- CHARTS ROW -->
 <div class="charts2 mb10">
   <div class="card">
@@ -389,6 +466,8 @@ tr:hover td{background:var(--bg3)}
 // ── Globals ──────────────────────────────────────────────────────────────────
 let eqChart = null, donutChart = null, confChart = null;
 let lastCandles = {};
+let _sessionStartEquity = null;
+let _posOpenTime = null;
 
 // ── Chart init ───────────────────────────────────────────────────────────────
 function initCharts() {
@@ -408,10 +487,10 @@ function initCharts() {
     options: {
       responsive: true, maintainAspectRatio: false, animation: { duration: 500 },
       interaction: { mode: 'index', intersect: false },
-      plugins: { legend: { display: false }, tooltip: { backgroundColor: 'rgba(11,16,23,0.92)', borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1, callbacks: { label: c => '  ' + (c.parsed.y >= 0 ? '+' : '') + c.parsed.y + ' pips' } } },
+      plugins: { legend: { display: false }, tooltip: { backgroundColor: 'rgba(11,16,23,0.92)', borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1, callbacks: { label: c => '  $' + c.parsed.y.toFixed(2) } } },
       scales: {
         x: { grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { maxTicksLimit: 8, maxRotation: 0 } },
-        y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { callback: v => (v >= 0 ? '+' : '') + v } }
+        y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { callback: v => '$' + v.toFixed(0) } }
       }
     }
   });
@@ -475,11 +554,17 @@ function sparklineSvg(closes) {
 function renderPositions(positions) {
   const cnt = document.getElementById('posCnt');
   const body = document.getElementById('posBody');
+  const pnlWrap = document.getElementById('posPnLWrap');
   if (!positions || !positions.length) {
     cnt.textContent = '0 open';
     body.innerHTML = '<tr class="emptyrow"><td colspan="8">No open positions.</td></tr>';
+    if (pnlWrap) pnlWrap.style.display = 'none';
+    const timerEl = document.getElementById('posTimer');
+    if (timerEl) timerEl.style.display = 'none';
+    _posOpenTime = null;
     return;
   }
+  cnt.textContent = positions.length + ' open';
   cnt.textContent = positions.length + ' open';
   body.innerHTML = positions.map(p => {
     const dc = p.direction === 'BUY' ? 'dbuy' : 'dsell';
@@ -499,6 +584,30 @@ function renderPositions(positions) {
       '<td class="tmono" style="color:' + pc + ';font-weight:600">' + pSign + (+p.profit||0).toFixed(2) + '</td>' +
     '</tr>';
   }).join('');
+
+  // Start live timer for first position
+  const p = positions[0];
+  if (p) {
+    // Try to get open time from various possible field names
+    const openTime = p.open_time || p.openTime || p.ctime || p.time;
+    if (openTime) {
+      try {
+        const ms = new Date(openTime).getTime();
+        if (!isNaN(ms)) startPosTimer(ms);
+      } catch(e) {}
+    }
+    // Show live P&L
+    if (pnlWrap) {
+      pnlWrap.style.display = 'block';
+      const pc = (p.profit||0) >= 0 ? 'var(--green)' : 'var(--red)';
+      const ps = (p.profit||0) >= 0 ? '+' : '';
+      const pvEl = document.getElementById('posPnlVal');
+      if (pvEl) {
+        pvEl.textContent = ps + '$' + (+p.profit||0).toFixed(2);
+        pvEl.style.color = pc;
+      }
+    }
+  }
 }
 
 // ── Countdown timer ───────────────────────────────────────────────────────────
@@ -513,6 +622,86 @@ function startCountdown(secs) {
     if (el) el.textContent = _countdownVal > 0 ? _countdownVal + 's' : 'NOW';
   }, 1000);
 }
+
+// ── Live position timer ─────────────────────────────────────────────────────
+let _posTimerInterval = null;
+function startPosTimer(openTimeMs) {
+  _posOpenTime = openTimeMs;
+  const timerEl = document.getElementById('posTimer');
+  if (timerEl) timerEl.style.display = 'block';
+  if (_posTimerInterval) clearInterval(_posTimerInterval);
+  _posTimerInterval = setInterval(() => {
+    if (!_posOpenTime) return;
+    const secs = Math.floor((Date.now() - _posOpenTime) / 1000);
+    const m = Math.floor(secs / 60), s = secs % 60;
+    const el = document.getElementById('posAge');
+    if (el) el.textContent = m + 'm ' + String(s).padStart(2,'0') + 's';
+  }, 1000);
+}
+
+// ── Live stats from status ──────────────────────────────────────────────────
+function renderLiveStats(d) {
+  const st = d.stats || {};
+  const se = st.smart_exit || {};
+  const cap = st.capital || {};
+
+  // Smart exit P&L
+  const seEl = document.getElementById('lsSE');
+  if (seEl) {
+    const seUsd = se.total_usd || 0;
+    seEl.textContent = (seUsd >= 0 ? '+' : '') + '$' + seUsd.toFixed(2);
+    seEl.style.color = seUsd >= 0 ? 'var(--green)' : 'var(--red)';
+  }
+  const seSub = document.getElementById('lsSESub');
+  if (seSub) seSub.textContent = (se.total || 0) + ' exits';
+
+  // Avg pips
+  const avgPips = se.avg_pips;
+  const awEl = document.getElementById('lsAvgWin');
+  const alEl = document.getElementById('lsAvgLoss');
+  if (avgPips !== undefined) {
+    if (avgPips >= 0 && awEl) awEl.textContent = '+' + Math.abs(avgPips).toFixed(0);
+    if (avgPips < 0 && alEl) alEl.textContent = Math.abs(avgPips).toFixed(0);
+  }
+
+  // Streak
+  const streakEl = document.getElementById('sStreak');
+  if (streakEl) streakEl.textContent = 'W' + (cap.consecutive_wins||0) + ' / L' + (cap.consecutive_losses||0);
+  const streakSub = document.getElementById('sStreakSub');
+  if (streakSub) {
+    const cw = cap.consecutive_wins||0, cl = cap.consecutive_losses||0;
+    if (cw >= 3) streakSub.textContent = '🔥 Hot streak!';
+    else if (cl >= 3) streakSub.textContent = '❄️ Cold streak';
+    else streakSub.textContent = (st.win_rate||0)+'% WR';
+  }
+
+  // Session P&L (from bot_status)
+  if (_sessionStartEquity === null) {
+    const ac = d.account || {};
+    if (ac.balance !== undefined) _sessionStartEquity = ac.balance;
+  }
+  if (_sessionStartEquity !== null) {
+    const ac = d.account || {};
+    const sessPnl = (ac.equity || 0) - _sessionStartEquity;
+    const spEl = document.getElementById('sSessPnl');
+    if (spEl) {
+      spEl.textContent = (sessPnl >= 0 ? '+' : '') + '$' + sessPnl.toFixed(2);
+      spEl.style.color = sessPnl >= 0 ? 'var(--green)' : 'var(--red)';
+    }
+  }
+  const sessTradesEl = document.getElementById('sSessTrades');
+  if (sessTradesEl) sessTradesEl.textContent = (st.total_trades||0) + ' total trades';
+
+  // Live P&L (equity vs balance)
+  const ac = d.account || {};
+  const pnl = (ac.equity || 0) - (ac.balance || 0);
+  const lp = document.getElementById('sLivePnl');
+  if (lp) {
+    lp.textContent = (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(2);
+    lp.style.color = pnl >= 0 ? 'var(--green)' : 'var(--red)';
+  }
+}
+
 
 // ── Render status ─────────────────────────────────────────────────────────────
 function renderStatus(d) {
@@ -570,6 +759,9 @@ function renderStatus(d) {
 
   // Open positions panel
   renderPositions(d.open_positions || []);
+
+  // Live stats update
+  renderLiveStats(d);
 
   // Pick primary signal (from first symbol if multi-symbol, else flat)
   let pSig, pConf, pReason, pInd, pH1, pH4, pAsk, pBid, pSym;
@@ -666,13 +858,18 @@ function renderHistory(rows) {
   document.getElementById('lgSell').textContent = nS;
   document.getElementById('lgHold').textContent = nH;
 
-  // Equity curve
-  let cum = 0;
+  // Equity curve — real account balance tracking
+  // We reconstruct equity progression from cumulative pips
+  // Starting balance $781.90 as reference
+  const START_BALANCE = 781.90;
+  const PIP_VALUE = 0.10; // approx $0.10 per pip per 0.01 lot
+  let cumPips = 0;
   const elabels = [], edata = [];
   rows.slice().reverse().filter(r => r.action === 'TRADE' || r.action === 'DRY_RUN').forEach(r => {
-    cum += r.direction === 'BUY' ? 5 : r.direction === 'SELL' ? -5 : 0;
+    const pips = r.pips || (r.direction === 'BUY' ? 5 : r.direction === 'SELL' ? -5 : 0);
+    cumPips += pips;
     elabels.push((r.ts || '').substring(5,16).replace('T',' '));
-    edata.push(cum);
+    edata.push(START_BALANCE + cumPips * PIP_VALUE);
   });
   eqChart.data.labels = elabels; eqChart.data.datasets[0].data = edata;
   eqChart.update('none');
@@ -753,7 +950,7 @@ async function poll() {
 document.addEventListener('DOMContentLoaded', () => {
   initCharts();
   poll();
-  setInterval(poll, 3000);
+  setInterval(poll, 2000);
   setInterval(updateClock, 1000);
   updateClock();
 });
@@ -807,7 +1004,14 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
             data = {'state': 'stopped'}
             if STATUS_FILE.exists():
                 try:
+                    import time as _t
                     data = json.loads(STATUS_FILE.read_text())
+                    # Inject staleness: how many seconds since bot last wrote status
+                    age_s = int(_t.time() - STATUS_FILE.stat().st_mtime)
+                    data['_status_age_s'] = age_s
+                    if age_s > 120:
+                        data['_stale'] = True
+                        data['state'] = f"stale ({age_s}s ago)"
                 except Exception:
                     data = {'state': 'error'}
             self._json(data)
@@ -845,6 +1049,7 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
 class ThreadedHTTPServer(ThreadingMixIn, http.server.HTTPServer):
     """Handle each request in a separate thread — no more connection timeouts."""
     daemon_threads = True
+    allow_reuse_address = True  # prevents 'Address already in use' on fast restart
 
 
 # ── Entry Point ────────────────────────────────────────────────────────────────

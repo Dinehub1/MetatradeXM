@@ -278,13 +278,21 @@ class MetaApiBridge:
         print(f"  ⚠️  Unexpected order result: {result}")
         return None
 
-    def close_position(self, ticket):
+    def close_position(self, ticket, volume=None):
+        """Close a position. If volume is specified, partially close that amount."""
         try:
-            self._run(self._conn.close_position(str(ticket)))
+            if volume is not None:
+                self._run(self._conn.close_position(str(ticket), {"volume": volume}))
+            else:
+                self._run(self._conn.close_position(str(ticket)))
             return True
         except Exception as e:
             print(f"  ❌  Close error: {e}")
             return False
+
+    def close_position_partial(self, ticket, volume):
+        """Partially close a position by closing the specified volume."""
+        return self.close_position(ticket, volume=volume)
 
     def modify_position(self, ticket, sl=None, tp=None) -> bool:
         """Modify SL/TP of an open position (used for trailing stop / breakeven)."""
@@ -300,5 +308,22 @@ class MetaApiBridge:
             opts["stopLoss"] = sl
         if tp is not None:
             opts["takeProfit"] = tp
-        result = await self._conn.modify_position(str(ticket), opts)
-        return bool(result)
+        try:
+            result = await self._conn.modify_position(str(ticket), opts)
+            # MetaApi result can be dict, None, or raise internally
+            if result is None:
+                return True   # no exception = success
+            if isinstance(result, dict):
+                return result.get("id") is not None or "error" not in result
+            return True
+        except KeyError as e:
+            # MetaApi SDK sometimes throws KeyError('value') on success responses.
+            # Log at WARNING so we can detect if this is masking a real failure.
+            import logging as _lg
+            _lg.getLogger(__name__).warning(
+                f"modify_position KeyError for ticket {ticket}: {e} — "
+                "treating as failure; verify position in broker terminal"
+            )
+            return False
+        except Exception:
+            raise

@@ -31,7 +31,10 @@ stop_all() {
   pkill -f "auto_recovery.sh"     2>/dev/null && echo "   ✓ Watchdog stopped"
   pkill -f "dashboard.py"         2>/dev/null && echo "   ✓ Dashboard stopped"
   pkill -f "bot.py run"           2>/dev/null && echo "   ✓ Old bot stopped"
+  # Also release the dashboard port to prevent 'Address already in use' on restart
+  fuser -k ${PORT}/tcp 2>/dev/null || true
   rm -f /tmp/trading_bot.pid /tmp/trading_dashboard.pid
+  sleep 1  # give OS time to release the port
   echo -e "${GRN}   All stopped.${RST}"
 }
 

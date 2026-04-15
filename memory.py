@@ -100,13 +100,37 @@ class TradeMemory:
         """Record when a new trade is opened."""
         ts = datetime.now(timezone.utc).isoformat()
         with sqlite3.connect(self.db_path) as conn:
+            def _safe_json(obj):
+                """Convert numpy/bool types to JSON-serializable Python types."""
+                import math
+                if isinstance(obj, dict):
+                    return {k: _safe_json(v) for k, v in obj.items()}
+                if isinstance(obj, (list, tuple)):
+                    return [_safe_json(i) for i in obj]
+                if isinstance(obj, bool):
+                    return bool(obj)
+                try:
+                    import numpy as np
+                    if isinstance(obj, (np.integer,)):
+                        return int(obj)
+                    if isinstance(obj, (np.floating,)):
+                        return float(obj)
+                    if isinstance(obj, (np.bool_,)):
+                        return bool(obj)
+                except ImportError:
+                    pass
+                if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+                    return None
+                return obj
+
             conn.execute("""
                 INSERT INTO trade_entries
                 (ts, ticket, symbol, direction, entry_price, confidence,
                  factors_json, conditions_json, skills_used)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (ts, str(ticket), symbol, direction, entry_price, confidence,
-                  json.dumps(factors or {}), json.dumps(conditions or {}),
+                  json.dumps(_safe_json(factors or {})),
+                  json.dumps(_safe_json(conditions or {})),
                   json.dumps(skills_used or [])))
         log.info(f"[MEMORY] Recorded entry: {symbol} {direction} #{ticket} conf={confidence:.0%}")
 

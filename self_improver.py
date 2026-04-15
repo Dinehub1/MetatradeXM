@@ -17,9 +17,32 @@ from skill_manager import SkillManager
 
 log = logging.getLogger("improver")
 
-WEIGHTS_PATH = Path(__file__).parent / "scoring_weights.json"
+WEIGHTS_PATH     = Path(__file__).parent / "scoring_weights.json"
+LAST_REVIEW_FILE = Path(__file__).parent / ".last_review_date"  # persists across restarts
 OLLAMA_URL = "http://localhost:11434/api/chat"
 OLLAMA_MODEL = "minimax-m2.7:cloud"
+
+# Minimum weight floor — prevent score collapse from compounding daily decays
+WEIGHT_FLOOR = 0.85
+WEIGHT_CEIL  = 1.20
+
+# SAFETY: Disable automatic weight adjustments to prevent death spiral.
+# Weight decay: 1.0 -> 0.95 -> 0.941 -> 0.886 compounds fast.
+# All weight changes must be MANUAL. Set True only for deliberate adjustment.
+WEIGHT_ADJUSTMENT_ENABLED = False
+
+# Explicit mapping from factor stat keys (analyzer) to weight keys (scoring_weights.json)
+FACTOR_TO_WEIGHT = {
+    "f1_h4_trend":      "f1_h4_trend",
+    "f2_h1_trend":      "f2_h1_trend",
+    "f3_rsi_zone":      "f3_rsi",
+    "f4_macd_momentum": "f4_macd",
+    "f5_adx_strength":  "f5_adx",
+    "f6_stoch_confirm": "f6_stoch",
+    "f7_bb_action":     "f7_bb",
+    "f8_h1_rsi":        "f8_h1_rsi",
+    "f9_h1_macd":       "f9_h1_macd",
+}
 
 
 class PerformanceAnalyzer:
@@ -31,10 +54,20 @@ class PerformanceAnalyzer:
         self._last_review = None
 
     def should_run_review(self) -> bool:
-        """Check if daily review should run (once per UTC day or every 50 trades)."""
-        now = datetime.now(timezone.utc)
-        today = now.strftime("%Y-%m-%d")
+        """Check if daily review should run — once per UTC day, persisted to disk.
+        Uses a file (.last_review_date) so process restarts do NOT re-trigger the review."""
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
+        # Check persistent file FIRST — survives process restarts
+        if LAST_REVIEW_FILE.exists():
+            try:
+                last = LAST_REVIEW_FILE.read_text().strip()
+                if last == today:
+                    return False
+            except Exception:
+                pass
+
+        # In-memory guard (secondary)
         if self._last_review == today:
             return False
 
@@ -47,9 +80,13 @@ class PerformanceAnalyzer:
         Main self-improvement loop. Analyzes recent trades and adjusts strategy.
         Safe: max ±10% weight change per day to prevent overfitting.
         """
-        now = datetime.now(timezone.utc)
-        today = now.strftime("%Y-%m-%d")
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         self._last_review = today
+        # Persist to disk so restarting the process doesn't re-trigger today's review
+        try:
+            LAST_REVIEW_FILE.write_text(today)
+        except Exception:
+            pass
 
         log.info("=" * 50)
         log.info("[SELF-IMPROVE] Starting daily performance review")
@@ -188,6 +225,9 @@ class PerformanceAnalyzer:
 
     def _compute_weight_adjustments(self, factor_stats: dict, outcomes: list) -> dict:
         """Compute weight adjustments based on factor effectiveness."""
+        if not WEIGHT_ADJUSTMENT_ENABLED:
+            log.info("[SELF-IMPROVE] Weight adjustments DISABLED - skipping")
+            return {}
         adjustments = {}
 
         for factor_name, stats in factor_stats.items():
@@ -206,7 +246,8 @@ class PerformanceAnalyzer:
     def _apply_weight_adjustments(self, adjustments: dict):
         """
         Apply weight adjustments to scoring_weights.json.
-        SAFETY: Max ±10% change per day from base weight of 1.0.
+        DISABLED by default. WEIGHT_ADJUSTMENT_ENABLED must be True.
+        Manual changes only. Max 3% per adjustment, hard bounds 0.85-1.20.
         """
         try:
             if WEIGHTS_PATH.exists():
@@ -218,20 +259,19 @@ class PerformanceAnalyzer:
 
         changes = []
         for factor_key, multiplier in adjustments.items():
-            # Map factor stat names to weight keys
-            weight_key = factor_key  # e.g., "f3_rsi_zone" -> "f3_rsi"
-            for wk in weights:
-                if factor_key.startswith(wk.replace("_", "")):
-                    weight_key = wk
-                    break
+            # Map factor stat names to weight keys using explicit mapping
+            weight_key = FACTOR_TO_WEIGHT.get(factor_key, factor_key)
 
             if weight_key in weights:
                 old = weights[weight_key]
                 new = round(old * multiplier, 3)
-                # Clamp to [0.5, 2.0] range
-                new = max(0.5, min(2.0, new))
-                # Max ±10% change from 1.0
-                new = max(0.9, min(1.1, new))
+                # Clamp: no single adjustment can move weight more than 3% relative to old value
+                # Reduced from 10% to prevent oscillation and compounding drift
+                max_delta = old * 0.03
+                new = max(old - max_delta, min(old + max_delta, new))
+                # Hard absolute bounds: floor at 0.85 prevents score collapse
+                # from compounding daily decays; ceil at 1.20 prevents overweighting
+                new = round(max(WEIGHT_FLOOR, min(WEIGHT_CEIL, new)), 3)
 
                 if new != old:
                     weights[weight_key] = new

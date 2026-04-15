@@ -1,23 +1,165 @@
 {
-    "f1_h4_trend": 1.0,
-    "f2_h1_trend": 1.0,
-    "f3_rsi": 1.0,
-    "f4_macd": 1.0,
-    "f5_adx": 1.0,
-    "f6_stoch": 1.0,
-    "f7_bb": 1.0,
-    "f8_h1_rsi": 0.5,
-    "f9_h1_macd": 0.5,
-    "ranging_penalty": 0.6,
-    "h4_override_base": 0.5,
-    "buy_threshold": 15,
-    "sell_threshold": -15,
-    "version": 3,
-    "last_adjusted": "2026-04-13",
-    "adjustment_history": [
-        {"date": "2026-04-13", "change": "Initial thresholds ±18"},
-        {"date": "2026-04-13", "change": "Lowered to ±12 — still too few signals"},
-        {"date": "2026-04-13", "change": "Lowered to ±6, ranging_penalty 0.8, proportional HOLD conf — fixes ranging market HOLD bias"},
-        {"date": "2026-04-13", "change": "PROFITABILITY FIX: ±6 was far too aggressive (15% WR). Raised to ±15 for real confluence. Ranging penalty 0.6 to avoid noise trades in weak trends."}
-    ]
+  "f1_h4_trend": 1.0,
+  "f2_h1_trend": 1.0,
+  "f3_rsi": 1.0,
+  "f4_macd": 1.0,
+  "f5_adx": 1.0,
+  "f6_stoch": 1.0,
+  "f7_bb": 1.0,
+  "f8_h1_rsi": 0.5,
+  "f9_h1_macd": 0.5,
+  "f10_d1": 0.7,
+  "f11_candle": 0.8,
+  "ranging_penalty": 0.8,
+  "h4_override_base": 0.5,
+  \"buy_threshold\": 12,
+  \"sell_threshold\": -12,
+  "version": 11,
+  "last_adjusted": "2026-04-15",
+  "adjustment_history": [
+    {
+      "date": "2026-04-13",
+      "change": "Initial thresholds \u00b118"
+    },
+    {
+      "date": "2026-04-13",
+      "change": "Lowered to \u00b112 \u2014 still too few signals"
+    },
+    {
+      "date": "2026-04-13",
+      "change": "Lowered to \u00b16, ranging_penalty 0.8, proportional HOLD conf \u2014 fixes ranging market HOLD bias"
+    },
+    {
+      "date": "2026-04-13",
+      "change": "PROFITABILITY FIX: \u00b16 was far too aggressive (15% WR). Raised to \u00b115 for real confluence. Ranging penalty 0.6 to avoid noise trades in weak trends."
+    },
+    {
+      "date": "2026-04-13",
+      "change": "SCALPING OVERHAUL: \u00b110 thresholds (more trades but with tight exits), ranging_penalty 0.5 (harsher block on choppy markets). Paired with tight SL/TP, aggressive profit booking, loss cut, winner protection."
+    },
+    {
+      "date": "2026-04-13",
+      "change": "{'buy_threshold': 15, 'sell_threshold': -15, 'ranging_penalty': 0.6}"
+    },
+    {
+      "date": "2026-04-13",
+      "change": "{'buy_threshold': 8, 'sell_threshold': -8}"
+    },
+    {
+      "date": "2026-04-13",
+      "change": "{'buy_threshold': 5, 'sell_threshold': -5}"
+    },
+    {
+      "date": "2026-04-13",
+      "change": "{'buy_threshold': 0.1, 'sell_threshold': -0.1}"
+    },
+    {
+      "ts": "2026-04-14T00:32:41.469843+00:00",
+      "changes": [
+        "f1_h4_trend: 1.0 -> 0.95",
+        "f2_h1_trend: 1.0 -> 0.95",
+        "f3_rsi: 1.0 -> 0.95",
+        "f4_macd: 1.0 -> 0.95",
+        "f5_adx: 1.0 -> 0.95",
+        "f6_stoch: 1.0 -> 0.95",
+        "f7_bb: 1.0 -> 0.95"
+      ]
+    },
+    {
+      "date": "2026-04-14",
+      "change": "{'buy_threshold': 0.05, 'sell_threshold': -0.05}"
+    },
+    {
+      "date": "2026-04-14",
+      "change": "{'buy_threshold': 10, 'sell_threshold': -10}"
+    },
+    {
+      "date": "2026-04-14",
+      "change": "{'buy_threshold': 8, 'sell_threshold': -8}"
+    },
+    {
+      "date": "2026-04-14",
+      "change": "{'buy_threshold': 8, 'sell_threshold': -8}"
+    },
+    {
+      "date": "2026-04-14",
+      "change": "MANUAL RESET: Restored f1-f7 weights to 1.0 after self-improver drift. Fixed confidence denominator (80->25), softened H4 penalty, lowered min_confidence gate."
+    },
+    {
+      "ts": "2026-04-14T09:37:01.595161+00:00",
+      "changes": [
+        "f1_h4_trend: 1.0 -> 0.97",
+        "f2_h1_trend: 1.0 -> 0.97",
+        "f3_rsi: 1.0 -> 0.97",
+        "f4_macd: 1.0 -> 0.97",
+        "f5_adx: 1.0 -> 0.97",
+        "f6_stoch: 1.0 -> 0.97",
+        "f7_bb: 1.0 -> 0.97"
+      ]
+    },
+    {
+      "ts": "2026-04-14T10:33:53.849590+00:00",
+      "changes": [
+        "f1_h4_trend: 0.97 -> 0.941",
+        "f2_h1_trend: 0.97 -> 0.941",
+        "f3_rsi: 0.97 -> 0.941",
+        "f4_macd: 0.97 -> 0.941",
+        "f5_adx: 0.97 -> 0.941",
+        "f6_stoch: 0.97 -> 0.941",
+        "f7_bb: 0.97 -> 0.941"
+      ]
+    },
+    {
+      "ts": "2026-04-14T11:09:22.920194+00:00",
+      "changes": [
+        "f1_h4_trend: 0.941 -> 0.913",
+        "f2_h1_trend: 0.941 -> 0.913",
+        "f3_rsi: 0.941 -> 0.913",
+        "f4_macd: 0.941 -> 0.913",
+        "f5_adx: 0.941 -> 0.913",
+        "f6_stoch: 0.941 -> 0.913",
+        "f7_bb: 0.941 -> 0.913"
+      ]
+    },
+    {
+      "ts": "2026-04-14T13:33:58.987985+00:00",
+      "changes": [
+        "f1_h4_trend: 0.913 -> 0.886",
+        "f2_h1_trend: 0.913 -> 0.886",
+        "f3_rsi: 0.913 -> 0.886",
+        "f4_macd: 0.913 -> 0.886",
+        "f5_adx: 0.913 -> 0.886",
+        "f6_stoch: 0.913 -> 0.886",
+        "f7_bb: 0.913 -> 0.886"
+      ]
+    },
+    {
+      "date": "2026-04-14",
+      "change": "MANUAL RESET: Weights restored to 1.0 after compounding self-improver decay. Floor set to 0.85."
+    },
+    {
+      "date": "2026-04-14",
+      "change": "ranging_penalty: 0.6 -> 0.80  (0.6 was over-penalising ranging signals, blocking score overrides at threshold 15)"
+    },
+    {
+      "date": "2026-04-14",
+      "change": "MANUAL RESET: All weights restored to 1.0, WEIGHT_ADJUSTMENT_ENABLED=False"
+    },
+    {
+      "date": "2026-04-14",
+      "change": "Lowered thresholds to \u00b16 to increase signal frequency while monitoring win rate"
+    },
+    {
+      "date": "2026-04-14",
+      "change": "{'buy_threshold': 4, 'sell_threshold': -4}"
+    },
+    {
+      "date": "2026-04-15",
+      "change": "{'buy_threshold': 2, 'sell_threshold': -2}"
+    },
+    {
+      "date": "2026-04-15",
+      "change": "{'buy_threshold': 8, 'sell_threshold': -8}"
+    }
+  ]
 }

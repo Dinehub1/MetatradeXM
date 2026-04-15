@@ -30,25 +30,25 @@ STATE_PATH = Path(__file__).parent / "capital_state.json"
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 CAPITAL_CFG = {
-    # Risk Management
-    "risk_per_trade_pct":    1.0,    # risk 1% of balance per trade
+    # Risk Management — tightened for scalping with small account
+    "risk_per_trade_pct":    0.5,    # risk 0.5% of balance per trade (was 1.0%)
     "max_lot":               0.10,   # hard ceiling lot size
     "min_lot":               0.01,   # floor lot size
-    "pip_sl_estimate":       25,     # default estimated SL in pips (for lot calc)
+    "pip_sl_estimate":       15,     # estimated SL in pips for scalping (was 25)
 
-    # Compounding: increase risk when on a streak
-    "streak_boost_threshold": 3,     # 3+ consecutive wins → boost risk 
-    "streak_boost_pct":       1.5,   # boost to 1.5% risk on winning streak
-    "drawdown_reduce_threshold": 2,  # 2 consecutive losses → reduce risk
-    "drawdown_reduce_pct":    0.5,   # reduce to 0.5% risk on losing streak
+    # Compounding: conservative on streaks
+    "streak_boost_threshold": 3,     # 3+ consecutive wins → boost risk
+    "streak_boost_pct":       0.8,   # boost to 0.8% risk on winning streak (was 1.5%)
+    "drawdown_reduce_threshold": 3,  # 3 consecutive losses → reduce risk
+    "drawdown_reduce_pct":    0.3,   # reduce to 0.3% risk on losing streak (was 0.5%)
 
-    # Profit Booking (Partial Closes)
+    # Profit Booking — earlier and more aggressive for scalping
     "partial_book_enabled":   True,
     "book_levels": [
-        {"pips": 5,  "close_pct": 0.30},   # at +5 pips, close 30%
-        {"pips": 10, "close_pct": 0.30},   # at +10 pips, close another 30%
-        {"pips": 20, "close_pct": 0.20},   # at +20 pips, close another 20%
-        # remaining 20% runs to TP or SL (free ride)
+        {"pips": 3,  "close_pct": 0.40},   # at +3 pips, close 40% (was 5/30%)
+        {"pips": 6,  "close_pct": 0.30},   # at +6 pips, close another 30% (was 10/30%)
+        {"pips": 10, "close_pct": 0.20},   # at +10 pips, close another 20% (was 20/20%)
+        # remaining 10% runs to TP or SL (free ride)
     ],
 
     # Volatility scaling
@@ -56,13 +56,13 @@ CAPITAL_CFG = {
     "atr_high_threshold":    2.0,    # ATR > 2× average → reduce lot by 30%
     "atr_low_threshold":     0.5,    # ATR < 0.5× average → is dead market, skip
 
-    # Session quality multipliers
+    # Session quality multipliers — fixed key mismatch
     "session_multipliers": {
-        "LONDON":        1.0,   # full size
-        "NEW_YORK":      1.0,   # full size
-        "LONDON_NY":     1.1,   # slight boost — best liquidity
-        "ASIAN":         0.6,   # reduced — thin markets
-        "MARKET_CLOSED": 0.0,   # no trading
+        "LONDON":            1.0,   # full size
+        "NEW_YORK":          0.8,   # slightly reduced
+        "LONDON_NY_OVERLAP": 1.0,   # best liquidity (was "LONDON_NY" — key mismatch fix)
+        "ASIAN":             0.3,   # heavily reduced — thin markets (was 0.6)
+        "MARKET_CLOSED":     0.0,   # no trading
     },
 }
 
@@ -125,7 +125,8 @@ class CapitalManager:
                  f"Booked: ${self.state['booked_profit_usd']:.2f} total")
 
     def compute_lot(self, balance: float, atr: float, atr_avg: float,
-                    session: str, sl_pips: float = None) -> float:
+                    session: str, sl_pips: float = None,
+                    symbol: str = "GOLD.i#") -> float:
         """
         Calculate the optimal lot size for the next trade.
 
@@ -153,7 +154,7 @@ class CapitalManager:
                      f"reducing risk to {risk_pct}%")
 
         # 3. Session quality multiplier
-        session_mult = CAPITAL_CFG["session_multipliers"].get(session, 0.8)
+        session_mult = CAPITAL_CFG["session_multipliers"].get(session, 0.0)
         if session_mult == 0.0:
             log.info(f"[CAPITAL] Market closed — lot = 0")
             return 0.0
@@ -173,9 +174,14 @@ class CapitalManager:
         # 5. Compute lot from risk
         sl = sl_pips or CAPITAL_CFG["pip_sl_estimate"]
         risk_usd    = balance * (risk_pct / 100)
-        # For XAUUSD: 1 pip ≈ $1 per 0.01 lot; for XAGUSD: 1 pip ≈ $0.05 per 0.01 lot
-        # Use conservative: pip_value = $1 per 0.01 lot (gold standard)
-        pip_value_per_lot = 1.0 / 0.01   # $100 per lot per pip (gold)
+        # Pip value per lot depends on symbol contract size
+        # Gold: pip=0.10, contract=100oz → $10/pip/lot → $0.10 per 0.01 lot
+        # Silver: pip=0.01, contract=5000oz → $50/pip/lot → $0.50 per 0.01 lot
+        pip_sizes = {"GOLD.i#": 0.10, "SILVER.i#": 0.01}
+        contract_sizes = {"GOLD.i#": 100, "SILVER.i#": 5000}
+        _pip = pip_sizes.get(symbol, 0.0001)
+        _cs = contract_sizes.get(symbol, 100)
+        pip_value_per_lot = _pip * _cs   # e.g. Gold: 0.10*100=$10, Silver: 0.01*5000=$50
         raw_lot = risk_usd / (sl * pip_value_per_lot)
 
         # 6. Apply multipliers
@@ -230,8 +236,9 @@ class CapitalManager:
                 volume     = getattr(pos, "volume", 0.01)
                 profit_usd = getattr(pos, "profit", 0.0)
 
-                # Calculate pips
-                profit_pips = profit_usd / (pip * 10 * volume) if (pip * 10 * volume) > 0 else 0
+                # Calculate pips using contract_size for correct pip value
+                contract_size = sym_cfg.get("contract_size", 100)
+                profit_pips = profit_usd / (pip * contract_size * volume) if (pip * contract_size * volume) > 0 else 0
 
                 # Only book profits (not losses)
                 if profit_pips <= 0:

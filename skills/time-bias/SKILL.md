@@ -1,8 +1,8 @@
 ---
-name: time-bias
-description: Gold weakens during Asian session (22-07 UTC), rebounds during London/NY overlap (13-16 UTC)
-type: filter
-version: 1.0.0
+name: 'time-bias'
+description: 'Gold weakens during Asian session (22-07 UTC), rebounds during London/NY overlap (13-16 UTC)'
+type: 'filter'
+version: '1.0.0'
 performance:
   total_trades: 0
   wins: 0
@@ -15,8 +15,10 @@ conditions:
   block_buy_sessions: [ASIAN]
   preferred_hours: [13, 14, 15]
   boost_amount: 0.05
+sell_confirmation_rsi: 45
+preferred_hours: []
+block_buy_sessions: []
 ---
-
 # Time-of-Day Bias Strategy
 
 ## Research Basis

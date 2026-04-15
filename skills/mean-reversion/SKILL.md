@@ -1,8 +1,8 @@
 ---
-name: mean-reversion
-description: Trade reversals at Bollinger Band extremes with RSI confirmation
-type: booster
-version: 1.0.0
+name: 'mean-reversion'
+description: 'Trade reversals at Bollinger Band extremes with RSI confirmation'
+type: 'booster'
+version: '1.0.0'
 performance:
   total_trades: 0
   wins: 0
@@ -14,8 +14,9 @@ conditions:
   symbols: [XAUUSD, XAGUSD]
   max_adx: 25
   boost_amount: 0.06
+max_adx: 35
+boost_amount: 0.06
 ---
-
 # Mean Reversion Strategy
 
 ## Concept

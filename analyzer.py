@@ -8,13 +8,14 @@ MarketAnalyzer — UPGRADED
 """
 
 import json
+import os
+import re
 import requests
 import numpy as np
 import pandas as pd
 from datetime import datetime, timezone
 
-OLLAMA_MODEL     = "minimax-m2.7:cloud"
-OLLAMA_CHAT_URL  = "http://localhost:11434/api/chat"
+from ai_client import ask_openrouter  # unified OpenRouter client (T1 → T2)
 
 SYSTEM_PROMPT = """You are a professional forex trader with 15+ years of experience.
 You specialize in technical analysis and risk management.
@@ -23,9 +24,11 @@ You are conservative — when in doubt, you say HOLD to protect capital.
 You always consider the higher timeframe trend before entering on lower timeframes."""
 
 
+
 class MarketAnalyzer:
     def __init__(self, use_claude: bool = True):
         self.use_claude = use_claude
+        self._nemotron_cache: dict = {}  # symbol -> {"ts": float, "context": str}
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -44,25 +47,34 @@ class MarketAnalyzer:
         ind_m15 = self._compute_indicators(tf_data["M15"])
         ind_h1  = self._compute_indicators(tf_data.get("H1", tf_data["M15"]))
         ind_h4  = self._compute_indicators(tf_data.get("H4", tf_data["M15"]))
+        ind_d1  = self._compute_indicators(tf_data["D1"]) if "D1" in tf_data and len(tf_data["D1"]) >= 30 else None
 
         session     = self._get_session()
-        base_signal = self._multi_tf_signal(ind_m15, ind_h1, ind_h4)
+        base_signal = self._multi_tf_signal(ind_m15, ind_h1, ind_h4, ind_d1)
         base_signal["session"] = session
 
         if self.use_claude:
+            research_ctx = self._fetch_nemotron_research(symbol, base_signal)
             signal = self._ai_reasoning(symbol, tick, ind_m15, ind_h1, ind_h4,
                                         base_signal, tf_data["M15"],
-                                        memory_context=memory_context)
+                                        memory_context=memory_context,
+                                        research_context=research_ctx,
+                                        d1=ind_d1, d1_df=tf_data.get("D1"))
         else:
             signal = base_signal
 
         signal["indicators"] = ind_m15
         signal["h1_trend"]   = ind_h1["ema_trend"]
         signal["h4_trend"]   = ind_h4["ema_trend"]
+        signal["d1_trend"]   = ind_d1["ema_trend"] if ind_d1 else "UNKNOWN"
         signal["session"]    = session
         return signal
 
     # ── Session detection ─────────────────────────────────────────────────────
+
+    def _fetch_nemotron_research(self, symbol: str, base_signal: dict) -> str:
+        # Placeholder — Nvidia NIM deep research integration (TBD)
+        return ""
 
     def _get_session(self) -> str:
         now = datetime.now(timezone.utc)
@@ -76,6 +88,36 @@ class MarketAnalyzer:
 
     # ── Indicator suite ───────────────────────────────────────────────────────
 
+    def _candle_pattern_score(self, df: pd.DataFrame) -> int:
+        """Detect simple candlestick patterns on the last 2 candles. Returns signed score."""
+        if len(df) < 3:
+            return 0
+        o, h, l, c = df["o"].values, df["h"].values, df["l"].values, df["c"].values
+        score = 0
+        body = abs(c[-1] - o[-1])
+        prev_body = abs(c[-2] - o[-2])
+        full_range = h[-1] - l[-1] or 0.0001
+
+        # Engulfing (strong reversal)
+        bearish_engulf = (c[-2] > o[-2]) and (o[-1] > c[-2]) and (c[-1] < o[-2])
+        bullish_engulf = (c[-2] < o[-2]) and (o[-1] < c[-2]) and (c[-1] > o[-2])
+        if bearish_engulf: score -= 6
+        if bullish_engulf: score += 6
+
+        # Pin bar / hammer (long wick, small body at opposite end)
+        lower_wick = o[-1] - l[-1] if c[-1] > o[-1] else c[-1] - l[-1]
+        upper_wick = h[-1] - c[-1] if c[-1] > o[-1] else h[-1] - o[-1]
+        if lower_wick > 2 * body and upper_wick < body:  # bullish pin/hammer
+            score += 4
+        if upper_wick > 2 * body and lower_wick < body:  # bearish shooting star
+            score -= 4
+
+        # Doji (indecision — reduce score slightly toward 0)
+        if body < full_range * 0.1 and full_range > 0:
+            score = int(score * 0.5)
+
+        return score
+
     def _compute_indicators(self, df: pd.DataFrame) -> dict:
         close = df["c"].values
         high  = df["h"].values
@@ -85,6 +127,7 @@ class MarketAnalyzer:
         adx_val, plus_di, minus_di = self._adx(high, low, close, 14)
         stoch_k, stoch_d = self._stochastic(high, low, close, 14, 3)
         will_r   = self._williams_r(high, low, close, 14)
+        candle_score = self._candle_pattern_score(df)
 
         return {
             "rsi":          round(rsi_val, 2),
@@ -104,10 +147,11 @@ class MarketAnalyzer:
             "stoch_k":      round(stoch_k, 1),
             "stoch_d":      round(stoch_d, 1),
             "stoch_cross":  self._stoch_cross(high, low, close),
-            "williams_r":   round(will_r, 1),
-            "price":        round(close[-1], 5),
-            "price_change": round((close[-1] - close[-20]) / close[-20] * 100, 3),
-            "vol_ratio":    self._volume_ratio(df),
+            "williams_r":           round(will_r, 1),
+            "price":                round(close[-1], 5),
+            "price_change":         round((close[-1] - close[-20]) / close[-20] * 100, 3),
+            "vol_ratio":            self._volume_ratio(df),
+            "candle_pattern_score": candle_score,
         }
 
     # ── Individual indicators ─────────────────────────────────────────────────
@@ -249,7 +293,7 @@ class MarketAnalyzer:
 
     # ── Factor scoring (pre-AI) ────────────────────────────────────────────────
 
-    def _get_factor_scores(self, m15: dict, h1: dict, h4: dict) -> dict:
+    def _get_factor_scores(self, m15: dict, h1: dict, h4: dict, d1: dict = None) -> dict:
         """
         Returns 9 DIRECTIONALLY SIGNED factor scores + regime flag.
         Positive = bullish, negative = bearish.  The signed sum directly
@@ -349,20 +393,29 @@ class MarketAnalyzer:
         elif h1_macd == 'BEARISH':        f9 = -3
         else:                             f9 = 0
 
+        # F10: D1 daily trend — tiebreaker when H4/H1 conflict
+        d1_map = {'BULLISH': 8, 'MILD_BULL': 4, 'MIXED': 0, 'MILD_BEAR': -4, 'BEARISH': -8}
+        f10 = d1_map.get(d1.get('ema_trend', 'MIXED'), 0) if d1 else 0
+
+        # F11: Candlestick pattern confirmation on M15
+        f11 = m15.get('candle_pattern_score', 0)
+
         regime = 'RANGING' if adx < 18 else 'TRENDING'
 
         return {
-            'f1_h4_trend':       round(f1 * weights.get('f1_h4_trend', 1.0), 1),
-            'f2_h1_trend':       round(f2 * weights.get('f2_h1_trend', 1.0), 1),
-            'f3_rsi_zone':       round(f3 * weights.get('f3_rsi', 1.0), 1),
-            'f4_macd_momentum':  round(f4 * weights.get('f4_macd', 1.0), 1),
-            'f5_adx_strength':   round(f5 * weights.get('f5_adx', 1.0), 1),
-            'f6_stoch_confirm':  round(f6 * weights.get('f6_stoch', 1.0), 1),
-            'f7_bb_action':      round(f7 * weights.get('f7_bb', 1.0), 1),
-            'f8_h1_rsi':         round(f8 * weights.get('f8_h1_rsi', 0.5), 1),
-            'f9_h1_macd':        round(f9 * weights.get('f9_h1_macd', 0.5), 1),
-            'adx_regime':        regime,
-            'bb_squeeze':        m15.get('bb_squeeze', False),
+            'f1_h4_trend':          round(f1  * weights.get('f1_h4_trend', 1.0), 1),
+            'f2_h1_trend':          round(f2  * weights.get('f2_h1_trend', 1.0), 1),
+            'f3_rsi_zone':          round(f3  * weights.get('f3_rsi', 1.0), 1),
+            'f4_macd_momentum':     round(f4  * weights.get('f4_macd', 1.0), 1),
+            'f5_adx_strength':      round(f5  * weights.get('f5_adx', 1.0), 1),
+            'f6_stoch_confirm':     round(f6  * weights.get('f6_stoch', 1.0), 1),
+            'f7_bb_action':         round(f7  * weights.get('f7_bb', 1.0), 1),
+            'f8_h1_rsi':            round(f8  * weights.get('f8_h1_rsi', 0.5), 1),
+            'f9_h1_macd':           round(f9  * weights.get('f9_h1_macd', 0.5), 1),
+            'f10_d1_trend':         round(f10 * weights.get('f10_d1', 0.7), 1),
+            'f11_candle_pattern':   round(f11 * weights.get('f11_candle', 0.8), 1),
+            'adx_regime':           regime,
+            'bb_squeeze':           m15.get('bb_squeeze', False),
         }
 
     def _load_weights(self) -> dict:
@@ -379,8 +432,8 @@ class MarketAnalyzer:
 
     # ── Multi-timeframe confluence signal ─────────────────────────────────────
 
-    def _multi_tf_signal(self, m15: dict, h1: dict, h4: dict) -> dict:
-        scores = self._get_factor_scores(m15, h1, h4)
+    def _multi_tf_signal(self, m15: dict, h1: dict, h4: dict, d1: dict = None) -> dict:
+        scores = self._get_factor_scores(m15, h1, h4, d1)
         weights = self._load_weights()
 
         # SIGNED SUM — each factor already carries its direction
@@ -393,7 +446,9 @@ class MarketAnalyzer:
             scores['f6_stoch_confirm'] +
             scores['f7_bb_action'] +
             scores.get('f8_h1_rsi', 0) +
-            scores.get('f9_h1_macd', 0)
+            scores.get('f9_h1_macd', 0) +
+            scores.get('f10_d1_trend', 0) +
+            scores.get('f11_candle_pattern', 0)
         )
 
         # ── ADX ranging penalty ──────────────────────────────────────────
@@ -416,8 +471,10 @@ class MarketAnalyzer:
         else:
             confluence_ratio = 0.5
 
-        # Max possible with 9 signed factors: ~80 (10+10+10+10+10+8+8+5+5)
-        max_possible = 80.0
+        # Practical max under real market conditions with current weights (~25-30).
+        # Using 80 (theoretical) meant score=20 only produced 0.25 confidence — too low.
+        # With 25: score=15 → 0.60, score=20 → 0.80 (meaningful calibration).
+        max_possible = 25.0
 
         buy_threshold = weights.get('buy_threshold', 18)
         sell_threshold = weights.get('sell_threshold', -18)
@@ -455,6 +512,8 @@ class MarketAnalyzer:
         if abs(scores['f7_bb_action'])     >= 6: reasons.append(f"BB {m15['bb_position']}")
         if abs(scores.get('f8_h1_rsi', 0)) >= 3: reasons.append(f"H1-RSI {h1['rsi']:.0f}")
         if abs(scores.get('f9_h1_macd', 0)) >= 3: reasons.append(f"H1-MACD {h1['macd_signal']}")
+        if abs(scores.get('f10_d1_trend', 0)) >= 3: reasons.append(f"D1 {d1['ema_trend'] if d1 else 'N/A'}")
+        if abs(scores.get('f11_candle_pattern', 0)) >= 3: reasons.append(f"Candle {int(m15.get('candle_pattern_score', 0)):+d}")
         if regime_note: reasons.append(regime_note)
         reasons.append(f"confluence={confluence_ratio:.0%}")
 
@@ -471,14 +530,26 @@ class MarketAnalyzer:
 
     def _ai_reasoning(self, symbol: str, tick, m15: dict, h1: dict, h4: dict,
                       base_signal: dict, candles: pd.DataFrame,
-                      memory_context: str = "") -> dict:
+                      memory_context: str = "", research_context: str = "",
+                      d1: dict = None, d1_df: pd.DataFrame = None) -> dict:
         last_candles = candles.tail(8)[["time", "o", "h", "l", "c", "vol"]].to_string(index=False)
 
-        # Detect key levels: recent swing highs/lows
-        highs = candles["h"].values[-50:]
-        lows  = candles["l"].values[-50:]
-        res_level = round(float(np.max(highs)), 5)
-        sup_level = round(float(np.min(lows)),  5)
+        # Daily pivot points from yesterday's D1 candle (more precise than swing high/low)
+        if d1_df is not None and len(d1_df) >= 2:
+            prev = d1_df.iloc[-2]
+            pivot  = (prev["h"] + prev["l"] + prev["c"]) / 3
+            r1     = round(2 * pivot - prev["l"], 5)
+            s1     = round(2 * pivot - prev["h"], 5)
+            r2     = round(pivot + (prev["h"] - prev["l"]), 5)
+            s2     = round(pivot - (prev["h"] - prev["l"]), 5)
+            pivot  = round(pivot, 5)
+            levels_str = f"Pivot={pivot} R1={r1} R2={r2} S1={s1} S2={s2}"
+        else:
+            highs = candles["h"].values[-50:]
+            lows  = candles["l"].values[-50:]
+            res_level = round(float(np.max(highs)), 5)
+            sup_level = round(float(np.min(lows)),  5)
+            levels_str = f"Resistance={res_level} | Support={sup_level}"
 
         session = base_signal.get("session", "UNKNOWN")
         fs = base_signal.get("factor_scores", {})
@@ -494,9 +565,19 @@ class MarketAnalyzer:
         if memory_context:
             memory_block = f"\n=== TRADE MEMORY (past performance in similar conditions) ===\n{memory_context}\n"
 
+        research_block = ""
+        if research_context:
+            research_block = f"\n=== NEMOTRON DEEP RESEARCH (macro/fundamental context) ===\n{research_context}\n"
+
+        # Pre-format D1 values to avoid invalid format specifier in f-string
+        d1_ema = d1["ema_trend"] if d1 else "N/A"
+        d1_adx = f"{d1['adx']:.0f}" if d1 else "N/A"
+        d1_rsi = f"{d1['rsi']:.1f}" if d1 else "N/A"
+
         prompt = f"""Analyze {symbol} market data and decide: BUY, SELL, or HOLD.
 
 === MULTI-TIMEFRAME ANALYSIS ===
+D1 (daily bias): EMA={d1_ema} ADX={d1_adx} RSI={d1_rsi}
 H4 (trend bias): EMA={h4['ema_trend']} ADX={h4['adx']:.0f} RSI={h4['rsi']:.1f} MACD={h4['macd_signal']}
 H1 (context):    EMA={h1['ema_trend']} ADX={h1['adx']:.0f} RSI={h1['rsi']:.1f} MACD={h1['macd_signal']}
 M15 (entry):     EMA={m15['ema_trend']} ADX={m15['adx']:.0f} RSI={m15['rsi']:.1f} MACD={m15['macd_signal']}
@@ -509,119 +590,125 @@ BB: {m15['bb_position']} squeeze={m15['bb_squeeze']}
 Stoch: K={m15['stoch_k']:.0f} D={m15['stoch_d']:.0f} cross={m15['stoch_cross']}
 ADX: {m15['adx']:.0f} +DI={m15['plus_di']:.0f} -DI={m15['minus_di']:.0f}
 ATR: {m15['atr']}  Williams%R: {m15['williams_r']:.0f}
+Candle pattern score: {int(m15.get('candle_pattern_score', 0)):+d}
 
-=== KEY LEVELS ===
-Resistance: {res_level} | Support: {sup_level} | 20-bar change: {m15['price_change']:+.3f}%
+=== KEY LEVELS (Daily Pivots) ===
+{levels_str} | 20-bar change: {m15['price_change']:+.3f}%
 
 === SESSION: {session} ===
 
 === SIGNED FACTOR SCORES (positive=bullish, negative=bearish) ===
-F1 H4 Trend:    {fs['f1_h4_trend']:+.1f}
-F2 H1 Trend:    {fs['f2_h1_trend']:+.1f}
-F3 RSI:         {fs['f3_rsi_zone']:+.1f}
-F4 MACD:        {fs['f4_macd_momentum']:+.1f}
-F5 ADX/DI:      {fs['f5_adx_strength']:+.1f}
-F6 Stochastic:  {fs['f6_stoch_confirm']:+.1f}
-F7 Bollinger:   {fs['f7_bb_action']:+.1f}
-F8 H1-RSI:      {fs.get('f8_h1_rsi', 0):+.1f}
-F9 H1-MACD:     {fs.get('f9_h1_macd', 0):+.1f}
-Regime: {fs['adx_regime']} | Bullish factors: {bullish_count}/9 | Bearish factors: {bearish_count}/9
+F1  H4 Trend:       {fs['f1_h4_trend']:+.1f}
+F2  H1 Trend:       {fs['f2_h1_trend']:+.1f}
+F3  RSI:            {fs['f3_rsi_zone']:+.1f}
+F4  MACD:           {fs['f4_macd_momentum']:+.1f}
+F5  ADX/DI:         {fs['f5_adx_strength']:+.1f}
+F6  Stochastic:     {fs['f6_stoch_confirm']:+.1f}
+F7  Bollinger:      {fs['f7_bb_action']:+.1f}
+F8  H1-RSI:         {fs.get('f8_h1_rsi', 0):+.1f}
+F9  H1-MACD:        {fs.get('f9_h1_macd', 0):+.1f}
+F10 D1 Trend:       {fs.get('f10_d1_trend', 0):+.1f}
+F11 Candle Pattern: {fs.get('f11_candle_pattern', 0):+.1f}
+Regime: {fs['adx_regime']} | Bullish factors: {bullish_count}/11 | Bearish factors: {bearish_count}/11
 
 === INDICATOR-BASED SIGNAL ===
-{base_signal['direction']} | Score: {base_signal['score']} | Confidence: {base_signal['confidence']:.0%}
+{base_signal['direction']} | Score: {base_signal['score']} | Confidence: {float(base_signal.get('confidence', 0)):.0%}
 Reasons: {base_signal['reason']}
-{memory_block}
+{memory_block}{research_block}
 === RECENT M15 CANDLES ===
 {last_candles}
 
 DECISION RULES:
-- The signed score determines direction bias. Positive score = bullish lean, negative = bearish lean.
-- Your job: confirm or reject the indicator signal based on price action context.
-- BUY: majority of factors positive AND price near support / bouncing off EMA / oversold
-- SELL: majority of factors negative AND price near resistance / below EMAs / overbought
-- HOLD: factors are genuinely split (within 1 factor of 50/50) AND no clear price action edge
-- DO NOT default to HOLD just because ADX is low — ranging markets still have direction.
-- RANGING markets: use RSI extremes, BB extremes, and Stoch crosses as primary signals.
-- Confidence calibration:
-    0.52-0.60: marginal setup, weak confluence
-    0.60-0.75: solid directional setup
-    0.75-0.90: strong multi-factor confluence
-- NEVER output confidence below 0.40 if you say BUY or SELL — that's contradictory.
-- Be decisive. If bearish factors outnumber bullish 6:3 or more, say SELL.
+- The signed score determines direction bias. Positive = bullish, negative = bearish.
+- Your job: CONFIRM the indicator signal using price action context — not override it.
+- BUY:  majority of factors positive AND price near support / bouncing EMA / oversold RSI
+- SELL: majority of factors negative AND price near resistance / below EMAs / overbought RSI
+- HOLD: factors genuinely split (within 2 factors of 50/50) AND no clear price action edge
+
+⚠️  STRONG SIGNAL OVERRIDE (MANDATORY):
+- If the signed score is ≥ +15 with 6+ bullish factors → you MUST output BUY, min confidence 0.65
+- If the signed score is ≤ −15 with 6+ bearish factors → you MUST output SELL, min confidence 0.65
+- A mildly-bearish H4 does NOT override a strongly-bullish D1+H1+M15 stack. H4 is already in the score.
+- DO NOT say HOLD when 7 or more factors agree on direction. That is not a split — it is a signal.
+
+RANGING market rules (ADX < 18):
+- Use RSI extremes (<35 = BUY, >65 = SELL), BB extremes (below lower = BUY, above upper = SELL)
+- Stoch cross in oversold/overbought territory = valid entry trigger
+- Do NOT default to HOLD just because ADX is low — ranging markets have reversions.
+
+Confidence calibration:
+    0.55-0.65: marginal setup, 1-2 conflicting factors
+    0.65-0.75: solid directional setup, most factors agree
+    0.75-0.90: strong multi-factor confluence, clear price action
+- NEVER output confidence below 0.50 if you say BUY or SELL.
 
 Respond with ONLY raw JSON (no markdown, no backticks):
 {{"direction": "BUY"|"SELL"|"HOLD", "confidence": 0.0-1.0, "reason": "1-2 sentences"}}"""
 
-        for attempt in range(2):   # 1 retry on timeout
-            try:
-                resp = requests.post(OLLAMA_CHAT_URL, json={
-                    "model":  OLLAMA_MODEL,
-                    "stream": False,
-                    "messages": [
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user",   "content": prompt},
-                    ],
-                }, timeout=25)
-                resp.raise_for_status()
+        # ── AI signal via OpenRouter (T1 → T2, handled by ai_client.py) ────────
+        data = ask_openrouter(
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user",   "content": prompt},
+            ],
+            label=symbol,
+        )
 
-                raw = resp.text.strip()
-                if not raw:
-                    raise ValueError("Empty response from Ollama")
+        # ── Step 3: Hard indicator fallback ──────────────────────────────────
+        if not data:
+            print("  [ANALYZER] All AI failed — using indicator signal")
+            data = {
+                "direction":  base_signal.get("direction", "HOLD"),
+                "confidence": base_signal.get("confidence", 0.55),
+                "reason":     "[Indicator fallback] " + base_signal.get("reason", ""),
+            }
 
-                text = resp.json()["message"]["content"].strip()
-                # Strip markdown fences
-                if "```" in text:
-                    parts = text.split("```")
-                    for part in parts:
-                        part = part.strip().lstrip("json").strip()
-                        if part.startswith("{"):
-                            text = part
-                            break
-                data = json.loads(text)
-                ai_direction = data.get("direction", "HOLD")
-                ai_conf      = float(data.get("confidence", 0.40))
-                ind_score    = base_signal.get("score", 0.0)
-                ind_direction = base_signal.get("direction", "HOLD")
+        # ── Step 4: Post-processing (outside any try/except) ─────────────────
+        ind_score     = base_signal.get("score", 0.0)
+        ind_direction = base_signal.get("direction", "HOLD")
+        ai_direction  = data.get("direction", "HOLD")
 
-                # ── Strong-score override: if indicators strongly agree but AI says HOLD,
-                #    trust the indicators (|score| >= 15 = well above ±6 threshold)
-                if ai_direction == "HOLD" and ind_direction in ("BUY", "SELL"):
-                    if abs(ind_score) >= 15:
-                        ai_direction = ind_direction
-                        # Confidence: starts at 0.52, rises with score strength
-                        # Score 15 → 0.52, score 25 → 0.60, score 35+ → 0.65
-                        base_conf = min(0.52 + (abs(ind_score) - 15) * 0.008, 0.65)
-                        data["direction"]  = ai_direction
-                        data["confidence"] = round(base_conf, 4)
-                        data["reason"] = (f"[Score override {ind_score:+.1f}] "
-                                          + data.get("reason", ""))
+        # Strong-score override: if indicators strongly agree but AI says HOLD,
+        # trust the indicators.  Threshold = 12 (1.5× the ±8 entry threshold) —
+        # below 12 the score is genuinely borderline; above 12 it's a real signal.
+        # Use the indicator's own confidence — it already encodes score strength
+        # and confluence ratio.  Do NOT reset to a conservative formula.
+        _score_override = False
+        if ai_direction == "HOLD" and ind_direction in ("BUY", "SELL"):
+            if abs(ind_score) >= 12:
+                ai_direction = ind_direction
+                # Indicator confidence is the ground truth here; cap at 0.82 so
+                # we never pretend to have more certainty than the data supports.
+                ind_conf = float(base_signal.get("confidence", 0.62))
+                data["direction"]  = ai_direction
+                data["confidence"] = round(min(ind_conf, 0.82), 4)
+                data["reason"] = (f"[Score override {ind_score:+.1f}] "
+                                  + data.get("reason", ""))
+                _score_override = True
 
-                # ── GRADUATED H4 override (penalise when H4 disagrees with AI direction)
-                f1_score = base_signal.get("factor_scores", {}).get("f1_h4_trend", 0)
-                if ai_direction in ("BUY", "SELL") and f1_score != 0:
-                    h4_bullish = f1_score > 0
-                    ai_agrees  = ((ai_direction == "BUY"  and h4_bullish) or
-                                  (ai_direction == "SELL" and not h4_bullish))
-                    if not ai_agrees:
-                        h4_strength = abs(f1_score) / 10.0
-                        penalty = 0.5 + (1.0 - h4_strength) * 0.4
-                        data["confidence"] = max(float(data.get("confidence", 0.40)) * penalty, 0.20)
-                        data["reason"] = f"[H4 disagrees ×{penalty:.1f}] {data.get('reason', '')}"
+        # Graduated H4 override: nudge confidence DOWN when H4 disagrees.
+        # KEY FIX: the score already numerically includes H4's contribution
+        # (f1 is negative when H4 is bearish), so we must NOT double-penalise.
+        # When a score override already fired, skip H4 penalty entirely — the
+        # override confidence came directly from the score which includes f1.
+        f1_score = base_signal.get("factor_scores", {}).get("f1_h4_trend", 0)
+        if ai_direction in ("BUY", "SELL") and f1_score != 0 and not _score_override:
+            h4_bullish = f1_score > 0
+            ai_agrees  = ((ai_direction == "BUY"  and h4_bullish) or
+                          (ai_direction == "SELL" and not h4_bullish))
+            if not ai_agrees:
+                h4_strength = abs(f1_score) / 10.0          # 0.5 for MILD, 1.0 for BEARISH
+                penalty     = 1.0 - (h4_strength * 0.20)   # 0.90 for MILD, 0.80 for BEARISH
+                data["confidence"] = max(float(data.get("confidence", 0.40)) * penalty, 0.25)
+                data["reason"] = f"[H4 disagrees ×{penalty:.2f}] {data.get('reason', '')}"
 
-                return {
-                    "direction":     data.get("direction", "HOLD"),
-                    "confidence":    round(float(data.get("confidence", 0.40)), 4),
-                    "reason":        data.get("reason", "AI analysis complete."),
-                    "score":         ind_score,
-                    "factor_scores": base_signal.get("factor_scores", {}),
-                    "indicators":    base_signal.get("indicators", {}),
-                    "h1_trend":      base_signal.get("h1_trend", ""),
-                    "h4_trend":      base_signal.get("h4_trend", ""),
-                }
-            except Exception as e:
-                if attempt == 0 and "timed out" in str(e).lower():
-                    print(f"  ⚠️  Ollama timeout, retrying once...")
-                    continue
-                print(f"  ⚠️  Ollama error: {e} — using indicator signal.")
-                return base_signal
-        return base_signal
+        return {
+            "direction":     data.get("direction", "HOLD"),
+            "confidence":    round(float(data.get("confidence", 0.40)), 4),
+            "reason":        data.get("reason", "AI analysis complete."),
+            "score":         ind_score,
+            "factor_scores": base_signal.get("factor_scores", {}),
+            "indicators":    base_signal.get("indicators", {}),
+            "h1_trend":      base_signal.get("h1_trend", ""),
+            "h4_trend":      base_signal.get("h4_trend", ""),
+        }

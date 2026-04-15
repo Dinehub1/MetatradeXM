@@ -25,11 +25,11 @@ DB_PATH      = Path(__file__).parent / "trade_memory.db"
 
 # ── Scaling config (mirrors SKILL.md) ────────────────────────────────────────
 SCALE_CFG = {
-    "min_profit_pips":     10,      # position must be up this many pips (was 15)
-    "min_confidence":      0.55,    # AI confidence threshold (was 0.65)
+    "min_profit_pips":     15,      # position must be up this many pips before scaling
+    "min_confidence":      0.65,    # AI confidence threshold (must match main entry threshold)
     "max_scales_per_trade": 2,      # hard cap on adds per ticket
-    "min_free_margin_pct": 20,      # free margin must be > 20% of balance (was 30)
-    "max_total_risk_pct":  5.0,     # all open positions < 5% of balance (was 3)
+    "min_free_margin_pct": 30,      # free margin must be > 30% of balance
+    "max_total_risk_pct":  3.0,     # all open positions margin < 3% of balance
     "scale_lot_fraction":  0.5,     # scale lot = original × 0.5
     "blocked_sessions":    ["MARKET_CLOSED"],   # allow scaling in all open sessions
 }
@@ -120,8 +120,8 @@ class PositionScaler:
             log.debug(f"[SCALER] Skipping — free margin {free_pct:.1f}% < {SCALE_CFG['min_free_margin_pct']}%")
             return scaled
 
-        # Guard: total open risk check
-        total_risk_pct = ((balance - equity + margin * 0.01) / balance * 100)
+        # Guard: total open risk check — margin used as % of balance
+        total_risk_pct = (margin / balance * 100) if balance > 0 else 0
         if total_risk_pct >= SCALE_CFG["max_total_risk_pct"]:
             log.debug(f"[SCALER] Skipping — total risk {total_risk_pct:.1f}%")
             return scaled
@@ -169,7 +169,8 @@ class PositionScaler:
                 continue
 
             # Must be profitable enough
-            profit_pips = profit / (pip * 10 * volume) if (pip * 10 * volume) > 0 else 0
+            contract_size = sym_cfg.get("contract_size", 100)
+            profit_pips = profit / (pip * contract_size * volume) if (pip * contract_size * volume) > 0 else 0
             if profit_pips < SCALE_CFG["min_profit_pips"]:
                 log.debug(f"[SCALER] {disp} #{ticket}: only {profit_pips:.1f} pips profit "
                           f"(need {SCALE_CFG['min_profit_pips']})")

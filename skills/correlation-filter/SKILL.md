@@ -1,8 +1,8 @@
 ---
-name: correlation-filter
-description: Block trades when XAU and XAG signals diverge during high correlation periods
-type: filter
-version: 1.0.0
+name: 'correlation-filter'
+description: 'Block trades when XAU and XAG signals diverge during high correlation periods'
+type: 'filter'
+version: '1.0.0'
 performance:
   total_trades: 0
   wins: 0
@@ -13,8 +13,8 @@ performance:
 conditions:
   symbols: [XAUUSD, XAGUSD]
   min_correlation: 0.85
+min_correlation: 0.5
 ---
-
 # Correlation Filter Strategy
 
 ## Concept

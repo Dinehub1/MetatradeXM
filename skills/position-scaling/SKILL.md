@@ -1,8 +1,8 @@
 ---
-name: position-scaling
-description: Add to winning positions when AI confirms trend continuation and account balance supports it
-type: scaler
-version: 1.0.0
+name: 'position-scaling'
+description: 'Add to winning positions when AI confirms trend continuation and account balance supports it'
+type: 'scaler'
+version: '1.0.0'
 performance:
   total_scales: 0
   successful_scales: 0
@@ -18,8 +18,9 @@ conditions:
   min_free_margin_pct: 30
   max_total_risk_pct: 3.0
   scale_lot_fraction: 0.5
+min_confidence: 0.5
+min_profit_pips: 8
 ---
-
 # Position Scaling Skill
 
 ## Concept
