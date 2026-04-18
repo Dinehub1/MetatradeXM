@@ -302,14 +302,13 @@ def fmt_profit(p: float) -> str:
 def make_bridge():
     token = os.environ.get("METAAPI_TOKEN", "")
     account_id = os.environ.get("METAAPI_ACCOUNT_ID", "")
-    if token and account_id:
-        from metaapi_bridge import MetaApiBridge
+    if not token or not account_id:
+        raise EnvironmentError(
+            "METAAPI_TOKEN and METAAPI_ACCOUNT_ID must be set in .env"
+        )
+    from metaapi_bridge import MetaApiBridge
 
-        return MetaApiBridge(token, account_id)
-    else:
-        from mt5_bridge import MT5Bridge
-
-        return MT5Bridge()
+    return MetaApiBridge(token, account_id)
 
 
 def connect_with_retry(bridge, max_attempts: int = 5) -> bool:
