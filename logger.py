@@ -6,29 +6,43 @@ import sqlite3
 import json
 import logging
 import logging.handlers
+import sys
 from datetime import datetime
 from pathlib import Path
 
 DB_FILE = "trades.db"
+LOG_FILE = Path(__file__).parent / "bot.log"
 
-# ── Rotating file logger (bot.log, 5 MB × 3 backups) ─────────────────────────
-def _setup_file_logger() -> logging.Logger:
-    lg = logging.getLogger("trading_bot")
-    if lg.handlers:
-        return lg
-    lg.setLevel(logging.DEBUG)
-    log_path = Path(__file__).parent / "bot.log"
-    handler = logging.handlers.RotatingFileHandler(
-        log_path, maxBytes=5 * 1024 * 1024, backupCount=3
+_FMT = logging.Formatter(
+    "%(asctime)s [%(levelname)-5s] [%(name)-12s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+
+
+def setup_logging(level: str = "INFO") -> None:
+    """Configure root logger → bot.log (all modules) + console at WARNING+.
+
+    Call once at process startup before any loggers are created.
+    """
+    root = logging.getLogger()
+    if root.handlers:
+        return  # already configured
+    root.setLevel(getattr(logging, level.upper(), logging.INFO))
+
+    fh = logging.handlers.RotatingFileHandler(
+        LOG_FILE, maxBytes=10 * 1024 * 1024, backupCount=3, encoding="utf-8"
     )
-    handler.setFormatter(logging.Formatter(
-        "%(asctime)s [%(levelname)s] %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S"
-    ))
-    lg.addHandler(handler)
-    return lg
+    fh.setFormatter(_FMT)
+    root.addHandler(fh)
 
-bot_log = _setup_file_logger()
+    ch = logging.StreamHandler(sys.stdout)
+    ch.setLevel(logging.WARNING)
+    ch.setFormatter(_FMT)
+    root.addHandler(ch)
+
+
+# ── Backwards-compatible alias so existing imports still work ─────────────────
+bot_log = logging.getLogger("trading_bot")
 
 # ── Color helpers ─────────────────────────────────────────────────────────────
 try:

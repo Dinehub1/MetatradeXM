@@ -20,6 +20,7 @@ import traceback
 import logging.handlers
 import argparse
 import signal
+import concurrent.futures
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -38,20 +39,36 @@ STATUS_FILE = ROOT / "bot_status.json"
 CANDLES_FILE = ROOT / "candles_cache.json"
 STATE_FILE    = ROOT / "trader_state.json"    # persists cycle count + trade IDs
 COOLDOWN_FILE = ROOT / "cooldown_state.json"  # persists per-symbol loss cooldowns
+STREAKS_FILE  = ROOT / "loss_streaks.json"    # persists consecutive loss counts
 LOG_FILE = ROOT / "trading.log"
 
+# ── Config integrity guard ────────────────────────────────────────────────────
+# Protect buy_threshold / sell_threshold from being silently reset by any
+# external process (Hermes, MCP, self_improver). Check every cycle.
+# Threshold calibration (from 992 historical samples):
+#   |score| >= 10 → 62% signal rate (too aggressive)
+#   |score| >= 12 → 38% signal rate (calibrated sweet spot)
+#   |score| >= 18 → <5% signal rate (too restrictive — was the bug)
+_PROTECTED_WEIGHTS = {"buy_threshold": 12, "sell_threshold": -12}
+
+def _check_config_integrity():
+    """Warn and auto-restore if critical weights were changed externally."""
+    try:
+        w = json.loads((ROOT / "scoring_weights.json").read_text())
+        for field, expected in _PROTECTED_WEIGHTS.items():
+            actual = w.get(field)
+            if actual != expected:
+                log.warning(
+                    f"🚨 CONFIG TAMPERED: {field} changed {actual} → restoring {expected}"
+                )
+                w[field] = expected
+                (ROOT / "scoring_weights.json").write_text(json.dumps(w, indent=2))
+    except Exception:
+        pass
+
 # ── Logging ──────────────────────────────────────────────────────────────────
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-    # NOTE: systemd already captures stdout → trading.log via StandardOutput=append:
-    # Using ONLY RotatingFileHandler here would cause duplicates.
-    # Use one StreamHandler (stdout) and let systemd write it once to file.
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-    ],
-)
+from logger import setup_logging
+setup_logging()  # root → bot.log (10 MB × 3); console at WARNING+
 log = logging.getLogger("trader")
 
 # ── Silence noisy third-party loggers ────────────────────────────────────────
@@ -139,9 +156,25 @@ def _sanitize(obj):
     return obj
 
 
+_HERMES_DIR = Path.home() / ".hermes"
+
 def _write_status(data: dict):
     try:
-        STATUS_FILE.write_text(json.dumps(_sanitize(data), indent=2))
+        clean = _sanitize(data)
+        STATUS_FILE.write_text(json.dumps(clean, indent=2))
+        # Keep hermes status snapshots in sync so Hermes agent sees fresh data
+        _hermes_payload = json.dumps({
+            "bot": clean,
+            "state": {
+                "cycle": clean.get("cycle"),
+                "total_trades": clean.get("stats", {}).get("total_trades", 0),
+                "wins": clean.get("stats", {}).get("wins", 0),
+                "losses": clean.get("stats", {}).get("losses", 0),
+            },
+            "server_time_utc": clean.get("ts", ""),
+        }, indent=2)
+        (_HERMES_DIR / "adx_status.json").write_text(_hermes_payload)
+        (_HERMES_DIR / "adx_current.json").write_text(_hermes_payload)
     except Exception as e:
         log.warning(f"Status write error: {e}")
 
@@ -218,6 +251,24 @@ def _save_cooldown(cooldown: dict):
         pass
 
 
+def _load_streaks() -> dict:
+    """Load per-symbol consecutive loss counts from disk (survives restarts)."""
+    try:
+        if STREAKS_FILE.exists():
+            return json.loads(STREAKS_FILE.read_text())
+    except Exception:
+        pass
+    return {}
+
+
+def _save_streaks(streaks: dict):
+    """Persist consecutive loss counts so circuit breaker survives restarts."""
+    try:
+        STREAKS_FILE.write_text(json.dumps(streaks))
+    except Exception:
+        pass
+
+
 def is_forex_market_open() -> tuple[bool, str]:
     now = datetime.now(timezone.utc)
     wd, h = now.weekday(), now.hour
@@ -227,12 +278,14 @@ def is_forex_market_open() -> tuple[bool, str]:
         return False, "MARKET_CLOSED"  # Fri night
     if wd == 6 and h < 22:
         return False, "MARKET_CLOSED"  # Sunday
-    if 7 <= h < 13:
-        return True, "LONDON"
-    if 13 <= h < 16:
-        return True, "LONDON_NY_OVERLAP"
-    if 16 <= h < 22:
-        return True, "NEW_YORK"
+    # ── Correct Forex/Gold session boundaries (UTC) ───────────────────────────
+    # ASIAN:              22:00–07:59  (Sydney 22:00, Tokyo 00:00, SGX 01:00)
+    # LONDON:             08:00–12:59  (LSE open, pre-NY)
+    # LONDON_NY_OVERLAP:  13:00–16:59  (PEAK — both centres open)
+    # NEW_YORK:           17:00–21:59  (NY afternoon, London closed)
+    if  8 <= h < 13: return True, "LONDON"
+    if 13 <= h < 17: return True, "LONDON_NY_OVERLAP"
+    if 17 <= h < 22: return True, "NEW_YORK"
     return True, "ASIAN"
 
 
@@ -327,6 +380,8 @@ def check_and_close_positions(
     capital_mgr=None,
     skill_mgr=None,
     loss_cooldown: dict = None,
+    consec_losses: dict = None,  # display_symbol -> consecutive loss count
+    memory=None,
 ) -> list:
     """
     Close positions that hit profit or loss targets, OR if trailing SL is triggered.
@@ -396,9 +451,10 @@ def check_and_close_positions(
 
                         # Record outcome in trade memory
                         try:
-                            from memory import TradeMemory
-
-                            mem = TradeMemory()
+                            mem = memory
+                            if mem is None:
+                                from memory import TradeMemory
+                                mem = TradeMemory()
                             pip_size = sym_cfg["pip"]
                             contract_size = sym_cfg.get("contract_size", 100)
                             open_price = getattr(pos, "price_open", 0)
@@ -406,7 +462,20 @@ def check_and_close_positions(
                             _pip_val = pip_size * contract_size * _vol
                             pips = profit / _pip_val if _pip_val > 0 else 0
                             current_price = getattr(pos, "price_current", getattr(pos, "price_open", 0))
-                            mem.record_outcome(str(ticket), current_price, round(pips, 1), outcome)
+                            # Pass symbol/direction to avoid UNKNOWN records in learning loop
+                            mem.record_outcome(
+                                str(ticket), current_price, round(pips, 1), outcome,
+                                symbol=sym_cfg["display"],
+                                direction=direction,
+                            )
+                            # Update consecutive loss counter (Trading in the Zone edge tracking)
+                            if consec_losses is not None:
+                                disp = sym_cfg["display"]
+                                if outcome == "WIN":
+                                    consec_losses[disp] = 0
+                                else:
+                                    consec_losses[disp] = consec_losses.get(disp, 0) + 1
+                                _save_streaks(consec_losses)
 
                             # Wire skill outcome recording
                             if skill_mgr:
@@ -571,11 +640,27 @@ class ContinuousTrader:
             log.warning(f"  [CAPITAL] Failed to init: {e}")
             self.capital = None
 
+        # ── TradingView live data client ────────────────────────────────────
+        try:
+            from tv_client import get_tv_client
+            self.tv = get_tv_client()
+            log.info("  [TV] TradingView client started → ws://localhost:8887")
+        except Exception as e:
+            log.warning(f"  [TV] Failed to init TradingView client: {e}")
+            self.tv = None
+
         # Cache for cross-symbol correlation
         self._symbol_signals = {}
 
         # Per-symbol loss cooldown: persisted to disk so restarts don't reset it
         self._loss_cooldown: dict = _load_cooldown()
+
+        # Per-symbol consecutive loss counter (Trading in the Zone: track the edge,
+        # pause when the edge breaks down, never revenge-trade). Persisted to disk.
+        self._consec_losses: dict = _load_streaks()  # display_symbol -> int
+        # Cycle number at which the per-symbol circuit breaker pause expires.
+        # Not persisted — a clean restart resets the marker while streak counts survive.
+        self._circuit_break_until: dict = {}  # display_symbol -> cycle number
 
         # Set up signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._handle_stop)
@@ -608,7 +693,7 @@ class ContinuousTrader:
             return None
 
     def _run_analysis(self, sym_cfg: dict, tf_data: dict, tick) -> dict:
-        """Run multi-timeframe analysis with Ollama AI + memory context."""
+        """Run multi-timeframe analysis — TradingView live data is primary source."""
         try:
             from analyzer import MarketAnalyzer
 
@@ -622,9 +707,31 @@ class ContinuousTrader:
                 except Exception as e:
                     log.warning(f"Memory prefetch error: {e}")
 
+            # Fetch TradingView live indicators — these override broker-candle values
+            tv_indicators = {}
+            if self.tv:
+                try:
+                    tv_snap = self.tv.snapshot()
+                    sym_tv  = tv_snap.get("symbols", {}).get(sym_cfg["display"], {})
+                    tv_indicators = sym_tv.get("timeframes", {})
+                    if tv_indicators:
+                        m15 = tv_indicators.get("M15", {})
+                        log.info(
+                            f"   [TV→PRIMARY] {sym_cfg['display']}: "
+                            f"ADX={m15.get('adx','?')} RSI={m15.get('rsi','?')} "
+                            f"EMA={m15.get('ema_trend','?')} MACD={m15.get('macd_signal','?')} "
+                            f"BB={m15.get('bb_position','?')}"
+                        )
+                except Exception as e:
+                    log.warning(f"TV snapshot error for {sym_cfg['display']}: {e}")
+
             signal_data = analyzer.analyze(
-                tf_data, tick, sym_cfg["display"], memory_context=memory_context
+                tf_data, tick, sym_cfg["display"],
+                memory_context=memory_context,
+                tv_indicators=tv_indicators,
             )
+            # Attach raw TV data for Stage 1 of the decision trace
+            signal_data["_tv_raw"] = tv_indicators
             return signal_data
         except Exception as e:
             log.warning("Analysis error for %s: %s", sym_cfg["display"], str(e).replace('%', '%%'))
@@ -634,15 +741,54 @@ class ContinuousTrader:
                 "reason": f"Analysis failed: {str(e).replace('%', '%%')}",
             }
 
+    def _run_analysis_tv(self, sym_cfg: dict, tv_tfs: dict, m15_candles, tick) -> dict:
+        """TV-direct analysis — indicator computation skipped; TV data is primary."""
+        try:
+            from analyzer import MarketAnalyzer
+            analyzer = MarketAnalyzer(use_claude=CONFIG["use_ai"])
+            memory_context = ""
+            if self.memory:
+                try:
+                    memory_context = self.memory.prefetch_context(sym_cfg["display"])
+                except Exception as e:
+                    log.warning(f"Memory prefetch error: {e}")
+
+            m15 = tv_tfs.get("M15", {})
+            log.info(
+                f"   [TV→DIRECT] {sym_cfg['display']}: "
+                f"ADX={m15.get('adx','?')} RSI={m15.get('rsi','?')} "
+                f"EMA={m15.get('ema_trend','?')} MACD={m15.get('macd_signal','?')} "
+                f"BB={m15.get('bb_position','?')}"
+            )
+
+            signal_data = analyzer.analyze_from_tv(
+                tv_tfs, tick, sym_cfg["display"],
+                m15_candles=m15_candles,
+                memory_context=memory_context,
+            )
+            signal_data["_tv_raw"] = tv_tfs
+            return signal_data
+        except Exception as e:
+            log.warning("TV analysis error for %s: %s", sym_cfg["display"], str(e).replace('%', '%%'))
+            return {
+                "direction": "HOLD",
+                "confidence": 0.0,
+                "reason": f"TV analysis failed: {str(e).replace('%', '%%')}",
+            }
+
     def _fetch_candles(self, sym_cfg: dict) -> dict:
         broker_sym = sym_cfg["broker"]
         tf_data = {}
         for tf in ["M15", "H1", "H4", "D1"]:
             count = 500 if tf == "M15" else 200 if tf in ("H1", "H4") else 100
             try:
-                df = self.bridge.get_candles(broker_sym, tf, count)
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                    fut = ex.submit(self.bridge.get_candles, broker_sym, tf, count)
+                    df = fut.result(timeout=15)  # hard 15s cap per timeframe
                 if df is not None and len(df) > 30:
                     tf_data[tf] = df
+            except concurrent.futures.TimeoutError:
+                log.warning(f"Candle fetch {broker_sym}/{tf}: timeout (15s) — skipped")
             except Exception as e:
                 log.warning(f"Candle fetch {broker_sym}/{tf}: {e}")
         return tf_data
@@ -675,6 +821,7 @@ class ContinuousTrader:
         symbols_status = {}
         candles_cache = {}
         next_analysis = 0  # run immediately on first cycle
+        _prev_tickets: dict[str, dict] = {}  # ticket -> {profit, direction, sym_cfg}
 
         while not self._stop:
             now = time.time()
@@ -684,6 +831,9 @@ class ContinuousTrader:
 
             print(f"\n{'─' * 60}")
             log.info(f"🔄 Cycle #{cycle}  [{ts}]")
+
+            # ── Config integrity guard (detects external tampering) ──────────
+            _check_config_integrity()
 
             # ── Connection health check ──────────────────────────────────────
             if not self._ensure_connected():
@@ -742,6 +892,8 @@ class ContinuousTrader:
             total_open = sum(len(v) for v in positions_by_sym.values())
             log.info(f"📊 Open positions: {total_open}")
 
+            # Build current ticket set and detect externally-closed positions
+            _cur_tickets: dict[str, dict] = {}
             for sym_cfg in SYMBOLS:
                 broker_sym = sym_cfg["broker"]
                 disp = sym_cfg["display"]
@@ -750,7 +902,58 @@ class ContinuousTrader:
                     d = "BUY" if getattr(p, "type", 1) == 0 else "SELL"
                     pr = getattr(p, "profit", 0)
                     op = getattr(p, "price_open", 0)
+                    tk = str(getattr(p, "ticket", ""))
                     log.info(f"   {disp} {d} @{op:.2f} {fmt_profit(pr)}")
+                    _cur_tickets[tk] = {"profit": pr, "direction": d, "sym_cfg": sym_cfg}
+
+            # Detect tickets that vanished since last cycle (closed by broker SL/TP)
+            if _prev_tickets:
+                for tk, info in _prev_tickets.items():
+                    if tk not in _cur_tickets and not self.dry_run:
+                        pr = info["profit"]
+                        outcome = "WIN" if pr > 0 else "LOSS"
+                        _sc = info["sym_cfg"]
+                        log.info(
+                            f"   [EXTERNAL CLOSE] #{tk} {_sc['display']} {info['direction']} "
+                            f"{fmt_profit(pr)} → {outcome} (closed by broker)"
+                        )
+                        try:
+                            _mem = self.memory
+                            if _mem is None:
+                                from memory import TradeMemory
+                                _mem = TradeMemory()
+                            _pip = _sc["pip"]
+                            _cs = _sc.get("contract_size", 100)
+                            _vol = 0.01
+                            _pv = _pip * _cs * _vol
+                            _pips = pr / _pv if _pv > 0 else 0
+                            # Pass symbol/direction so memory never records UNKNOWN
+                            _mem.record_outcome(
+                                tk, 0.0, round(_pips, 1), outcome,
+                                symbol=_sc["display"],
+                                direction=info["direction"],
+                            )
+                            self.state["total_trades"] += 1
+                            if outcome == "WIN":
+                                self.state["wins"] += 1
+                                self._consec_losses[_sc["display"]] = 0
+                            else:
+                                self.state["losses"] += 1
+                                self._loss_cooldown[_sc["broker"]] = time.time()
+                                self._consec_losses[_sc["display"]] = (
+                                    self._consec_losses.get(_sc["display"], 0) + 1
+                                )
+                                n = self._consec_losses[_sc["display"]]
+                                if n >= 3:
+                                    log.warning(
+                                        f"   ⚠️  ZONE ALERT: {_sc['display']} — "
+                                        f"{n} consecutive losses. Edge may be broken."
+                                    )
+                            _save_streaks(self._consec_losses)
+                            _save_state(self.state)
+                        except Exception as _e:
+                            log.warning(f"External close record error: {_e}")
+            _prev_tickets = _cur_tickets
 
             # ── Profit Booking (partial closes at pip milestones) ─────────
             if self.capital:
@@ -801,6 +1004,8 @@ class ContinuousTrader:
                 self.capital,
                 getattr(self, "skill_mgr", None),
                 self._loss_cooldown,
+                self._consec_losses,
+                memory=self.memory,
             )
             if closed_syms:
                 _save_state(self.state)
@@ -843,15 +1048,42 @@ class ContinuousTrader:
                         )
 
                     log.info(f"   🔍 Analyzing {disp}...")
-                    tf_data = self._fetch_candles(sym_cfg)
-                    if not tf_data:
-                        log.warning(f"   ⚠️  {disp}: no candle data")
-                        continue
+                    # TV-first: use live WebSocket data directly as primary source
+                    tv_tfs = {}
+                    if self.tv:
+                        tv_tfs = (
+                            self.tv.snapshot()
+                            .get("symbols", {})
+                            .get(disp, {})
+                            .get("timeframes", {})
+                        )
 
-                    primary = tf_data.get("M15", list(tf_data.values())[0])
+                    _tv_complete = bool(tv_tfs) and all(
+                        tv_tfs.get(tf) for tf in ("M15", "H1", "H4")
+                    )
                     tick = self.bridge.get_tick(broker_sym)
 
-                    signal_data = self._run_analysis(sym_cfg, tf_data, tick)
+                    if _tv_complete:
+                        # Fetch only M15 broker candles for Fibonacci (F12)
+                        m15_candles = None
+                        try:
+                            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                                fut = ex.submit(self.bridge.get_candles, broker_sym, "M15", 100)
+                                df = fut.result(timeout=10)
+                            if df is not None and len(df) >= 20:
+                                m15_candles = df
+                        except Exception:
+                            pass
+                        primary = m15_candles
+                        signal_data = self._run_analysis_tv(sym_cfg, tv_tfs, m15_candles, tick)
+                    else:
+                        log.info(f"   [TV→FALLBACK] {disp}: TV incomplete — fetching broker candles")
+                        tf_data = self._fetch_candles(sym_cfg)
+                        if not tf_data:
+                            log.warning(f"   ⚠️  {disp}: no candle data")
+                            continue
+                        primary = tf_data.get("M15", list(tf_data.values())[0])
+                        signal_data = self._run_analysis(sym_cfg, tf_data, tick)
                     direction = signal_data.get("direction", "HOLD")
                     confidence = float(signal_data.get("confidence", 0.0))
                     reason = signal_data.get("reason", "")
@@ -859,6 +1091,13 @@ class ContinuousTrader:
                     log.info(
                         f"   {disp}: {direction:4s} conf={confidence:.0%} | {reason[:55]}"
                     )
+
+                    # Write 4-stage decision trace
+                    try:
+                        from decision_logger import write_trace
+                        write_trace(cycle, disp, session, signal_data)
+                    except Exception as _te:
+                        log.debug(f"Trace write error: {_te}")
 
                     # Cache sparkline data
                     try:
@@ -918,20 +1157,118 @@ class ContinuousTrader:
                         log.info(f"   [COOLDOWN] {disp}: skipping — {int(_cooldown_remaining)}s cooldown after loss")
                         can_open_new = False
 
-                    # ADX trend filter: require ADX >= 20 for trend validity.
-                    # Exception: strong-scored ranging signals (ADX 16+) where RSI or BB
-                    # confirms direction — these are mean-reversion plays, not trend-following.
+                    # ADX trend filter — prefer TradingView ADX (true source) over broker candles
                     _adx_val  = signal_data.get("indicators", {}).get("adx", 0)
                     _bb_pos   = signal_data.get("indicators", {}).get("bb_position", "MID")
                     _rsi_v    = signal_data.get("indicators", {}).get("rsi", 50)
                     _sig_score = abs(signal_data.get("score", 0))
-                    # NOTE: score already discounts ranging markets via:
-                    #   (a) f5 = 0 when ADX < 20 (no directional ADX contribution)
-                    #   (b) ranging_penalty ×0.8 on the total score when ADX < 18
-                    # Double-filtering (score + gate) blocks valid mean-reversion setups.
-                    # Gate lowered from 20 → 15.  Still blocks ultra-choppy ADX <15 noise.
-                    _ranging_exception = False  # kept for logging clarity
+
+                    # Override ADX with TradingView M15 value when available
+                    # (broker candle ADX can be unreliable for synthetic pairs like SILVER.i#)
+                    # Only accept TV ADX if >= 10; values below that indicate the WS server
+                    # hasn't built enough candle history yet and are unreliable
+                    _tv_raw = signal_data.get("_tv_raw", {})
+                    if self.tv:
+                        _tv_ind = self.tv.get(disp)  # disp = "XAUUSD" or "XAGUSD"
+                        if _tv_ind and _tv_ind.get("adx") and _tv_ind["adx"] >= 10:
+                            _adx_val = _tv_ind["adx"]
+
                     _adx_ok = (_adx_val >= 15)
+
+                    # ── Multi-timeframe ADX override ──────────────────────────
+                    # When the Daily trend is strong, allow entries even if M15 ADX
+                    # is below 15 (M15 may be pausing/pulling back within a D1 trend).
+                    # This is the primary fix for the "ADX gate blocking all trades"
+                    # problem — D1 ADX > 20 means a real trend exists.
+                    #   D1 ADX ≥ 20 + M15 ADX ≥ 10  → gate opens (pullback entry)
+                    #   D1 ADX ≥ 25 + M15 ADX ≥  8  → gate opens (strong trend, wider window)
+                    if not _adx_ok:
+                        _d1_adx = (_tv_raw.get("D1") or {}).get("adx") or 0
+                        if _d1_adx >= 25 and _adx_val >= 8:
+                            _adx_ok = True
+                            log.info(
+                                f"   [D1-OVERRIDE] {disp}: D1 ADX={_d1_adx:.1f} ≥ 25 "
+                                f"+ M15 ADX={_adx_val:.1f} ≥ 8 — strong daily trend, gate opened"
+                            )
+                        elif _d1_adx >= 20 and _adx_val >= 10:
+                            _adx_ok = True
+                            log.info(
+                                f"   [D1-OVERRIDE] {disp}: D1 ADX={_d1_adx:.1f} ≥ 20 "
+                                f"+ M15 ADX={_adx_val:.1f} ≥ 10 — daily trend active, gate opened"
+                            )
+
+                    # ── Trading in the Zone: Circuit Breaker ──────────────────
+                    # After 3+ consecutive losses, pause for exactly 2 analysis cycles
+                    # then auto-reset the streak. Prevents indefinite lockout on a
+                    # sideways regime while still enforcing a meaningful cool-off.
+                    _sym_consec = self._consec_losses.get(disp, 0)
+                    _cb_until   = self._circuit_break_until.get(disp, 0)
+
+                    if _cb_until > 0 and cycle >= _cb_until:
+                        # Pause elapsed — give the symbol a clean slate
+                        self._consec_losses[disp] = 0
+                        self._circuit_break_until[disp] = 0
+                        _save_streaks(self._consec_losses)
+                        _sym_consec = 0
+                        _cb_until   = 0
+                        log.info(f"   ✅ CIRCUIT BREAKER: {disp} — 2-cycle pause complete, streak reset")
+
+                    if can_open_new and _sym_consec >= 3:
+                        if _cb_until == 0:
+                            self._circuit_break_until[disp] = cycle + 2
+                            _cb_until = cycle + 2
+                        log.info(
+                            f"   🛑 ZONE CIRCUIT BREAKER: {disp} — "
+                            f"{_sym_consec} consecutive losses. "
+                            f"Paused for {_cb_until - cycle} more analysis cycle(s). (Mark Douglas Rule)"
+                        )
+                        can_open_new = False
+
+                    # ── Ranging max-position cap ──────────────────────────────
+                    # In a ranging market (ADX < 15), never hold more than 1 position.
+                    # Reduces compounded exposure when there is no trend to ride.
+                    _max_pos_ranging = CONFIG["max_trades_per_sym"]
+                    if _adx_val < 15:
+                        _max_pos_ranging = 1
+                    if len(current_pos) >= _max_pos_ranging and _adx_val < 15:
+                        log.info(
+                            f"   ⏸  {disp}: ranging market (ADX={_adx_val:.1f}) — "
+                            f"max 1 position enforced"
+                        )
+                        can_open_new = False
+
+                    # ── Ranging-market mean-reversion exception ───────────────
+                    # Trading in the Zone: only enter at TRUE Fibonacci/BB extremes
+                    # in ranging markets. Requires HIGHER score AND no loss streak.
+                    # Conditions tightened from original (RSI < 42 → RSI < 35,
+                    # added score floor ≥ 18 and no consecutive losses ≥ 2).
+                    if not _adx_ok:
+                        _score_floor_ok = _sig_score >= 18
+                        _fib_factor = signal_data.get("factor_scores", {}).get("f12_fibonacci", 0)
+                        _fib_confluence = _fib_factor > 0  # positive Fib near support
+                        _no_streak = _sym_consec < 2        # allow only with clean slate
+
+                        if (direction == "BUY" and _bb_pos == "BELOW_LOWER"
+                                and _rsi_v < 35 and _score_floor_ok and _no_streak):
+                            _adx_ok = True
+                            log.info(
+                                f"   [RANGING ENTRY] {disp}: BB oversold + RSI {_rsi_v:.0f} "
+                                f"+ score {_sig_score:.0f} — Fibonacci mean-reversion BUY"
+                            )
+                        elif (direction == "SELL" and _bb_pos == "ABOVE_UPPER"
+                              and _rsi_v > 65 and _score_floor_ok and _no_streak):
+                            _adx_ok = True
+                            log.info(
+                                f"   [RANGING ENTRY] {disp}: BB overbought + RSI {_rsi_v:.0f} "
+                                f"+ score {_sig_score:.0f} — Fibonacci mean-reversion SELL"
+                            )
+                        elif _fib_confluence and _score_floor_ok and _no_streak and _adx_val >= 8:
+                            # Fibonacci level confluence overrides ADX gate even in ranging
+                            _adx_ok = True
+                            log.info(
+                                f"   [FIB ENTRY] {disp}: Fibonacci confluence F12={_fib_factor:+.1f} "
+                                f"score={_sig_score:.0f} — Fibonacci zone entry allowed"
+                            )
 
                     # Confidence gate — tiered by signal type:
                     #   Normal AI signal      → 0.55 (full gate)
@@ -1118,9 +1455,15 @@ class ContinuousTrader:
                             _log_signal(
                                 broker_sym, direction, confidence, reason, "HOLD"
                             )
+                        elif fade_blocked:
+                            log.info(f"   ⏭  {disp}: fade blocked (ADX={_adx_val:.1f} RSI={_rsi_v:.1f})")
+                            _log_signal(broker_sym, direction, confidence, "fade_blocked", "LOW_CONF")
+                        elif not _adx_ok:
+                            log.info(f"   ⏭  {disp}: ADX too low ({_adx_val:.1f}) — no trend or ranging setup")
+                            _log_signal(broker_sym, direction, confidence, f"adx_low_{_adx_val:.1f}", "LOW_CONF")
                         else:
                             log.info(
-                                f"   ⏭  {disp}: confidence too low ({confidence:.0%})"
+                                f"   ⏭  {disp}: confidence too low ({confidence:.0%} < {_conf_gate:.0%})"
                             )
                             _log_signal(
                                 broker_sym, direction, confidence, reason, "LOW_CONF"

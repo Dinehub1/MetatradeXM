@@ -8,6 +8,7 @@ MarketAnalyzer — UPGRADED
 """
 
 import json
+import logging
 import os
 import re
 import requests
@@ -15,13 +16,41 @@ import numpy as np
 import pandas as pd
 from datetime import datetime, timezone
 
-from ai_client import ask_openrouter  # unified OpenRouter client (T1 → T2)
+from ai_client import ask_gemini, ask_openrouter  # Gemini primary, OpenRouter fallback
 
-SYSTEM_PROMPT = """You are a professional forex trader with 15+ years of experience.
-You specialize in technical analysis and risk management.
-You analyze market data objectively and give clear, actionable trading decisions.
-You are conservative — when in doubt, you say HOLD to protect capital.
-You always consider the higher timeframe trend before entering on lower timeframes."""
+log = logging.getLogger("analyzer")
+
+SYSTEM_PROMPT = """You are an expert precious metals trader specialising in XAUUSD (Gold) and XAGUSD (Silver).
+You have 20+ years of experience trading commodities and forex.
+You use multi-timeframe analysis: D1/H4 for trend direction, H1 for context, M15 for entry timing.
+You are disciplined — you only enter when multiple timeframes align AND ADX confirms trend strength.
+
+CORE TRADING PHILOSOPHY (Trading in the Zone — Mark Douglas):
+- Think in PROBABILITIES, not certainties. You never know which trade wins — you only know your edge.
+- Every moment in the market is unique. Past wins do not guarantee this trade wins.
+- Your edge is a higher probability of one thing over another — expressed in confidence score.
+- A 0.70 confidence trade still loses 30% of the time. Accept this. Execute consistently.
+- NEVER over-trade to recover losses. Each trade stands alone on its own merit.
+- HOLD is a valid and profitable decision. Patience IS a position.
+
+FIBONACCI RULES (mandatory for entry decisions):
+- Price at 61.8% retracement (Golden Ratio) = highest probability reversal zone. Boost confidence.
+- Price at 38.2% or 50% retracement = strong support/resistance. Valid entry zone.
+- Price at 78.6% retracement = deep pullback, potential trend continuation or exhaustion.
+- Price ABOVE the 100% extension = trend exhausted. DO NOT chase. HOLD or wait for pullback.
+- Entry at Fibonacci confluence (Fib level + BB extreme + RSI extreme) = maximum edge.
+- If price is between Fibonacci levels with no confluence = wait. HOLD.
+
+TECHNICAL RULES:
+- NEVER trade against the D1/H4 trend unless it is a strong counter-trend reversal setup.
+- ADX > 25 required for trend trades. ADX < 15 = ranging market, use RSI/Stoch/Fib reversals ONLY.
+- ADX 15-25 = developing trend — require 3+ confirming factors before entry.
+- In bearish trends: -DI > +DI confirms sell pressure. In bullish: +DI > -DI.
+- Gold is most volatile during London open (07:00 UTC) and NY open (13:00 UTC).
+- HOLD when signals are mixed, ADX < 10, or ATR < 5th percentile (dead market).
+- RANGING MARKET (ADX < 15): ONLY enter at Fibonacci retracement levels OR BB extremes with RSI confirmation.
+
+Respond with ONLY raw JSON: {"direction": "BUY"|"SELL"|"HOLD", "confidence": 0.0-1.0, "reason": "1-2 sentences"}"""
 
 
 
@@ -32,7 +61,8 @@ class MarketAnalyzer:
 
     # ── Public API ────────────────────────────────────────────────────────────
 
-    def analyze(self, candles, tick, symbol: str, memory_context: str = "") -> dict:
+    def analyze(self, candles, tick, symbol: str, memory_context: str = "",
+                tv_indicators: dict = None) -> dict:
         """
         candles: single DataFrame (M15) OR dict {"M15": df, "H1": df, "H4": df}
         memory_context: optional past trade memory for AI reasoning
@@ -49,9 +79,43 @@ class MarketAnalyzer:
         ind_h4  = self._compute_indicators(tf_data.get("H4", tf_data["M15"]))
         ind_d1  = self._compute_indicators(tf_data["D1"]) if "D1" in tf_data and len(tf_data["D1"]) >= 30 else None
 
+        # ── TradingView live override: replace broker-computed values with TV data ──
+        # TV indicators are sourced directly from TradingView (institutional data quality).
+        # Only override fields that pass sanity checks — startup/stale values are rejected.
+        if tv_indicators:
+            tv_src = {"M15": ind_m15, "H1": ind_h1, "H4": ind_h4}
+            tv_count = 0
+            for tf_label, broker_ind in tv_src.items():
+                tv_tf = tv_indicators.get(tf_label)
+                if tv_tf:
+                    updated = self._apply_tv_override(broker_ind, tv_tf)
+                    if tf_label == "M15":
+                        ind_m15 = updated
+                    elif tf_label == "H1":
+                        ind_h1 = updated
+                    elif tf_label == "H4":
+                        ind_h4 = updated
+                    tv_count += 1
+            if ind_d1 and tv_indicators.get("D1"):
+                ind_d1 = self._apply_tv_override(ind_d1, tv_indicators["D1"])
+                tv_count += 1
+            if tv_count:
+                log.debug(f"[TV] {symbol}: live indicators applied for {tv_count} timeframes")
+
         session     = self._get_session()
-        base_signal = self._multi_tf_signal(ind_m15, ind_h1, ind_h4, ind_d1)
+        weights     = self._load_weights()
+        base_signal = self._multi_tf_signal(ind_m15, ind_h1, ind_h4, ind_d1, weights=weights)
         base_signal["session"] = session
+
+        # ── F12: Fibonacci proximity (Trading in the Zone — enter at edges) ──
+        m15_df = tf_data.get("M15")
+        if m15_df is not None and len(m15_df) >= 20:
+            fib_data   = self.compute_fibonacci_levels(m15_df, lookback=100)
+            f12_raw    = self._compute_fib_factor(m15_df, fib_data=fib_data)
+            f12_scored = round(f12_raw * weights.get("f12_fibonacci", 0.9), 1)
+            base_signal.setdefault("factor_scores", {})["f12_fibonacci"] = f12_scored
+            base_signal["score"] = round(base_signal.get("score", 0) + f12_scored, 1)
+            base_signal["fibonacci_data"] = fib_data
 
         if self.use_claude:
             research_ctx = self._fetch_nemotron_research(symbol, base_signal)
@@ -70,6 +134,102 @@ class MarketAnalyzer:
         signal["session"]    = session
         return signal
 
+    # ── TradingView live data integration ─────────────────────────────────────
+
+    def _apply_tv_override(self, broker_ind: dict, tv_ind: dict) -> dict:
+        """
+        Merge TradingView live indicators on top of broker-computed values.
+        TradingView is the primary source of truth — it uses exchange-grade data.
+        Sanity checks reject startup garbage (ADX=0, RSI=100, etc.).
+        """
+        if not tv_ind:
+            return broker_ind
+        merged = dict(broker_ind)
+        for key, val in tv_ind.items():
+            if val is None:
+                continue
+            # Per-field sanity gates
+            if key == "adx" and (val < 3 or val > 100):
+                continue   # ADX=0 = server not ready; ADX>100 = impossible
+            if key == "rsi" and (val >= 99.5 or val <= 0.5):
+                continue   # RSI=100 or 0 = not enough bar history
+            if key == "ema_trend" and val not in ("BULLISH", "BEARISH", "MILD_BULL", "MILD_BEAR", "MIXED"):
+                continue   # "undefined" / null from JS
+            if key in ("plus_di", "minus_di") and val < 0:
+                continue
+            merged[key] = val
+        return merged
+
+    def _tv_to_ind(self, tv_tf: dict) -> dict:
+        """Convert TV timeframe dict to the indicator format _get_factor_scores expects."""
+        adx = tv_tf.get("adx", 0) or 0
+        return {
+            "price":                tv_tf.get("price", 0),
+            "price_change":         tv_tf.get("price_change", 0),
+            "ema_trend":            tv_tf.get("ema_trend", "MIXED"),
+            "ema20":                tv_tf.get("ema20", 0),
+            "ema50":                tv_tf.get("ema50", 0),
+            "ema200":               tv_tf.get("ema200", 0),
+            "rsi":                  tv_tf.get("rsi", 50),
+            "macd_signal":          tv_tf.get("macd_signal", "NEUTRAL"),
+            "macd_hist":            tv_tf.get("macd_hist", 0),
+            "bb_position":          tv_tf.get("bb_position", "ABOVE_MID"),
+            "bb_squeeze":           tv_tf.get("bb_squeeze", False),
+            "adx":                  adx,
+            "plus_di":              tv_tf.get("plus_di", 0),
+            "minus_di":             tv_tf.get("minus_di", 0),
+            "trend_strong":         adx > 25,
+            "stoch_k":              tv_tf.get("stoch_k", 50),
+            "stoch_d":              tv_tf.get("stoch_d", 50),
+            "stoch_cross":          tv_tf.get("stoch_cross", "NONE"),
+            "williams_r":           tv_tf.get("williams_r", -50),
+            "atr":                  tv_tf.get("atr", 0),
+            "vol_ratio":            tv_tf.get("vol_ratio", 1.0),
+            "candle_pattern_score": 0,  # TV streams aggregated indicators, not raw bars
+        }
+
+    def analyze_from_tv(self, tv_tfs: dict, tick, symbol: str,
+                        m15_candles=None, memory_context: str = "") -> dict:
+        """TV-direct path: skip broker candle fetch and indicator computation entirely.
+
+        tv_tfs: dict with keys M15, H1, H4 (and optionally D1) from tv_client
+        m15_candles: optional broker M15 DataFrame — used only for Fibonacci (F12)
+        """
+        ind_m15 = self._tv_to_ind(tv_tfs.get("M15", {}))
+        ind_h1  = self._tv_to_ind(tv_tfs.get("H1", {}))
+        ind_h4  = self._tv_to_ind(tv_tfs.get("H4", {}))
+        ind_d1  = self._tv_to_ind(tv_tfs["D1"]) if tv_tfs.get("D1") else None
+
+        session     = self._get_session()
+        weights     = self._load_weights()
+        base_signal = self._multi_tf_signal(ind_m15, ind_h1, ind_h4, ind_d1, weights=weights)
+        base_signal["session"] = session
+
+        if m15_candles is not None and len(m15_candles) >= 20:
+            fib_data   = self.compute_fibonacci_levels(m15_candles, lookback=100)
+            f12_raw    = self._compute_fib_factor(m15_candles, fib_data=fib_data)
+            f12_scored = round(f12_raw * weights.get("f12_fibonacci", 0.9), 1)
+            base_signal.setdefault("factor_scores", {})["f12_fibonacci"] = f12_scored
+            base_signal["score"] = round(base_signal.get("score", 0) + f12_scored, 1)
+            base_signal["fibonacci_data"] = fib_data
+
+        if self.use_claude:
+            research_ctx = self._fetch_nemotron_research(symbol, base_signal)
+            signal = self._ai_reasoning(symbol, tick, ind_m15, ind_h1, ind_h4,
+                                        base_signal, m15_candles,
+                                        memory_context=memory_context,
+                                        research_context=research_ctx,
+                                        d1=ind_d1, d1_df=None)
+        else:
+            signal = base_signal
+
+        signal["indicators"] = ind_m15
+        signal["h1_trend"]   = ind_h1.get("ema_trend", "UNKNOWN")
+        signal["h4_trend"]   = ind_h4.get("ema_trend", "UNKNOWN")
+        signal["d1_trend"]   = ind_d1.get("ema_trend", "UNKNOWN") if ind_d1 else "UNKNOWN"
+        signal["session"]    = session
+        return signal
+
     # ── Session detection ─────────────────────────────────────────────────────
 
     def _fetch_nemotron_research(self, symbol: str, base_signal: dict) -> str:
@@ -81,9 +241,10 @@ class MarketAnalyzer:
         weekday, hour = now.weekday(), now.hour
         if weekday == 5 or (weekday == 4 and hour >= 22) or (weekday == 6 and hour < 22):
             return "MARKET_CLOSED"
-        if 7  <= hour < 13: return "LONDON"
-        if 13 <= hour < 16: return "LONDON_NY_OVERLAP"
-        if 16 <= hour < 22: return "NEW_YORK"
+        # Mirrors is_forex_market_open() in continuous_trader.py — keep in sync
+        if  8 <= hour < 13: return "LONDON"
+        if 13 <= hour < 17: return "LONDON_NY_OVERLAP"
+        if 17 <= hour < 22: return "NEW_YORK"
         return "ASIAN"
 
     # ── Indicator suite ───────────────────────────────────────────────────────
@@ -291,9 +452,190 @@ class MarketAnalyzer:
         avg = df["vol"].iloc[-21:-1].mean()
         return round(float(df["vol"].iloc[-1]) / (avg + 1e-9), 2)
 
+    def compute_fibonacci_levels(self, df: pd.DataFrame, lookback: int = 100) -> dict:
+        """
+        Detect the most recent swing high and swing low over `lookback` bars
+        and return Fibonacci retracement + extension levels with price proximity context.
+
+        Swing detection: a pivot high is a bar whose high is the highest in a ±5 bar window.
+        Same logic for pivot low.
+
+        Returns dict with keys:
+            swing_high, swing_low, trend,
+            retracements: {23.6, 38.2, 50.0, 61.8, 78.6}  (price levels)
+            extensions:   {127.2, 161.8, 200.0, 261.8}     (price levels)
+            nearest_level: {"ratio": float, "price": float, "distance_pips": float, "type": str}
+            at_key_level: bool  (True if price within 0.3% of any retracement level)
+            zone_label: str  (human-readable context for AI prompt)
+        """
+        if len(df) < 20:
+            return {}
+
+        window = min(lookback, len(df))
+        bars = df.tail(window)
+        highs = bars["h"].values
+        lows  = bars["l"].values
+        close = bars["c"].values
+        current_price = float(close[-1])
+
+        # --- Swing pivot detection (±5 bar window) ---
+        pivot = 5
+        swing_high_idx = -1
+        swing_low_idx  = -1
+        swing_high_val = -np.inf
+        swing_low_val  =  np.inf
+
+        for i in range(pivot, len(highs) - pivot):
+            if highs[i] == np.max(highs[i - pivot: i + pivot + 1]):
+                if highs[i] > swing_high_val:
+                    swing_high_val = highs[i]
+                    swing_high_idx = i
+            if lows[i] == np.min(lows[i - pivot: i + pivot + 1]):
+                if lows[i] < swing_low_val:
+                    swing_low_val = lows[i]
+                    swing_low_idx = i
+
+        if swing_high_val == -np.inf or swing_low_val == np.inf:
+            return {}
+
+        swing_range = swing_high_val - swing_low_val
+        if swing_range < 1e-6:
+            return {}
+
+        # Determine trend direction: which pivot came LAST?
+        trend = "UP" if swing_low_idx > swing_high_idx else "DOWN"
+
+        # --- Retracement levels (price pulls back INTO the swing) ---
+        # For UP trend: fib retracements are between swing_low and swing_high
+        # For DOWN trend: fib retracements are between swing_high and swing_low
+        retrace_ratios = [0.236, 0.382, 0.500, 0.618, 0.786]
+        extend_ratios  = [1.272, 1.618, 2.000, 2.618]
+
+        retracements = {}
+        extensions   = {}
+
+        if trend == "UP":
+            # Retracements pull back from high toward low
+            for r in retrace_ratios:
+                retracements[round(r * 100, 1)] = round(swing_high_val - r * swing_range, 5)
+            # Extensions project above the high
+            for r in extend_ratios:
+                extensions[round(r * 100, 1)] = round(swing_low_val + r * swing_range, 5)
+        else:
+            # Retracements pull back from low toward high (bearish swing)
+            for r in retrace_ratios:
+                retracements[round(r * 100, 1)] = round(swing_low_val + r * swing_range, 5)
+            # Extensions project below the low
+            for r in extend_ratios:
+                extensions[round(r * 100, 1)] = round(swing_high_val - r * swing_range, 5)
+
+        # --- Find nearest level to current price ---
+        all_levels = [(ratio, price, "retracement") for ratio, price in retracements.items()]
+        all_levels += [(ratio, price, "extension") for ratio, price in extensions.items()]
+
+        nearest = min(all_levels, key=lambda x: abs(x[1] - current_price))
+        nearest_ratio, nearest_price, nearest_type = nearest
+        distance_pips = abs(current_price - nearest_price)
+        # For gold (~2000), 1 pip ≈ 0.1; for silver (~30), 1 pip ≈ 0.01
+        # Use percentage-based proximity instead
+        proximity_pct = distance_pips / (current_price + 1e-9) * 100
+
+        at_key_level = proximity_pct < 0.30  # within 0.3% = at the level
+
+        # --- Zone label for AI prompt ---
+        key_levels = {61.8: "golden ratio", 38.2: "strong confluence", 50.0: "midpoint",
+                      78.6: "deep retracement", 23.6: "shallow pullback",
+                      127.2: "minor extension", 161.8: "major extension"}
+        level_name = key_levels.get(nearest_ratio, f"{nearest_ratio}% level")
+
+        if at_key_level:
+            zone_label = f"⚡ Price AT {nearest_ratio}% {nearest_type} ({level_name}) — HIGH-PROBABILITY ZONE"
+        elif proximity_pct < 0.6:
+            zone_label = f"Price approaching {nearest_ratio}% {nearest_type} ({level_name}) — {proximity_pct:.2f}% away"
+        else:
+            zone_label = f"Nearest Fib: {nearest_ratio}% {nearest_type} @ {nearest_price:.3f} ({proximity_pct:.2f}% away)"
+
+        return {
+            "swing_high":     round(float(swing_high_val), 5),
+            "swing_low":      round(float(swing_low_val), 5),
+            "trend":          trend,
+            "retracements":   retracements,
+            "extensions":     extensions,
+            "nearest_level":  {
+                "ratio":          nearest_ratio,
+                "price":          round(nearest_price, 5),
+                "distance_pct":   round(proximity_pct, 4),
+                "type":           nearest_type,
+            },
+            "at_key_level":   at_key_level,
+            "zone_label":     zone_label,
+        }
+
+    # ── Fibonacci factor scoring ──────────────────────────────────────────────
+
+    def _compute_fib_factor(self, df: pd.DataFrame, fib_data: dict = None) -> float:
+        """
+        F12: Fibonacci proximity score.
+        Returns a SIGNED score (positive = bullish Fib support, negative = bearish Fib resistance).
+
+        Trading in the Zone principle: only trade at high-probability Fibonacci confluence zones.
+        The score amplifies conviction when price is at a key level, and stays 0 when in no-man's-land.
+
+        Score guide:
+            ±12 : Price AT 61.8% (Golden Ratio) — highest probability zone
+            ±10 : Price AT 38.2% or 50% — strong confluence
+            ±6  : Price AT 78.6% or 23.6% — moderate level
+            ±4  : Price APPROACHING (within 0.6%) a key level
+              0 : No meaningful Fibonacci proximity
+        """
+        try:
+            fib = fib_data if fib_data is not None else self.compute_fibonacci_levels(df, lookback=100)
+            if not fib or not fib.get("nearest_level"):
+                return 0.0
+
+            fib_trend   = fib.get("trend", "")          # "UP" or "DOWN"
+            at_level    = fib.get("at_key_level", False)
+            nearest     = fib["nearest_level"]
+            ratio       = nearest.get("ratio", 0)
+            dist_pct    = nearest.get("distance_pct", 999)
+            level_type  = nearest.get("type", "")
+
+            # Direction: bullish when trend is UP (price pulled back to support)
+            # bearish when trend is DOWN (price pulled back to resistance)
+            direction_sign = 1.0 if fib_trend == "UP" else -1.0
+
+            # ── At key level ────────────────────────────────────────────
+            if at_level:
+                strength_map = {
+                    61.8: 12.0,   # Golden Ratio — maximum conviction
+                    38.2: 10.0,   # Strong Fibonacci level
+                    50.0: 10.0,   # 50% midpoint — institutional favourite
+                    78.6: 6.0,    # Deep retracement — valid but riskier
+                    23.6: 6.0,    # Shallow — valid only with strong trend
+                    127.2: -4.0,  # Extension: over-extended, fade signal
+                    161.8: -6.0,  # Major extension: exhaustion warning
+                    200.0: -8.0,  # Double extension: very likely reversal
+                }
+                strength = strength_map.get(ratio, 4.0)
+                # Extensions are inherently fading signals (opposite direction)
+                if level_type == "extension":
+                    return round(-abs(strength) * direction_sign, 1)
+                return round(strength * direction_sign, 1)
+
+            # ── Approaching (within 0.6%) ────────────────────────────
+            if dist_pct < 0.60 and ratio in (61.8, 38.2, 50.0):
+                return round(4.0 * direction_sign, 1)
+
+            return 0.0
+
+        except Exception as e:
+            log.warning(f"[ANALYZER] Fibonacci computation failed: {e}")
+            return 0.0
+
     # ── Factor scoring (pre-AI) ────────────────────────────────────────────────
 
-    def _get_factor_scores(self, m15: dict, h1: dict, h4: dict, d1: dict = None) -> dict:
+    def _get_factor_scores(self, m15: dict, h1: dict, h4: dict, d1: dict = None,
+                           weights: dict = None) -> dict:
         """
         Returns 9 DIRECTIONALLY SIGNED factor scores + regime flag.
         Positive = bullish, negative = bearish.  The signed sum directly
@@ -302,7 +644,8 @@ class MarketAnalyzer:
         Adaptive weights are loaded from scoring_weights.json when available,
         so the self-improvement engine can tune them over time.
         """
-        weights = self._load_weights()
+        if weights is None:
+            weights = self._load_weights()
 
         # F1: H4 EMA trend (±10) — unchanged, already signed
         h4_map = {'BULLISH': 10, 'MILD_BULL': 5, 'MIXED': 0,
@@ -432,9 +775,11 @@ class MarketAnalyzer:
 
     # ── Multi-timeframe confluence signal ─────────────────────────────────────
 
-    def _multi_tf_signal(self, m15: dict, h1: dict, h4: dict, d1: dict = None) -> dict:
-        scores = self._get_factor_scores(m15, h1, h4, d1)
-        weights = self._load_weights()
+    def _multi_tf_signal(self, m15: dict, h1: dict, h4: dict, d1: dict = None,
+                         weights: dict = None) -> dict:
+        if weights is None:
+            weights = self._load_weights()
+        scores = self._get_factor_scores(m15, h1, h4, d1, weights=weights)
 
         # SIGNED SUM — each factor already carries its direction
         signed_score = (
@@ -534,6 +879,19 @@ class MarketAnalyzer:
                       d1: dict = None, d1_df: pd.DataFrame = None) -> dict:
         last_candles = candles.tail(8)[["time", "o", "h", "l", "c", "vol"]].to_string(index=False)
 
+        # Fibonacci levels — reuse cached result from analyze() to avoid duplicate computation
+        fib = base_signal.get("fibonacci_data") or self.compute_fibonacci_levels(candles, lookback=100)
+        fib_block = ""
+        if fib:
+            ret = fib["retracements"]
+            ext = fib["extensions"]
+            fib_block = f"""
+=== FIBONACCI LEVELS (swing {fib['swing_low']:.3f} → {fib['swing_high']:.3f}, trend: {fib['trend']}) ===
+Retracements: 23.6%={ret.get(23.6,'?')}  38.2%={ret.get(38.2,'?')}  50%={ret.get(50.0,'?')}  61.8%={ret.get(61.8,'?')}  78.6%={ret.get(78.6,'?')}
+Extensions:   127.2%={ext.get(127.2,'?')}  161.8%={ext.get(161.8,'?')}  200%={ext.get(200.0,'?')}  261.8%={ext.get(261.8,'?')}
+{fib['zone_label']}
+"""
+
         # Daily pivot points from yesterday's D1 candle (more precise than swing high/low)
         if d1_df is not None and len(d1_df) >= 2:
             prev = d1_df.iloc[-2]
@@ -594,6 +952,7 @@ Candle pattern score: {int(m15.get('candle_pattern_score', 0)):+d}
 
 === KEY LEVELS (Daily Pivots) ===
 {levels_str} | 20-bar change: {m15['price_change']:+.3f}%
+{fib_block}
 
 === SESSION: {session} ===
 
@@ -609,7 +968,8 @@ F8  H1-RSI:         {fs.get('f8_h1_rsi', 0):+.1f}
 F9  H1-MACD:        {fs.get('f9_h1_macd', 0):+.1f}
 F10 D1 Trend:       {fs.get('f10_d1_trend', 0):+.1f}
 F11 Candle Pattern: {fs.get('f11_candle_pattern', 0):+.1f}
-Regime: {fs['adx_regime']} | Bullish factors: {bullish_count}/11 | Bearish factors: {bearish_count}/11
+F12 Fibonacci:      {fs.get('f12_fibonacci', 0):+.1f}
+Regime: {fs['adx_regime']} | Bullish factors: {bullish_count}/12 | Bearish factors: {bearish_count}/12
 
 === INDICATOR-BASED SIGNAL ===
 {base_signal['direction']} | Score: {base_signal['score']} | Confidence: {float(base_signal.get('confidence', 0)):.0%}
@@ -645,18 +1005,59 @@ Confidence calibration:
 Respond with ONLY raw JSON (no markdown, no backticks):
 {{"direction": "BUY"|"SELL"|"HOLD", "confidence": 0.0-1.0, "reason": "1-2 sentences"}}"""
 
-        # ── AI signal via OpenRouter (T1 → T2, handled by ai_client.py) ────────
-        data = ask_openrouter(
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user",   "content": prompt},
-            ],
-            label=symbol,
-        )
+        # ── Inject TradingView live data into prompt if available ────────────
+        try:
+            from tv_client import get_tv_client
+            tv = get_tv_client()
+            tv_snap = tv.snapshot()
+            tv_sym  = tv_snap.get("symbols", {}).get(symbol, {})
+            tv_ind  = tv_sym.get("indicators", {})
+            tv_tfs  = tv_sym.get("timeframes", {})
+            if tv_ind and tv_ind.get("adx") is not None:
+                tv_block = f"""
+=== TRADINGVIEW LIVE INDICATORS (source of truth) ===
+Session: {tv_snap.get('session','?')}
+M15: ADX={tv_tfs.get('M15',{}).get('adx','?')} +DI={tv_tfs.get('M15',{}).get('plus_di','?')} -DI={tv_tfs.get('M15',{}).get('minus_di','?')} RSI={tv_tfs.get('M15',{}).get('rsi','?')} EMA_TREND={tv_tfs.get('M15',{}).get('ema_trend','?')} MACD={tv_tfs.get('M15',{}).get('macd_signal','?')}
+H1:  ADX={tv_tfs.get('H1',{}).get('adx','?')} +DI={tv_tfs.get('H1',{}).get('plus_di','?')} -DI={tv_tfs.get('H1',{}).get('minus_di','?')} RSI={tv_tfs.get('H1',{}).get('rsi','?')} EMA_TREND={tv_tfs.get('H1',{}).get('ema_trend','?')}
+H4:  ADX={tv_tfs.get('H4',{}).get('adx','?')} +DI={tv_tfs.get('H4',{}).get('plus_di','?')} -DI={tv_tfs.get('H4',{}).get('minus_di','?')} RSI={tv_tfs.get('H4',{}).get('rsi','?')} EMA_TREND={tv_tfs.get('H4',{}).get('ema_trend','?')}
+D1:  ADX={tv_tfs.get('D1',{}).get('adx','?')} +DI={tv_tfs.get('D1',{}).get('plus_di','?')} -DI={tv_tfs.get('D1',{}).get('minus_di','?')} RSI={tv_tfs.get('D1',{}).get('rsi','?')} EMA_TREND={tv_tfs.get('D1',{}).get('ema_trend','?')}
+PRIMARY (M15): ADX={tv_ind.get('adx','?')} RSI={tv_ind.get('rsi','?')} BB={tv_ind.get('bb_position','?')} ATR={tv_ind.get('atr','?')} trend_strong={tv_ind.get('trend_strong','?')}
+Williams%R={tv_ind.get('williams_r','?')} Stoch_K={tv_ind.get('stoch_k','?')} Stoch_cross={tv_ind.get('stoch_cross','?')}
+"""
+                prompt = prompt + tv_block
+        except Exception:
+            pass
 
-        # ── Step 3: Hard indicator fallback ──────────────────────────────────
+        # ── AI signal: Gemini primary → OpenRouter fallback ───────────────────
+        # HOW THIS WORKS:
+        #   1. Gemini is called first (fast reasoning model).
+        #   2. If Gemini fails/times out, OpenRouter (Llama 3.3 70B) is tried.
+        #   3. If BOTH fail, the indicator score is used directly (Step 3 below).
+        #
+        # WHY YOU SEE "HOLD 55%" IN THE LOGS:
+        #   This is NOT a hardcoded fallback. The AI IS being called and responding.
+        #   It returns HOLD because the indicator's base_signal also says HOLD
+        #   (when score < buy_threshold). The prompt tells the AI to "CONFIRM the
+        #   indicator signal", so when the indicator is HOLD, the AI confirms HOLD.
+        #   Fix: keep buy_threshold calibrated so the indicator generates
+        #   directional signals (BUY/SELL) for clear market setups.
+        ai_messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user",   "content": prompt},
+        ]
+        data = ask_gemini(ai_messages, label=symbol)
         if not data:
-            print("  [ANALYZER] All AI failed — using indicator signal")
+            log.warning(f"[ANALYZER] {symbol}: Gemini failed — trying OpenRouter")
+            data = ask_openrouter(ai_messages, label=symbol)
+
+        # ── Step 3: Hard indicator fallback (fires ONLY when both AI backends fail)
+        if not data:
+            log.warning(
+                f"[ANALYZER] {symbol}: BOTH AI backends failed — falling back to "
+                f"indicator signal (score={base_signal.get('score', 0):.1f}, "
+                f"dir={base_signal.get('direction', 'HOLD')}). "
+                f"Check Gemini/OpenRouter API keys and network."
+            )
             data = {
                 "direction":  base_signal.get("direction", "HOLD"),
                 "confidence": base_signal.get("confidence", 0.55),
@@ -677,11 +1078,23 @@ Respond with ONLY raw JSON (no markdown, no backticks):
         if ai_direction == "HOLD" and ind_direction in ("BUY", "SELL"):
             if abs(ind_score) >= 12:
                 ai_direction = ind_direction
-                # Indicator confidence is the ground truth here; cap at 0.82 so
-                # we never pretend to have more certainty than the data supports.
                 ind_conf = float(base_signal.get("confidence", 0.62))
+
+                # ADX-adaptive confidence cap (Trading in the Zone principle:
+                # calibrate certainty to actual market conditions).
+                # Ranging market (ADX < 15) = low certainty → cap 0.62
+                # Developing trend (ADX 15-20) = medium certainty → cap 0.72
+                # Trending (ADX >= 20) = full certainty → cap 0.82
+                _adx_now = m15.get("adx", 25.0)
+                if _adx_now < 15:
+                    _override_cap = 0.62   # ranging — cap confidence low
+                elif _adx_now < 20:
+                    _override_cap = 0.72   # developing trend
+                else:
+                    _override_cap = 0.82   # trending — original cap
+
                 data["direction"]  = ai_direction
-                data["confidence"] = round(min(ind_conf, 0.82), 4)
+                data["confidence"] = round(min(ind_conf, _override_cap), 4)
                 data["reason"] = (f"[Score override {ind_score:+.1f}] "
                                   + data.get("reason", ""))
                 _score_override = True
@@ -702,6 +1115,14 @@ Respond with ONLY raw JSON (no markdown, no backticks):
                 data["confidence"] = max(float(data.get("confidence", 0.40)) * penalty, 0.25)
                 data["reason"] = f"[H4 disagrees ×{penalty:.2f}] {data.get('reason', '')}"
 
+        # Build AI context summary for trace logging (Stage 3)
+        bull = sum(1 for v in base_signal.get("factor_scores", {}).values()
+                   if isinstance(v, (int, float)) and v > 0)
+        bear = sum(1 for v in base_signal.get("factor_scores", {}).values()
+                   if isinstance(v, (int, float)) and v < 0)
+        fib_data = base_signal.get("fibonacci_data", {})
+        fib_zone = fib_data.get("zone_label", "") if fib_data else ""
+
         return {
             "direction":     data.get("direction", "HOLD"),
             "confidence":    round(float(data.get("confidence", 0.40)), 4),
@@ -711,4 +1132,8 @@ Respond with ONLY raw JSON (no markdown, no backticks):
             "indicators":    base_signal.get("indicators", {}),
             "h1_trend":      base_signal.get("h1_trend", ""),
             "h4_trend":      base_signal.get("h4_trend", ""),
+            # Trace metadata (Stage 3 + Fib zone for Stage 2)
+            "_ai_context":   (f"Score={ind_score:+.1f} | Bull:{bull}/12 Bear:{bear}/12 | "
+                              f"IndSignal={ind_direction} → AI={data.get('direction','HOLD')}"),
+            "_fib_zone":     fib_zone,
         }

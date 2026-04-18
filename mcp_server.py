@@ -102,7 +102,7 @@ def get_status() -> dict:
 @mcp.tool()
 def get_trades(limit: int = 50, symbol: str = None) -> dict:
     """
-    Return recent trades from trades.db.
+    Return recent trades from trade_memory.db (trade_outcomes table).
 
     Args:
         limit: Max number of trades (default 50, max 500)
@@ -112,13 +112,30 @@ def get_trades(limit: int = 50, symbol: str = None) -> dict:
     limit = min(limit, 500)
 
     if symbol:
-        rows = _query(TRADES_DB,
-            "SELECT * FROM trades WHERE symbol=? ORDER BY ts DESC LIMIT ?",
+        rows = _query(TRADE_MEMORY_DB,
+            "SELECT * FROM trade_outcomes WHERE symbol=? ORDER BY ts DESC LIMIT ?",
             (symbol, limit))
     else:
-        rows = _query(TRADES_DB,
-            "SELECT * FROM trades ORDER BY ts DESC LIMIT ?",
+        rows = _query(TRADE_MEMORY_DB,
+            "SELECT * FROM trade_outcomes ORDER BY ts DESC LIMIT ?",
             (limit,))
+
+    # When trade_outcomes is empty, fall back to trade_entries (open/unrecorded trades)
+    if not rows:
+        if symbol:
+            entries = _query(TRADE_MEMORY_DB,
+                "SELECT id, ts, ticket, symbol, direction, entry_price, confidence, "
+                "skills_used, closed FROM trade_entries WHERE symbol=? ORDER BY ts DESC LIMIT ?",
+                (symbol, limit))
+        else:
+            entries = _query(TRADE_MEMORY_DB,
+                "SELECT id, ts, ticket, symbol, direction, entry_price, confidence, "
+                "skills_used, closed FROM trade_entries ORDER BY ts DESC LIMIT ?",
+                (limit,))
+        for e in entries:
+            e["source"] = "trade_entries"
+            e["outcome"] = "OPEN" if not e.get("closed") else "UNKNOWN"
+        return {"trades": entries, "count": len(entries), "note": "trade_outcomes empty — showing trade_entries"}
 
     return {"trades": rows, "count": len(rows)}
 
@@ -463,8 +480,22 @@ def update_scoring_weights(updates: dict) -> dict:
 
     Args:
         updates: Dict of weight keys and new values.
-                 Example: {"f3_rsi": 1.5, "buy_threshold": 12}
+                 Example: {"f3_rsi": 1.5}
+
+    NOTE: buy_threshold and sell_threshold are LOCKED and cannot be changed
+    via this tool. They were critically fixed (4→18) after causing excessive
+    entries. Edit scoring_weights.json directly if you truly need to change them.
     """
+    # These fields control entry frequency — a wrong value causes runaway trading.
+    # They must only be changed by a human with full understanding of the consequences.
+    LOCKED_FIELDS = {"buy_threshold", "sell_threshold"}
+    blocked = {k: v for k, v in updates.items() if k in LOCKED_FIELDS}
+    if blocked:
+        log.warning(f"[update_scoring_weights] BLOCKED attempt to modify locked fields: {blocked}")
+        updates = {k: v for k, v in updates.items() if k not in LOCKED_FIELDS}
+        if not updates:
+            return {"success": False, "error": f"Fields {list(blocked.keys())} are locked. No changes made."}
+
     log.info(f"[update_scoring_weights] {updates}")
     weights = _load_json(SCORING_WEIGHTS, {})
     weights.update(updates)
@@ -498,71 +529,31 @@ def close_all_positions() -> dict:
     import io, logging.handlers
     stream = io.StringIO()
     handler = logging.StreamHandler(stream)
-    handler.setLevel(logging.INFO)
-    logger = logging.getLogger("trader")
-    old_level = logger.level
+    logger = logging.getLogger("continuous_trader")
     logger.setLevel(logging.INFO)
     logger.addHandler(handler)
-    old_handlers = logger.handlers[:]
 
     try:
-        mod.cmd_close_all()
+        result = mod.cmd_close_all()
+        log_output = stream.getvalue()
+        return {"result": result, "log": log_output}
     except Exception as e:
+        log.error(f"Error closing all positions: {e}")
+        return {"error": str(e)}
+    finally:
         logger.removeHandler(handler)
-        logger.handlers = old_handlers
-        logger.setLevel(old_level)
-        return {"success": False, "error": str(e)}
-
-    log_output = stream.getvalue()
-    logger.removeHandler(handler)
-    logger.handlers = old_handlers
-    logger.setLevel(old_level)
-
-    return {"success": True, "log_output": log_output}
-
-
-@mcp.tool()
-def get_market_indicators(symbol: str = "XAUUSD") -> dict:
-    """
-    Return current market indicators for a symbol from the bot status.
-
-    Args:
-        symbol: Trading symbol (default XAUUSD)
-    """
-    log.info(f"[get_market_indicators] {symbol}")
-    status = _load_json(STATUS_FILE, {})
-    sym_data = status.get("symbols", {}).get(symbol, {})
-    return {
-        "symbol": symbol,
-        "signal": sym_data.get("signal", "UNKNOWN"),
-        "confidence": sym_data.get("confidence", 0),
-        "reason": sym_data.get("reason", ""),
-        "ask": sym_data.get("ask", 0),
-        "bid": sym_data.get("bid", 0),
-        "positions": sym_data.get("positions", 0),
-        "indicators": sym_data.get("indicators", {}),
-        "h1_trend": sym_data.get("h1_trend", ""),
-        "h4_trend": sym_data.get("h4_trend", ""),
-        "session": sym_data.get("session", ""),
-    }
-
-
-# ── Main ──────────────────────────────────────────────────────────────────────
-
-def main():
-    parser = argparse.ArgumentParser(description="Trading Bot MCP Server")
-    parser.add_argument("--http", action="store_true", help="Run as HTTP server instead of stdio")
-    parser.add_argument("--host", default="127.0.0.1", help="HTTP host (default 127.0.0.1)")
-    parser.add_argument("--port", type=int, default=8765, help="HTTP port (default 8765)")
-    args = parser.parse_args()
-
-    if args.http:
-        log.info(f"Starting HTTP MCP server on {args.host}:{args.port}")
-        mcp.run_http(host=args.host, port=args.port)
-    else:
-        log.info("Starting stdio MCP server")
-        mcp.run()
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="MCP server for trading bot")
+    parser.add_argument("--http", action="store_true", help="Run in HTTP mode")
+    parser.add_argument("--stdio", action="store_true", help="Run in stdio mode (explicit)")
+    args = parser.parse_args()
+
+    if args.http:
+        mcp.run(transport="http")
+    elif args.stdio:
+        mcp.run(transport="stdio")
+    else:
+        # Default to stdio for Hermes
+        mcp.run(transport="stdio")
