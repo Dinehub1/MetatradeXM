@@ -10,6 +10,7 @@ Setup:
        export METAAPI_TOKEN="your-token-here"
        export METAAPI_ACCOUNT_ID="your-account-id-here"
 """
+from __future__ import annotations
 
 import asyncio
 import os

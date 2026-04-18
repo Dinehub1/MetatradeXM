@@ -12,10 +12,12 @@ import os
 import logging
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from core.paths import DATA_DIR
+
 
 log = logging.getLogger("memory")
 
-DB_PATH = Path(__file__).parent / "trade_memory.db"
+DB_PATH = DATA_DIR / "trade_memory.db"
 
 
 class TradeMemory:
@@ -137,7 +139,8 @@ class TradeMemory:
     # ── Record trade outcome ─────────────────────────────────────────────────
 
     def record_outcome(self, ticket: str, exit_price: float,
-                       pips_result: float, outcome: str):
+                       pips_result: float, outcome: str,
+                       symbol: str = "UNKNOWN", direction: str = "UNKNOWN"):
         """Record when a trade closes. Links back to entry data."""
         ts = datetime.now(timezone.utc).isoformat()
 
@@ -198,7 +201,7 @@ class TradeMemory:
                      pips_result, confidence, factors_json, conditions_json,
                      duration_min, outcome, skills_used)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (ts, str(ticket), "UNKNOWN", "UNKNOWN", 0, exit_price,
+                """, (ts, str(ticket), symbol, direction, 0, exit_price,
                       pips_result, 0, "{}", "{}", 0, outcome, "[]"))
 
     # ── Record filtered trade ────────────────────────────────────────────────

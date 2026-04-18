@@ -14,11 +14,13 @@ import requests
 from pathlib import Path
 from datetime import datetime, timezone
 
-from ai_client import ask_openrouter  # unified OpenRouter client — no more Ollama
+from core.ai_client import ask_openrouter  # unified OpenRouter client — no more Ollama
+from core.paths import SKILLS_DIR
+
 
 log = logging.getLogger("skills")
 
-SKILLS_DIR = Path(__file__).parent / "skills"
+SKILLS_DIR = SKILLS_DIR
 
 
 def _parse_frontmatter(text: str) -> tuple:
@@ -117,8 +119,8 @@ class TradingSkill:
         self.path = path
         self.metadata = metadata
         self.body = body
-        self.performance = metadata.get("performance", {})
-        self.conditions = metadata.get("conditions", {})
+        self.performance = metadata.get("performance") or {}
+        self.conditions = metadata.get("conditions") or {}
 
     @property
     def win_rate(self):

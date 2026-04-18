@@ -19,10 +19,12 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
+from core.paths import STATE_DIR
+
 
 log = logging.getLogger("decision_logger")
 
-TRACE_FILE  = Path(__file__).parent / "analysis_trace.jsonl"
+TRACE_FILE  = STATE_DIR / "analysis_trace.jsonl"
 MAX_RECORDS = 5000   # ~3 days at 60s interval × 2 symbols before rotation
 
 

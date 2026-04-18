@@ -12,12 +12,14 @@ import requests
 from datetime import datetime, timezone
 from pathlib import Path
 
-from memory import TradeMemory
-from skill_manager import SkillManager
+from learning.memory import TradeMemory
+from learning.skill_manager import SkillManager
+from core.paths import CONFIG_DIR
+
 
 log = logging.getLogger("improver")
 
-WEIGHTS_PATH     = Path(__file__).parent / "scoring_weights.json"
+WEIGHTS_PATH     = CONFIG_DIR / "scoring_weights.json"
 LAST_REVIEW_FILE = Path(__file__).parent / ".last_review_date"  # persists across restarts
 OLLAMA_URL = "http://localhost:11434/api/chat"
 OLLAMA_MODEL = "minimax-m2.7:cloud"

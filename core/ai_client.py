@@ -14,6 +14,7 @@ Model config (set in .env):
     OPENROUTER_MODEL       = google/gemini-2.5-flash          ← T1 primary
     OPENROUTER_FAST_MODEL  = meta-llama/llama-3.3-70b-instruct ← T2 fallback
 """
+from __future__ import annotations
 
 import os
 import re
@@ -321,3 +322,9 @@ def ask_openrouter(
         print(f"  [AI] OpenRouter {tier}/{model} failed ({msg}){suffix}")
 
     return None
+
+
+# ── Alias ─────────────────────────────────────────────────────────────────────
+# analyzer.py imports ask_gemini by name.  OpenRouter routes to Gemini 2.5 Flash
+# as T1, so this alias is semantically correct — Gemini IS the primary backend.
+ask_gemini = ask_openrouter

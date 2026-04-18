@@ -23,8 +23,10 @@ import time
 import argparse
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
+from core.paths import STATE_DIR
 
-TRACE_FILE = Path(__file__).parent / "analysis_trace.jsonl"
+
+TRACE_FILE = STATE_DIR / "analysis_trace.jsonl"
 
 # ── ANSI colours ─────────────────────────────────────────────────────────────
 GREEN  = "\033[92m"

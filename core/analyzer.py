@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 from datetime import datetime, timezone
 
-from ai_client import ask_gemini, ask_openrouter  # Gemini primary, OpenRouter fallback
+from core.ai_client import ask_gemini, ask_openrouter  # Gemini primary, OpenRouter fallback
 
 log = logging.getLogger("analyzer")
 

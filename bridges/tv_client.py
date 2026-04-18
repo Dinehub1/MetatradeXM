@@ -10,6 +10,7 @@ Usage:
     data = tv.get("XAUUSD")       # returns latest indicators dict or None
     snap = tv.snapshot()          # full snapshot for all symbols
 """
+from __future__ import annotations
 
 import json
 import logging
@@ -18,7 +19,8 @@ import time
 
 logger = logging.getLogger(__name__)
 
-_WS_URL    = "ws://localhost:8887"
+import os
+_WS_URL    = os.environ.get("TV_WS_URL", "ws://localhost:8887")
 _RECONNECT = 5   # seconds between reconnect attempts
 
 
@@ -118,12 +120,16 @@ class TradingViewClient:
         try:
             msg = json.loads(raw)
             mtype = msg.get("type")
+            now = time.time()
 
             if mtype == "snapshot":
                 data = msg.get("data", {})
                 with self._lock:
                     self._session = data.get("session")
                     self._data    = data.get("symbols", {})
+                    for sym in self._data.values():
+                        if isinstance(sym, dict):
+                            sym["_last_update"] = now
                 logger.debug("[TV] Snapshot received for %d symbols", len(self._data))
 
             elif mtype == "indicator_update":
@@ -137,6 +143,7 @@ class TradingViewClient:
                             existing["indicators"] = indicators
                         if timeframes:
                             existing["timeframes"] = timeframes
+                        existing["_last_update"] = now
                         if not self._session:
                             self._session = msg.get("session")
                 logger.debug("[TV] Update: %s ADX=%.1f",

@@ -22,11 +22,13 @@ import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-from ai_client import ask_openrouter  # unified OpenRouter client (T1 → T2)
+from core.ai_client import ask_openrouter  # unified OpenRouter client (T1 → T2)
+from core.paths import DATA_DIR
+
 
 log = logging.getLogger("smart_exit")
 
-DB_PATH = Path(__file__).parent / "trade_memory.db"
+DB_PATH = DATA_DIR / "trade_memory.db"
 
 # ── Smart Exit Configuration ─────────────────────────────────────────────────
 EXIT_CFG = {

@@ -1,6 +1,7 @@
 """
 TradeLogger — SQLite-backed trade/signal journal.
 """
+from __future__ import annotations
 
 import sqlite3
 import json
@@ -9,9 +10,11 @@ import logging.handlers
 import sys
 from datetime import datetime
 from pathlib import Path
+from core.paths import LOG_DIR
+
 
 DB_FILE = "trades.db"
-LOG_FILE = Path(__file__).parent / "bot.log"
+LOG_FILE = LOG_DIR / "bot.log"
 
 _FMT = logging.Formatter(
     "%(asctime)s [%(levelname)-5s] [%(name)-12s] %(message)s",

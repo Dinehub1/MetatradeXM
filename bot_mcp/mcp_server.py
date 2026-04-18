@@ -29,17 +29,21 @@ logging.basicConfig(
 log = logging.getLogger("mcp_trading")
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
-BOT_DIR = Path("/home/ubuntu/trading-bot")
-STATUS_FILE = BOT_DIR / "bot_status.json"
-STATE_FILE = BOT_DIR / "trader_state.json"
-TRADES_DB = BOT_DIR / "trades.db"
-TRADE_MEMORY_DB = BOT_DIR / "trade_memory.db"
-SCORING_WEIGHTS = BOT_DIR / "scoring_weights.json"
-SKILLS_DIR = BOT_DIR / "skills"
-SYSROOT = Path(__file__).parent
+import sys as _sys
+_sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from core.paths import ROOT_DIR
+
+BOT_DIR = ROOT_DIR
+STATUS_FILE = ROOT_DIR / "state" / "bot_status.json"
+STATE_FILE = ROOT_DIR / "state" / "trader_state.json"
+TRADES_DB = ROOT_DIR / "data" / "trades.db"
+TRADE_MEMORY_DB = ROOT_DIR / "data" / "trade_memory.db"
+SCORING_WEIGHTS = ROOT_DIR / "config" / "scoring_weights.json"
+SKILLS_DIR = ROOT_DIR / "skills"
 
 # ── FastMCP setup ─────────────────────────────────────────────────────────────
 from mcp.server.fastmcp import FastMCP
+
 
 mcp = FastMCP(
     "trading-bot",

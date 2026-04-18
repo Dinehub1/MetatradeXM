@@ -16,12 +16,14 @@ import logging
 import requests
 from datetime import datetime, timezone
 from pathlib import Path
+from core.paths import DATA_DIR
+
 
 log = logging.getLogger("scaler")
 
 OLLAMA_URL   = "http://localhost:11434/api/chat"
 OLLAMA_MODEL = "minimax-m2.7:cloud"
-DB_PATH      = Path(__file__).parent / "trade_memory.db"
+DB_PATH      = DATA_DIR / "trade_memory.db"
 
 # ── Scaling config (mirrors SKILL.md) ────────────────────────────────────────
 SCALE_CFG = {

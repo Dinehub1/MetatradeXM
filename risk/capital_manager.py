@@ -22,11 +22,13 @@ import sqlite3
 import logging
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from core.paths import DATA_DIR, STATE_DIR
+
 
 log = logging.getLogger("capital_mgr")
 
-DB_PATH    = Path(__file__).parent / "trade_memory.db"
-STATE_PATH = Path(__file__).parent / "capital_state.json"
+DB_PATH    = DATA_DIR / "trade_memory.db"
+STATE_PATH = STATE_DIR / "capital_state.json"
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 CAPITAL_CFG = {
