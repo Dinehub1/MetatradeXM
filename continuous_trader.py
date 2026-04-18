@@ -1150,137 +1150,52 @@ class ContinuousTrader:
                             log.info(f"   FADE BLOCK: {disp} BUY blocked — ADX={adx_val} + RSI={rsi_val} + BB={bb_pos} = exhausted uptrend, reversal likely")
                             fade_blocked = True
 
-                    # Senior-trader cooldown: skip entry for 15 min after a loss on this symbol
-                    _LOSS_COOLDOWN_SECS = 900  # 15 minutes
+                    # Brief cooldown after loss: 3 min (was 15 — too aggressive, blocked recovery)
+                    _LOSS_COOLDOWN_SECS = 180  # 3 minutes
                     _cooldown_remaining = _LOSS_COOLDOWN_SECS - (time.time() - self._loss_cooldown.get(broker_sym, 0))
                     if can_open_new and _cooldown_remaining > 0:
-                        log.info(f"   [COOLDOWN] {disp}: skipping — {int(_cooldown_remaining)}s cooldown after loss")
+                        log.info(f"   [COOLDOWN] {disp}: {int(_cooldown_remaining)}s cooldown after loss")
                         can_open_new = False
 
-                    # ADX trend filter — prefer TradingView ADX (true source) over broker candles
-                    _adx_val  = signal_data.get("indicators", {}).get("adx", 0)
-                    _bb_pos   = signal_data.get("indicators", {}).get("bb_position", "MID")
-                    _rsi_v    = signal_data.get("indicators", {}).get("rsi", 50)
+                    # ── ADX: advisory not exclusionary ───────────────────────
+                    # ADX tells us trend STRENGTH — not whether to trade.
+                    # We only block on truly dead markets (ADX < 5 = no movement).
+                    # Score threshold + confidence gate is the real filter.
+                    _adx_val   = signal_data.get("indicators", {}).get("adx", 0)
+                    _bb_pos    = signal_data.get("indicators", {}).get("bb_position", "MID")
+                    _rsi_v     = signal_data.get("indicators", {}).get("rsi", 50)
                     _sig_score = abs(signal_data.get("score", 0))
+                    _tv_raw    = signal_data.get("_tv_raw", {})
 
-                    # Override ADX with TradingView M15 value when available
-                    # (broker candle ADX can be unreliable for synthetic pairs like SILVER.i#)
-                    # Only accept TV ADX if >= 10; values below that indicate the WS server
-                    # hasn't built enough candle history yet and are unreliable
-                    _tv_raw = signal_data.get("_tv_raw", {})
+                    # Prefer TradingView ADX (exchange-grade) over broker candles
                     if self.tv:
-                        _tv_ind = self.tv.get(disp)  # disp = "XAUUSD" or "XAGUSD"
-                        if _tv_ind and _tv_ind.get("adx") and _tv_ind["adx"] >= 10:
+                        _tv_ind = self.tv.get(disp)
+                        if _tv_ind and (_tv_ind.get("adx") or 0) >= 3:
                             _adx_val = _tv_ind["adx"]
 
-                    # ── ADX Gate Relaxation (Apr 18 2026 fix) ───────────────────────
-                    # Previous: Hard ADX >= 15 blocked 40% of tradeable time in ranging
-                    # New: ADX is CONFIRMATORY not EXCLUSIONARY
-                    #   • High score (>= 12) overrides ADX gate entirely
-                    #   • ADX >= 10 allows trade (weak trend OK)
-                    #   • D1 ADX >= 15 (not 20) allows pullback entries
-                    # Result: ~50% signal rate instead of 25% (saves legitimate trades)
-                    _high_confidence = _sig_score >= 12
-                    _adx_ok = (_adx_val >= 10) or _high_confidence
+                    # Only block if ADX is truly dead (< 5) AND signal is weak (< 8)
+                    _adx_ok = not (_adx_val < 5 and _sig_score < 8)
+                    if not _adx_ok:
+                        log.info(f"   [DEAD MARKET] {disp}: ADX={_adx_val:.1f} + score={_sig_score:.0f} — no momentum")
 
-                    _d1_adx = (_tv_raw.get("D1") or {}).get("adx") or 0
-
-                    # Allow weak-ADX pullback entries if daily trend exists
-                    if _adx_val < 10 and not _high_confidence:
-                        if _d1_adx >= 15 and _adx_val >= 6:  # Relaxed from >=20
-                            _adx_ok = True
-                            log.info(
-                                f"   [PULLBACK] {disp}: D1 ADX={_d1_adx:.1f} (trend) "
-                                f"+ M15 ADX={_adx_val:.1f} (pullback) — allowed"
-                            )
-                        elif _d1_adx >= 20 and _adx_val >= 8:
-                            _adx_ok = True
-                            log.info(
-                                f"   [D1-STRONG] {disp}: D1 ADX={_d1_adx:.1f} ≥ 20 "
-                                f"+ M15 ADX={_adx_val:.1f} ≥ 8 — strong trend, gate opened"
-                            )
-
-                    # ── Trading in the Zone: Circuit Breaker ──────────────────
-                    # After 3+ consecutive losses, pause for exactly 2 analysis cycles
-                    # then auto-reset the streak. Prevents indefinite lockout on a
-                    # sideways regime while still enforcing a meaningful cool-off.
+                    # ── Circuit breaker: 4 consecutive losses → 1-cycle pause ─
                     _sym_consec = self._consec_losses.get(disp, 0)
                     _cb_until   = self._circuit_break_until.get(disp, 0)
 
                     if _cb_until > 0 and cycle >= _cb_until:
-                        # Pause elapsed — give the symbol a clean slate
                         self._consec_losses[disp] = 0
                         self._circuit_break_until[disp] = 0
                         _save_streaks(self._consec_losses)
                         _sym_consec = 0
                         _cb_until   = 0
-                        log.info(f"   ✅ CIRCUIT BREAKER: {disp} — 2-cycle pause complete, streak reset")
+                        log.info(f"   ✅ {disp}: circuit breaker reset — resuming")
 
-                    if can_open_new and _sym_consec >= 3:
+                    if can_open_new and _sym_consec >= 4:
                         if _cb_until == 0:
-                            self._circuit_break_until[disp] = cycle + 2
-                            _cb_until = cycle + 2
-                        log.info(
-                            f"   🛑 ZONE CIRCUIT BREAKER: {disp} — "
-                            f"{_sym_consec} consecutive losses. "
-                            f"Paused for {_cb_until - cycle} more analysis cycle(s). (Mark Douglas Rule)"
-                        )
+                            self._circuit_break_until[disp] = cycle + 1
+                            _cb_until = cycle + 1
+                        log.info(f"   🛑 {disp}: {_sym_consec} losses — 1-cycle pause")
                         can_open_new = False
-
-                    # ── Ranging max-position cap ──────────────────────────────
-                    # In a ranging market (ADX < 15), never hold more than 1 position.
-                    # Reduces compounded exposure when there is no trend to ride.
-                    _max_pos_ranging = CONFIG["max_trades_per_sym"]
-                    if _adx_val < 15:
-                        _max_pos_ranging = 1
-                    if len(current_pos) >= _max_pos_ranging and _adx_val < 15:
-                        log.info(
-                            f"   ⏸  {disp}: ranging market (ADX={_adx_val:.1f}) — "
-                            f"max 1 position enforced"
-                        )
-                        can_open_new = False
-
-                    # ── Ranging-market mean-reversion exception (relaxed Apr 18) ──
-                    # Allow BB/RSI extremes in ranging IF score is reasonable + no bad streak
-                    # Old: score >= 18 (rare), new streak < 2 (punitive)
-                    # New: score >= 10 (more realistic), new streak < 3 (allows recovery)
-                    if not _adx_ok:
-                        _score_floor_ok = _sig_score >= 10  # Relaxed from 18
-                        _fib_factor = signal_data.get("factor_scores", {}).get("f12_fibonacci", 0)
-                        _fib_confluence = _fib_factor > 0
-                        _no_bad_streak = _sym_consec < 3  # Allow recovery after 1-2 losses
-
-                        if (direction == "BUY" and _bb_pos == "BELOW_LOWER"
-                                and _rsi_v < 35 and _score_floor_ok and _no_bad_streak):
-                            _adx_ok = True
-                            log.info(
-                                f"   [RANGING→BUY] {disp}: BB={_bb_pos} RSI={_rsi_v:.0f} "
-                                f"score={_sig_score:.0f} — mean-reversion entry"
-                            )
-                        elif (direction == "SELL" and _bb_pos == "ABOVE_UPPER"
-                              and _rsi_v > 65 and _score_floor_ok and _no_bad_streak):
-                            _adx_ok = True
-                            log.info(
-                                f"   [RANGING→SELL] {disp}: BB={_bb_pos} RSI={_rsi_v:.0f} "
-                                f"score={_sig_score:.0f} — mean-reversion entry"
-                            )
-                        elif _fib_confluence and _score_floor_ok and _no_bad_streak and _adx_val >= 6:
-                            _adx_ok = True
-                            log.info(
-                                f"   [FIB→ENTRY] {disp}: Fibonacci F12={_fib_factor:+.1f} "
-                                f"score={_sig_score:.0f} — Fibonacci zone entry allowed"
-                            )
-
-                    # ── High-confidence ADX override (Trading in the Zone) ────
-                    # When AI + indicators are ALIGNED with high confidence,
-                    # bypass ADX gate entirely. Prevents missing clear setups.
-                    if confidence >= 0.70 and _sig_score >= 15:
-                        _adx_ok = True
-                        if not _adx_ok:  # Only log if we're changing state
-                            log.info(
-                                f"   [CONFIDENCE OVERRIDE] {disp}: "
-                                f"conf={confidence:.0%} + score={_sig_score:.0f} ≥ 15 — ADX gate bypassed"
-                            )
 
                     # Confidence gate — tiered by signal type:
                     #   Normal AI signal      → 0.55 (full gate)

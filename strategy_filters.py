@@ -57,37 +57,16 @@ class TimeOfDayFilter(StrategyFilter):
         h       = now.hour
         session = _current_session()
 
-        # ── Pre-London dead zone: require very high confidence ────────────────
-        # Between 01:00-07:59 UTC only Sydney/Tokyo active; spreads are wide
-        # and fake-outs are common. We don't block entirely (Asian trend moves
-        # are real) but raise the bar.
-        if self.DEAD_ZONE_START <= h < self.DEAD_ZONE_END:
+        # Gold trades 24/5 — Asian session (Shanghai Gold Exchange) is legitimate.
+        # Only block truly dead hours: 23:30-00:30 UTC (venue crossover, widest spreads).
+        if h == 23 and now.minute >= 30:
             conf = context.get("confidence", 1.0)
-            if conf < 0.75:
-                return False, (
-                    f"Session filter: pre-London dead zone ({h:02d}:00 UTC) — "
-                    f"confidence {conf:.0%} below 75% threshold"
-                )
-
-        # ── First 30 min of London open: gap-fill whipsaw risk ────────────────
-        # 08:00-08:29 UTC: initial price discovery, stop hunts common
-        if h == 8 and now.minute < 30:
+            if conf < 0.65:
+                return False, f"Session filter: venue crossover ({h:02d}:{now.minute:02d} UTC) — conf {conf:.0%} < 65%"
+        if h == 0 and now.minute < 30:
             conf = context.get("confidence", 1.0)
-            if conf < 0.70:
-                return False, (
-                    "Session filter: London open first 30 min (gap/stop-hunt risk) — "
-                    f"confidence {conf:.0%} below 70%"
-                )
-
-        # ── First 30 min of NY open: volatile price discovery ────────────────
-        # 13:00-13:29 UTC: economic data releases, spreads spike
-        if h == 13 and now.minute < 30:
-            conf = context.get("confidence", 1.0)
-            if conf < 0.70:
-                return False, (
-                    "Session filter: NY open first 30 min (news/data risk) — "
-                    f"confidence {conf:.0%} below 70%"
-                )
+            if conf < 0.65:
+                return False, f"Session filter: venue crossover ({h:02d}:{now.minute:02d} UTC) — conf {conf:.0%} < 65%"
 
         return True, ""
 
@@ -100,14 +79,13 @@ class DayOfWeekFilter(StrategyFilter):
         now     = datetime.now(timezone.utc)
         weekday = now.weekday()
 
-        # Monday: whipsaw from weekend gaps — skip first 2 hours
-        if weekday == 0 and now.hour < 10:
-            return False, "Day filter: skip Monday before 10:00 UTC (gap risk)"
+        # Monday: allow after 30 min (reduced from 2 hours — gap fills fast for Gold)
+        if weekday == 0 and now.hour == 0 and now.minute < 30:
+            return False, "Day filter: skip Monday first 30 min UTC (gap risk)"
 
-        # Friday after 20:00 UTC: market winds down, wide spreads, thin book
-        # (was 18:00 — extended to 20:00 to allow NY afternoon session trades)
-        if weekday == 4 and now.hour >= 20:
-            return False, "Day filter: skip Friday after 20:00 UTC (market wind-down)"
+        # Friday after 21:00 UTC: market fully winds down, spreads too wide
+        if weekday == 4 and now.hour >= 21:
+            return False, "Day filter: skip Friday after 21:00 UTC (market close)"
 
         return True, ""
 

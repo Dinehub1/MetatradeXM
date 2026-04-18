@@ -22,11 +22,11 @@
     },
     {
       "date": "2026-04-17",
-      "change": "CRITICAL FIX: buy_threshold 4->18, sell_threshold -4->-18. Threshold of 4 was 4.5x too permissive \u2014 caused excessive entries in ranging markets. Added ranging_penalty 0.75 and f12_fibonacci weight 0.9."
+      "change": "CRITICAL FIX: buy_threshold 4->18, sell_threshold -4->-18. Threshold of 4 was 4.5x too permissive."
     },
     {
       "date": "2026-04-18",
-      "change": "RECALIBRATION: buy_threshold 18->12, sell_threshold -18->12. Threshold of 18 was unreachable \u2014 992-sample analysis showed max score ~23, mean -7.4, so threshold=18 generated 0 signals. threshold=12 gives 38% signal rate (calibrated sweet spot). _PROTECTED_WEIGHTS in continuous_trader.py updated to match \u2014 prevents self_improver from reverting."
+      "change": "FINAL CALIBRATION: buy_threshold=12, sell_threshold=-12. Max score ~23, threshold=18 = 0 signals. threshold=12 = 38% signal rate."
     }
   ]
 }
