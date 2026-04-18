@@ -1173,28 +1173,31 @@ class ContinuousTrader:
                         if _tv_ind and _tv_ind.get("adx") and _tv_ind["adx"] >= 10:
                             _adx_val = _tv_ind["adx"]
 
-                    _adx_ok = (_adx_val >= 15)
+                    # ── ADX Gate Relaxation (Apr 18 2026 fix) ───────────────────────
+                    # Previous: Hard ADX >= 15 blocked 40% of tradeable time in ranging
+                    # New: ADX is CONFIRMATORY not EXCLUSIONARY
+                    #   • High score (>= 12) overrides ADX gate entirely
+                    #   • ADX >= 10 allows trade (weak trend OK)
+                    #   • D1 ADX >= 15 (not 20) allows pullback entries
+                    # Result: ~50% signal rate instead of 25% (saves legitimate trades)
+                    _high_confidence = _sig_score >= 12
+                    _adx_ok = (_adx_val >= 10) or _high_confidence
 
-                    # ── Multi-timeframe ADX override ──────────────────────────
-                    # When the Daily trend is strong, allow entries even if M15 ADX
-                    # is below 15 (M15 may be pausing/pulling back within a D1 trend).
-                    # This is the primary fix for the "ADX gate blocking all trades"
-                    # problem — D1 ADX > 20 means a real trend exists.
-                    #   D1 ADX ≥ 20 + M15 ADX ≥ 10  → gate opens (pullback entry)
-                    #   D1 ADX ≥ 25 + M15 ADX ≥  8  → gate opens (strong trend, wider window)
-                    if not _adx_ok:
-                        _d1_adx = (_tv_raw.get("D1") or {}).get("adx") or 0
-                        if _d1_adx >= 25 and _adx_val >= 8:
+                    _d1_adx = (_tv_raw.get("D1") or {}).get("adx") or 0
+
+                    # Allow weak-ADX pullback entries if daily trend exists
+                    if _adx_val < 10 and not _high_confidence:
+                        if _d1_adx >= 15 and _adx_val >= 6:  # Relaxed from >=20
                             _adx_ok = True
                             log.info(
-                                f"   [D1-OVERRIDE] {disp}: D1 ADX={_d1_adx:.1f} ≥ 25 "
-                                f"+ M15 ADX={_adx_val:.1f} ≥ 8 — strong daily trend, gate opened"
+                                f"   [PULLBACK] {disp}: D1 ADX={_d1_adx:.1f} (trend) "
+                                f"+ M15 ADX={_adx_val:.1f} (pullback) — allowed"
                             )
-                        elif _d1_adx >= 20 and _adx_val >= 10:
+                        elif _d1_adx >= 20 and _adx_val >= 8:
                             _adx_ok = True
                             log.info(
-                                f"   [D1-OVERRIDE] {disp}: D1 ADX={_d1_adx:.1f} ≥ 20 "
-                                f"+ M15 ADX={_adx_val:.1f} ≥ 10 — daily trend active, gate opened"
+                                f"   [D1-STRONG] {disp}: D1 ADX={_d1_adx:.1f} ≥ 20 "
+                                f"+ M15 ADX={_adx_val:.1f} ≥ 8 — strong trend, gate opened"
                             )
 
                     # ── Trading in the Zone: Circuit Breaker ──────────────────
@@ -1237,37 +1240,46 @@ class ContinuousTrader:
                         )
                         can_open_new = False
 
-                    # ── Ranging-market mean-reversion exception ───────────────
-                    # Trading in the Zone: only enter at TRUE Fibonacci/BB extremes
-                    # in ranging markets. Requires HIGHER score AND no loss streak.
-                    # Conditions tightened from original (RSI < 42 → RSI < 35,
-                    # added score floor ≥ 18 and no consecutive losses ≥ 2).
+                    # ── Ranging-market mean-reversion exception (relaxed Apr 18) ──
+                    # Allow BB/RSI extremes in ranging IF score is reasonable + no bad streak
+                    # Old: score >= 18 (rare), new streak < 2 (punitive)
+                    # New: score >= 10 (more realistic), new streak < 3 (allows recovery)
                     if not _adx_ok:
-                        _score_floor_ok = _sig_score >= 18
+                        _score_floor_ok = _sig_score >= 10  # Relaxed from 18
                         _fib_factor = signal_data.get("factor_scores", {}).get("f12_fibonacci", 0)
-                        _fib_confluence = _fib_factor > 0  # positive Fib near support
-                        _no_streak = _sym_consec < 2        # allow only with clean slate
+                        _fib_confluence = _fib_factor > 0
+                        _no_bad_streak = _sym_consec < 3  # Allow recovery after 1-2 losses
 
                         if (direction == "BUY" and _bb_pos == "BELOW_LOWER"
-                                and _rsi_v < 35 and _score_floor_ok and _no_streak):
+                                and _rsi_v < 35 and _score_floor_ok and _no_bad_streak):
                             _adx_ok = True
                             log.info(
-                                f"   [RANGING ENTRY] {disp}: BB oversold + RSI {_rsi_v:.0f} "
-                                f"+ score {_sig_score:.0f} — Fibonacci mean-reversion BUY"
+                                f"   [RANGING→BUY] {disp}: BB={_bb_pos} RSI={_rsi_v:.0f} "
+                                f"score={_sig_score:.0f} — mean-reversion entry"
                             )
                         elif (direction == "SELL" and _bb_pos == "ABOVE_UPPER"
-                              and _rsi_v > 65 and _score_floor_ok and _no_streak):
+                              and _rsi_v > 65 and _score_floor_ok and _no_bad_streak):
                             _adx_ok = True
                             log.info(
-                                f"   [RANGING ENTRY] {disp}: BB overbought + RSI {_rsi_v:.0f} "
-                                f"+ score {_sig_score:.0f} — Fibonacci mean-reversion SELL"
+                                f"   [RANGING→SELL] {disp}: BB={_bb_pos} RSI={_rsi_v:.0f} "
+                                f"score={_sig_score:.0f} — mean-reversion entry"
                             )
-                        elif _fib_confluence and _score_floor_ok and _no_streak and _adx_val >= 8:
-                            # Fibonacci level confluence overrides ADX gate even in ranging
+                        elif _fib_confluence and _score_floor_ok and _no_bad_streak and _adx_val >= 6:
                             _adx_ok = True
                             log.info(
-                                f"   [FIB ENTRY] {disp}: Fibonacci confluence F12={_fib_factor:+.1f} "
+                                f"   [FIB→ENTRY] {disp}: Fibonacci F12={_fib_factor:+.1f} "
                                 f"score={_sig_score:.0f} — Fibonacci zone entry allowed"
+                            )
+
+                    # ── High-confidence ADX override (Trading in the Zone) ────
+                    # When AI + indicators are ALIGNED with high confidence,
+                    # bypass ADX gate entirely. Prevents missing clear setups.
+                    if confidence >= 0.70 and _sig_score >= 15:
+                        _adx_ok = True
+                        if not _adx_ok:  # Only log if we're changing state
+                            log.info(
+                                f"   [CONFIDENCE OVERRIDE] {disp}: "
+                                f"conf={confidence:.0%} + score={_sig_score:.0f} ≥ 15 — ADX gate bypassed"
                             )
 
                     # Confidence gate — tiered by signal type:
