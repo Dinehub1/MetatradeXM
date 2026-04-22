@@ -1,0 +1,18 @@
+#!/usr/bin/expect -f
+set timeout 10
+spawn ssh Administrator@206.72.198.54
+expect {
+    "yes/no" {
+        send "yes\r"
+        exp_continue
+    }
+    "assword:" {
+        send "q3XtM9f%\r"
+    }
+}
+expect ">"
+send "python --version\r"
+expect ">"
+send "python -c \"import MetaTrader5; print(MetaTrader5.__version__)\"\r"
+expect ">"
+send "exit\r"

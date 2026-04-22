@@ -1,0 +1,12 @@
+#!/usr/bin/expect -f
+set timeout 30
+spawn ssh -o StrictHostKeyChecking=no Administrator@206.72.198.54 "cmd.exe /c echo @echo off > C:\\Users\\Administrator\\Desktop\\Start_Webhook.bat && echo python C:\\Users\\Administrator\\win_webhook_mt5.py >> C:\\Users\\Administrator\\Desktop\\Start_Webhook.bat"
+expect {
+    "password:" {
+        send "q3XtM9f%\r"
+        exp_continue
+    }
+    eof {
+        exit 0
+    }
+}

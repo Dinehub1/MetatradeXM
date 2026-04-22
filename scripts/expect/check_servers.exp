@@ -1,0 +1,10 @@
+#!/usr/bin/expect -f
+set timeout 30
+spawn ssh -o StrictHostKeyChecking=no Administrator@206.72.198.54
+expect "password:"
+send "q3XtM9f%\r"
+expect ">"
+send "dir /b C:\\Users\\Administrator\\AppData\\Roaming\\MetaQuotes\\Terminal\\656C351524AFFE300FAFE576FA4C7845\\Config\\\r"
+expect ">"
+send "exit\r"
+expect eof

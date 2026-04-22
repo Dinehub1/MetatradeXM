@@ -1,0 +1,10 @@
+#!/usr/bin/expect -f
+set timeout 30
+spawn ssh -o StrictHostKeyChecking=no Administrator@206.72.198.54
+expect "password:"
+send "q3XtM9f%\r"
+expect ">"
+send "python -c \"import MetaTrader5 as mt5; mt5.initialize(); info=mt5.account_info(); print('CONNECTED:', info.login, info.server, 'Balance:', info.balance) if info else print('NOT CONNECTED:', mt5.last_error()); mt5.shutdown()\"\r"
+expect ">"
+send "exit\r"
+expect eof
