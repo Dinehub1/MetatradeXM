@@ -1,0 +1,10 @@
+{
+  "state": "sleeping",
+  "cycle": 5,
+  "ts": "2026-04-18 16:28:10",
+  "dry_run": false,
+  "session": "MARKET_CLOSED",
+  "reason": "Market closed \u2014 weekend",
+  "symbols": {},
+  "connection": "OK"
+}
