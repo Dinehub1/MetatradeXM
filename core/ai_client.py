@@ -22,6 +22,7 @@ from __future__ import annotations
 import os
 import re
 import json
+import time
 import logging
 import requests
 
@@ -257,6 +258,10 @@ def _log_line(data: dict, tier: str, model: str, label: str) -> str:
     return f"  [AI] {tier} OK ({model}) — {tag}{summary}"
 
 
+# HTTP status codes that are safe to retry (transient server-side issues)
+_RETRYABLE_HTTP = {429, 500, 502, 503, 504}
+
+
 def _call_nvidia(messages: list, model: str, api_key: str, url: str,
                  max_tokens: int, timeout: int) -> dict:
     """Call NVIDIA NIM API (OpenAI-compatible format, non-streaming)."""
@@ -275,6 +280,31 @@ def _call_nvidia(messages: list, model: str, api_key: str, url: str,
     resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
     resp.raise_for_status()
     return resp.json()
+
+
+def _call_nvidia_with_retry(messages: list, model: str, api_key: str, url: str,
+                            max_tokens: int, timeout: int, retries: int = 1) -> dict:
+    """
+    Call NVIDIA with automatic retry on transient failures.
+    Retries once (2s delay) on: timeout, connection error, HTTP 429/5xx.
+    """
+    for attempt in range(retries + 1):
+        try:
+            return _call_nvidia(messages, model, api_key, url, max_tokens, timeout)
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+            if attempt < retries:
+                log.info(f"  [AI] NVIDIA transient error — retry {attempt+1}/{retries} in 2s...")
+                time.sleep(2)
+                continue
+            raise
+        except requests.exceptions.HTTPError as e:
+            status = e.response.status_code if e.response else 0
+            # Retry on known transient codes OR unknown errors (status=0 means no response)
+            if (status in _RETRYABLE_HTTP or status == 0) and attempt < retries:
+                log.info(f"  [AI] NVIDIA HTTP {status} — retry {attempt+1}/{retries} in 2s...")
+                time.sleep(2)
+                continue
+            raise
 
 
 def _call_gemini(messages: list, model: str, api_key: str, url: str,
@@ -330,7 +360,7 @@ def ask_gemini(
             log.info(f"  [AI] Trying {tier} ({model})...")
 
             if provider == "nvidia":
-                resp_json = _call_nvidia(messages, model, api_key, url, max_tokens, timeout)
+                resp_json = _call_nvidia_with_retry(messages, model, api_key, url, max_tokens, timeout)
             else:
                 resp_json = _call_gemini(messages, model, api_key, url, max_tokens, temperature, timeout)
 
@@ -349,6 +379,8 @@ def ask_gemini(
 
         except requests.exceptions.Timeout:
             msg = f"timed out after {timeout}s"
+        except requests.exceptions.ConnectionError as e:
+            msg = f"connection error: {str(e)[:60]}"
         except requests.exceptions.HTTPError as e:
             status = e.response.status_code if e.response else "?"
             body = e.response.text[:200] if e.response else ""

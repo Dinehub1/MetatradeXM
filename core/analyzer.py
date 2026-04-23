@@ -777,11 +777,10 @@ class MarketAnalyzer:
     def _load_weights(self) -> dict:
         """Load adaptive scoring weights from JSON file if available."""
         try:
-            import os
-            weights_path = os.path.join(os.path.dirname(__file__), "scoring_weights.json")
-            if os.path.exists(weights_path):
-                with open(weights_path, 'r') as f:
-                    return json.load(f)
+            from core.paths import CONFIG_DIR
+            weights_path = CONFIG_DIR / "scoring_weights.json"
+            if weights_path.exists():
+                return json.loads(weights_path.read_text())
         except Exception:
             pass
         return {}  # defaults handled by .get() calls

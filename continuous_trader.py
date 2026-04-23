@@ -61,7 +61,7 @@ def _check_config_integrity():
                     f"🚨 CONFIG TAMPERED: {field} changed {actual} → restoring {expected}"
                 )
                 w[field] = expected
-                (ROOT_DIR / "scoring_weights.json").write_text(json.dumps(w, indent=2))
+                (CONFIG_DIR / "scoring_weights.json").write_text(json.dumps(w, indent=2))
     except Exception:
         pass
 
@@ -895,7 +895,7 @@ class ContinuousTrader:
                     op = getattr(p, "price_open", 0)
                     tk = str(getattr(p, "ticket", ""))
                     log.info(f"   {disp} {d} @{op:.2f} {fmt_profit(pr)}")
-                    _cur_tickets[tk] = {"profit": pr, "direction": d, "sym_cfg": sym_cfg}
+                    _cur_tickets[tk] = {"profit": pr, "direction": d, "sym_cfg": sym_cfg, "volume": getattr(p, "volume", 0.05)}
 
             # Detect tickets that vanished since last cycle (closed by broker SL/TP)
             if _prev_tickets:
@@ -915,7 +915,7 @@ class ContinuousTrader:
                                 _mem = TradeMemory()
                             _pip = _sc["pip"]
                             _cs = _sc.get("contract_size", 100)
-                            _vol = 0.01
+                            _vol = info.get("volume", 0.05)
                             _pv = _pip * _cs * _vol
                             _pips = pr / _pv if _pv > 0 else 0
                             # Pass symbol/direction so memory never records UNKNOWN
