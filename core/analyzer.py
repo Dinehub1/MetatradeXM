@@ -1051,9 +1051,11 @@ DECISION RULES — CAPITAL PROTECTION FIRST:
 - DO NOT say HOLD when 7+ factors agree AND score > |15|. That IS a signal.
 
 ⛔ COUNTER-TREND BLOCK (MANDATORY):
-- Score ≤ -8 → DO NOT output BUY under any circumstance.
-- Score ≥ +8 → DO NOT output SELL under any circumstance.
-- This is non-negotiable. You cannot override strong quantitative signals.
+- Score ≤ -15 → DO NOT output BUY under any circumstance.
+- Score ≥ +15 → DO NOT output SELL under any circumstance.
+- Score between -15 and -8: BUY is allowed if you have strong reversal evidence (RSI<30 + BB below lower + Fib support)
+- Score between +8 and +15: SELL is allowed if you have strong reversal evidence (RSI>70 + BB above upper + Fib resistance)
+- This allows contrarian trades at key support/resistance levels.
 
 RANGING market rules (ADX < 18):
 - Use RSI extremes (<30 = BUY, >70 = SELL) AT Fibonacci levels only
@@ -1136,15 +1138,16 @@ Williams%R={tv_ind.get('williams_r','?')} Stoch_K={tv_ind.get('stoch_k','?')} St
         ai_direction  = data.get("direction", "HOLD")
 
         # ── COUNTER-TREND VETO: hard block when AI fights deeply directional score ──
-        # This prevents the AI from saying BUY when ALL indicators are bearish (and vice versa).
-        # Root cause of 9-loss streak: AI returned BUY 70% when score was -10.
-        if ai_direction == "BUY" and ind_score <= -8:
+        # Relaxed from ±8 → ±15. Old threshold blocked ALL buys on bearish days
+        # (score was always < -8 when H4+H1+D1 bearish), causing 100% SELL-only bias.
+        # At ±15, only truly extreme counter-trend trades get blocked.
+        if ai_direction == "BUY" and ind_score <= -15:
             log.warning(f"[ANALYZER] {symbol}: AI said BUY but score={ind_score:+.1f} — forcing HOLD (counter-trend veto)")
             data["direction"] = "HOLD"
             data["confidence"] = 0.30
             data["reason"] = f"[Counter-trend veto: score={ind_score:+.1f}] " + data.get("reason", "")
             ai_direction = "HOLD"
-        elif ai_direction == "SELL" and ind_score >= 8:
+        elif ai_direction == "SELL" and ind_score >= 15:
             log.warning(f"[ANALYZER] {symbol}: AI said SELL but score={ind_score:+.1f} — forcing HOLD (counter-trend veto)")
             data["direction"] = "HOLD"
             data["confidence"] = 0.30

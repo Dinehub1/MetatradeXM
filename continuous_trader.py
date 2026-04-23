@@ -96,29 +96,30 @@ SYMBOLS = [
         "display": "XAUUSD",
         "pip": 0.10,
         "contract_size": 100,   # 100 oz/lot → pip_value = pip * contract_size = $10/pip/lot
-        "sl_pips": 30,
-        "tp_pips": 50,
+        "sl_pips": 50,          # was 30 — widened to survive Gold volatility (ATR ~10-15 pips)
+        "tp_pips": 80,          # was 50 — wider TP to let winners run
         "lot": 0.01,
     },
-    {
-        "broker": "SILVER.i#",
-        "display": "XAGUSD",
-        "pip": 0.01,
-        "contract_size": 5000,  # 5000 oz/lot → pip_value = pip * contract_size = $50/pip/lot
-        "sl_pips": 15,
-        "tp_pips": 25,
-        "lot": 0.01,
-    },
+    # SILVER DISABLED — 21.9% win rate, -$1,609 P&L. Re-enable once Gold is profitable.
+    # {
+    #     "broker": "SILVER.i#",
+    #     "display": "XAGUSD",
+    #     "pip": 0.01,
+    #     "contract_size": 5000,
+    #     "sl_pips": 15,
+    #     "tp_pips": 25,
+    #     "lot": 0.01,
+    # },
 ]
 
 CONFIG = {
-    "monitor_interval_s": 15,  # check positions every 15s (scalping speed)
-    "analysis_interval_s": 60,  # full AI analysis every 60s — one M1 candle per cycle for meaningful new data
-    "profit_close_pct": 0.8,  # close trade at +0.8% account profit (take small profits fast)
-    "loss_close_pct": 0.35,  # close trade at -0.35% account loss (was 0.15% — too tight, caused 145 <1min panic exits)
+    "monitor_interval_s": 15,  # check positions every 15s
+    "analysis_interval_s": 300,  # was 60 → 5 min between analyses (stop over-trading: 490 trades/day → ~50)
+    "profit_close_pct": 1.5,  # was 0.8 → let winners run to +1.5% ($112 on $7500)
+    "loss_close_pct": 0.5,  # was 0.35 → slightly wider to reduce noise exits
     "min_confidence": 0.55,  # minimum confidence to trade; AI signals target 0.65+, indicator fallback 0.55+
-    "max_trades_per_sym": 3,  # up to 3 positions per symbol (pyramiding on strong moves)
-    "max_total_positions": 10,  # hard cap: no more than 10 open positions across all symbols
+    "max_trades_per_sym": 1,  # was 3 → no pyramiding until bot is profitable
+    "max_total_positions": 3,  # was 10 → focus on fewer, higher-quality trades
     "dry_run": False,  # live trading
     "use_ai": True,  # use NVIDIA NIM API (MiniMax)
     "max_reconnect_attempts": 5,
@@ -403,8 +404,8 @@ def check_and_close_positions(
     closed = []
     profit_target = account_balance * (CONFIG["profit_close_pct"] / 100)
     loss_limit = account_balance * (CONFIG["loss_close_pct"] / 100)
-    trail_trigger = account_balance * 0.2 / 100  # start trailing at +0.2% (scalping)
-    trail_lock_pct = 0.70  # lock 70% of peak profit (never give back >30%)
+    trail_trigger = account_balance * 0.5 / 100  # was 0.2% → start trailing at +0.5% (give winners room)
+    trail_lock_pct = 0.50  # was 0.70 → lock 50% of peak (allow deeper pullbacks before locking in)
 
     for sym_cfg in SYMBOLS:
         broker_sym = sym_cfg["broker"]
@@ -532,11 +533,11 @@ def build_order_params(
 
     # ── ATR-based dynamic SL/TP (capped for scalping) ─────────────────────
     if atr > 0:
-        sl_pips = min(int(atr * 1.5 / pip), sym_cfg["sl_pips"])
-        tp_pips = min(int(atr * 2.0 / pip), sym_cfg["tp_pips"])
-        # Floor: minimum viable SL/TP
-        sl_floor = 10 if pip >= 0.10 else 5
-        tp_floor = 15 if pip >= 0.10 else 8
+        sl_pips = min(int(atr * 2.5 / pip), sym_cfg["sl_pips"])  # was 1.5× → 2.5× ATR for SL
+        tp_pips = min(int(atr * 3.5 / pip), sym_cfg["tp_pips"])  # was 2.0× → 3.5× ATR for TP
+        # Floor: minimum viable SL/TP — raised for Gold to survive noise
+        sl_floor = 25 if pip >= 0.10 else 5   # was 10 → 25 for Gold
+        tp_floor = 40 if pip >= 0.10 else 8   # was 15 → 40 for Gold
         sl_pips = max(sl_pips, sl_floor)
         tp_pips = max(tp_pips, tp_floor)
     else:
@@ -677,6 +678,11 @@ class ContinuousTrader:
         # Cycle number at which the per-symbol circuit breaker pause expires.
         # Not persisted — a clean restart resets the marker while streak counts survive.
         self._circuit_break_until: dict = {}  # display_symbol -> cycle number
+
+        # Post-trade cooldown: prevents churn re-entries within 5 min of ANY exit.
+        # Analysis showed 463 churn trades (re-entered <2 min) = -$1,756.
+        self._last_trade_time: dict = {}  # broker_symbol -> epoch time of last trade
+        self._TRADE_COOLDOWN_SECS = 300  # 5 minutes between trades on same symbol
 
         # Set up signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._handle_stop)
@@ -1181,11 +1187,18 @@ class ContinuousTrader:
                             log.info(f"   FADE BLOCK: {disp} BUY blocked — ADX={adx_val} + RSI={rsi_val} + BB={bb_pos} = exhausted uptrend, reversal likely")
                             fade_blocked = True
 
-                    # Brief cooldown after loss: 3 min (was 15 — too aggressive, blocked recovery)
-                    _LOSS_COOLDOWN_SECS = 180  # 3 minutes
+                    # Loss cooldown: 10 min rest after a loss (was 3 min — too short, caused churn)
+                    _LOSS_COOLDOWN_SECS = 600  # 10 minutes — prevents revenge trading
                     _cooldown_remaining = _LOSS_COOLDOWN_SECS - (time.time() - self._loss_cooldown.get(broker_sym, 0))
                     if can_open_new and _cooldown_remaining > 0:
                         log.info(f"   [COOLDOWN] {disp}: {int(_cooldown_remaining)}s cooldown after loss")
+                        can_open_new = False
+
+                    # Post-trade cooldown: no re-entry within 5 min of ANY trade (win or loss)
+                    # This alone would have prevented 400+ of the 463 churn trades = saved $1,756
+                    _trade_cd_remaining = self._TRADE_COOLDOWN_SECS - (time.time() - self._last_trade_time.get(broker_sym, 0))
+                    if can_open_new and _trade_cd_remaining > 0:
+                        log.info(f"   [TRADE COOLDOWN] {disp}: {int(_trade_cd_remaining)}s until next trade allowed")
                         can_open_new = False
 
                     # ── ADX: advisory not exclusionary ───────────────────────
@@ -1396,6 +1409,8 @@ class ContinuousTrader:
 
                                 self.state["total_trades"] += 1
                                 _save_state(self.state)
+                                # Record trade time for post-trade cooldown
+                                self._last_trade_time[broker_sym] = time.time()
                                 time.sleep(0.5)
                                 positions_by_sym = get_positions_by_symbol(self.bridge)
                             else:
