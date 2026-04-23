@@ -27,28 +27,31 @@ CRITICAL SELF-AWARENESS:
 - You are making REAL trades with REAL money. Every wrong call costs $10-30.
 - Your TRADE MEMORY section shows your recent performance. USE IT.
 - If the memory shows a losing streak of 3+, be EXTREMELY cautious. Prefer HOLD.
-- If your win rate on a direction (BUY/SELL) is below 35%, AVOID that direction.
 - Professional traders are IN position only 20-30% of the time. HOLD is often the best trade.
 
 CORE PHILOSOPHY (Trading in the Zone — Mark Douglas):
-- Think in PROBABILITIES. Your edge is expressed in the indicator score + confluence ratio.
-- TRUST THE MATH: If the indicator score is strongly negative (< -8), DO NOT output BUY.
-- If the indicator score is strongly positive (> +8), DO NOT output SELL.
-- Score and your direction MUST agree — do not fight the quantitative analysis.
+- Think in PROBABILITIES. Your edge is expressed over many trades, not each one.
+- The indicator score is CONTEXT — it tells you the prevailing bias, not what you MUST do.
+- You CAN trade against the score when you see strong reversal evidence at key levels.
 - NEVER over-trade to recover losses. Each trade stands alone on its own merit.
 
 WHEN TO HOLD (prefer this — it protects capital):
-- Indicator score opposes your intended direction → HOLD
+- No clear setup at a support/resistance or Fibonacci level → HOLD
 - On a 3+ loss streak in trade memory → HOLD unless exceptional setup
-- ADX < 15 with no Fibonacci level nearby → HOLD (dead market)
-- Mixed signals across timeframes → HOLD
-- All higher timeframes (H4+H1+D1) disagree with intended entry → HOLD
+- ADX < 12 with no Fibonacci level nearby → HOLD (dead market)
+- All indicators conflict with no confluence → HOLD
 
-WHEN TO TRADE:
-- Score and direction AGREE with at least 2 higher timeframes
-- Fibonacci confluence at key level (61.8%, 38.2%) with RSI/BB confirmation
-- ADX > 20 confirming trend strength AND DI alignment
-- Price at clear support/resistance with reversal candlestick pattern
+TREND-FOLLOWING TRADES (go WITH the score):
+- Score and direction agree with 2+ higher timeframes → good setup
+- ADX > 20 confirming trend strength AND DI alignment → add conviction
+- These are your bread-and-butter, higher probability trades
+
+COUNTER-TREND / REVERSAL TRADES (go AGAINST the score):
+- Price at Fibonacci 61.8% or 38.2% retracement with RSI extreme (<30 or >70) → VALID BUY/SELL
+- Price at Bollinger Band extreme with Stochastic cross → VALID entry
+- Engulfing or pin bar candlestick at support/resistance → VALID reversal
+- Gold reverses 200-400 pips intraday even in strong trends — catching reversals is profitable
+- Counter-trend trades should have LOWER confidence (0.55-0.65) than trend trades (0.65-0.85)
 
 FIBONACCI RULES:
 - 61.8% retracement = highest probability reversal. Boost confidence.
@@ -57,10 +60,10 @@ FIBONACCI RULES:
 - Between levels with no confluence = HOLD.
 
 TECHNICAL RULES:
-- NEVER trade against D1/H4 trend unless score is > +15 with 7+ factors agreeing.
-- ADX > 25 required for trend trades. ADX < 15 = ranging, use Fib/BB reversals ONLY.
-- ADX 15-25 = developing, require 3+ confirming factors.
-- HOLD when signals are mixed, ADX < 10, or ATR is extremely low.
+- ADX > 25 = strong trend. Prefer trend-following but watch for exhaustion (RSI extreme + extension).
+- ADX 15-25 = developing. Require 3+ confirming factors in either direction.
+- ADX < 15 = ranging. Use Fib/BB reversals ONLY, require confluence.
+- HOLD when ADX < 10 or ATR is extremely low (no movement).
 
 Respond with ONLY raw JSON: {"direction": "BUY"|"SELL"|"HOLD", "confidence": 0.0-1.0, "reason": "1-2 sentences"}"""
 
@@ -660,14 +663,16 @@ class MarketAnalyzer:
         if weights is None:
             weights = self._load_weights()
 
-        # F1: H4 EMA trend (±10) — unchanged, already signed
-        h4_map = {'BULLISH': 10, 'MILD_BULL': 5, 'MIXED': 0,
-                  'MILD_BEAR': -5, 'BEARISH': -10}
+        # F1: H4 EMA trend (±6) — reduced from ±10. Trend is CONTEXT, not a gatekeeper.
+        # Old ±10 made trend factors alone (H4+D1 = ±18) exceed buy_threshold (12),
+        # making it impossible for M15 entry signals to generate counter-trend trades.
+        h4_map = {'BULLISH': 6, 'MILD_BULL': 3, 'MIXED': 0,
+                  'MILD_BEAR': -3, 'BEARISH': -6}
         f1 = h4_map.get(h4['ema_trend'], 0)
 
-        # F2: H1 EMA trend (±10) — unchanged
-        h1_map = {'BULLISH': 10, 'MILD_BULL': 5, 'MIXED': 0,
-                  'MILD_BEAR': -5, 'BEARISH': -10}
+        # F2: H1 EMA trend (±8) — reduced from ±10. Still significant but not overwhelming.
+        h1_map = {'BULLISH': 8, 'MILD_BULL': 4, 'MIXED': 0,
+                  'MILD_BEAR': -4, 'BEARISH': -8}
         f2 = h1_map.get(h1['ema_trend'], 0)
 
         # F3: RSI zone — NOW DIRECTIONALLY SIGNED
@@ -749,8 +754,9 @@ class MarketAnalyzer:
         elif h1_macd == 'BEARISH':        f9 = -3
         else:                             f9 = 0
 
-        # F10: D1 daily trend — tiebreaker when H4/H1 conflict
-        d1_map = {'BULLISH': 8, 'MILD_BULL': 4, 'MIXED': 0, 'MILD_BEAR': -4, 'BEARISH': -8}
+        # F10: D1 daily trend — reduced from ±8 to ±4. Tiebreaker, not dictator.
+        # Old ±8 combined with H4 ±10 = ±18 from trend alone, exceeding threshold.
+        d1_map = {'BULLISH': 4, 'MILD_BULL': 2, 'MIXED': 0, 'MILD_BEAR': -2, 'BEARISH': -4}
         f10 = d1_map.get(d1.get('ema_trend', 'MIXED'), 0) if d1 else 0
 
         # F11: Candlestick pattern confirmation on M15
@@ -1039,35 +1045,33 @@ Reasons: {base_signal['reason']}
 {last_candles}
 {m1_block}
 
-DECISION RULES — CAPITAL PROTECTION FIRST:
-- The indicator score is your PRIMARY quantitative signal. RESPECT IT.
-- If score is NEGATIVE (bearish), you MUST NOT output BUY. Output HOLD or SELL.
-- If score is POSITIVE (bullish), you MUST NOT output SELL. Output HOLD or BUY.
-- HOLD is your DEFAULT when uncertain. It costs nothing and protects capital.
+DECISION FRAMEWORK:
+- The indicator score shows the prevailing BIAS, not a mandate.
+- Score NEGATIVE = bearish environment. SELL is easier, BUY needs reversal evidence.
+- Score POSITIVE = bullish environment. BUY is easier, SELL needs reversal evidence.
+- HOLD is your DEFAULT when no clear setup exists.
 
-⚠️  STRONG SIGNAL OVERRIDE (MANDATORY):
-- If score ≥ +15 with 6+ bullish factors → you MUST output BUY, min confidence 0.65
-- If score ≤ −15 with 6+ bearish factors → you MUST output SELL, min confidence 0.65
-- DO NOT say HOLD when 7+ factors agree AND score > |15|. That IS a signal.
+TREND-FOLLOWING (go WITH the score):
+- Score strongly agrees with your direction → confidence 0.65-0.85
+- 6+ factors in same direction → strong signal, minimum confidence 0.65
 
-⛔ COUNTER-TREND BLOCK (MANDATORY):
-- Score ≤ -15 → DO NOT output BUY under any circumstance.
-- Score ≥ +15 → DO NOT output SELL under any circumstance.
-- Score between -15 and -8: BUY is allowed if you have strong reversal evidence (RSI<30 + BB below lower + Fib support)
-- Score between +8 and +15: SELL is allowed if you have strong reversal evidence (RSI>70 + BB above upper + Fib resistance)
-- This allows contrarian trades at key support/resistance levels.
+COUNTER-TREND (go AGAINST the score):
+- You MAY trade against the score when: RSI extreme + Fibonacci level + BB extreme
+- Gold regularly reverses 200-400 pips intraday — reversals at key levels are profitable
+- Counter-trend confidence should be LOWER: 0.55-0.65
+- Require at least 2 reversal confirmations (e.g., RSI<30 + Fib 61.8% support)
 
-RANGING market rules (ADX < 18):
-- Use RSI extremes (<30 = BUY, >70 = SELL) AT Fibonacci levels only
-- BB extremes with Stoch cross = valid entry trigger
-- Require CONFLUENCE — do not enter on a single indicator
+RANGING market (ADX < 18):
+- Use RSI extremes at Fibonacci levels → mean-reversion entries
+- BB extremes with Stoch cross = valid trigger
+- Require 2+ confluent signals
 
 Confidence calibration:
-    0.50-0.60: marginal setup, only enter if Fib confluence
+    0.55-0.60: counter-trend reversal at key level
     0.60-0.70: solid directional setup, most factors agree
     0.70-0.85: strong multi-factor confluence + Fibonacci level
-- If you say BUY or SELL, minimum confidence is 0.50.
-- If you are NOT highly confident, say HOLD instead.
+- If you say BUY or SELL, minimum confidence is 0.55.
+- If uncertain, say HOLD.
 
 Respond with ONLY raw JSON (no markdown, no backticks):
 {{"direction": "BUY"|"SELL"|"HOLD", "confidence": 0.0-1.0, "reason": "1-2 sentences"}}"""
@@ -1137,22 +1141,16 @@ Williams%R={tv_ind.get('williams_r','?')} Stoch_K={tv_ind.get('stoch_k','?')} St
         ind_direction = base_signal.get("direction", "HOLD")
         ai_direction  = data.get("direction", "HOLD")
 
-        # ── COUNTER-TREND VETO: hard block when AI fights deeply directional score ──
-        # Relaxed from ±8 → ±15. Old threshold blocked ALL buys on bearish days
-        # (score was always < -8 when H4+H1+D1 bearish), causing 100% SELL-only bias.
-        # At ±15, only truly extreme counter-trend trades get blocked.
-        if ai_direction == "BUY" and ind_score <= -15:
-            log.warning(f"[ANALYZER] {symbol}: AI said BUY but score={ind_score:+.1f} — forcing HOLD (counter-trend veto)")
-            data["direction"] = "HOLD"
-            data["confidence"] = 0.30
-            data["reason"] = f"[Counter-trend veto: score={ind_score:+.1f}] " + data.get("reason", "")
-            ai_direction = "HOLD"
-        elif ai_direction == "SELL" and ind_score >= 15:
-            log.warning(f"[ANALYZER] {symbol}: AI said SELL but score={ind_score:+.1f} — forcing HOLD (counter-trend veto)")
-            data["direction"] = "HOLD"
-            data["confidence"] = 0.30
-            data["reason"] = f"[Counter-trend veto: score={ind_score:+.1f}] " + data.get("reason", "")
-            ai_direction = "HOLD"
+        # ── COUNTER-TREND ADVISORY: log warning but DO NOT block ──
+        # OLD: hard veto at ±15 forced HOLD, causing 100% SELL-only bias.
+        # NEW: log for awareness. The MTF disagreement penalty below handles
+        # risk reduction. Counter-trend trades at Fibonacci levels are profitable.
+        if ai_direction == "BUY" and ind_score <= -12:
+            log.info(f"[ANALYZER] {symbol}: AI BUY against score {ind_score:+.1f} — counter-trend (MTF penalty will apply)")
+            data["reason"] = f"[Counter-trend: score={ind_score:+.1f}] " + data.get("reason", "")
+        elif ai_direction == "SELL" and ind_score >= 12:
+            log.info(f"[ANALYZER] {symbol}: AI SELL against score {ind_score:+.1f} — counter-trend (MTF penalty will apply)")
+            data["reason"] = f"[Counter-trend: score={ind_score:+.1f}] " + data.get("reason", "")
 
         # Strong-score override: if indicators strongly agree but AI says HOLD,
         # trust the indicators.  Threshold = 12 (1.5× the ±8 entry threshold) —
@@ -1207,20 +1205,29 @@ Williams%R={tv_ind.get('williams_r','?')} Stoch_K={tv_ind.get('stoch_k','?')} St
                 if f2_score > 0: disagree_count += 1   # H1 bullish
                 if f10_score > 0: disagree_count += 1  # D1 bullish
 
+            # ── GRADUATED PENALTY (not a kill switch) ──
+            # OLD: 3 TFs disagree = hard block (confidence=0.25). This made BUY
+            # impossible during bearish trends, creating 100% SELL-only bias.
+            # NEW: proportional penalty. Strong AI signal (85%+) can survive
+            # the penalty and still pass the confidence gate (0.55).
+            # 85% × 0.55 = 46.75% → passes ranging gate (0.45), fails normal gate.
+            # 90% × 0.55 = 49.5% → passes ranging gate, nearly passes normal.
+            # This allows high-conviction counter-trend trades at Fib levels.
             if disagree_count >= 3:
-                # ALL higher TFs disagree → hard block
-                log.info(f"   [MTF] {symbol}: ALL 3 higher TFs disagree with {ai_direction} — blocking")
-                data["confidence"] = 0.25
-                data["reason"] = f"[ALL TFs disagree ×3] {data.get('reason', '')}"
+                penalty = 0.55
+                log.info(f"   [MTF] {symbol}: 3 TFs disagree with {ai_direction} — penalty ×{penalty}")
             elif disagree_count == 2:
-                data["confidence"] = max(float(data.get("confidence", 0.40)) * 0.60, 0.25)
-                data["reason"] = f"[2 TFs disagree ×0.60] {data.get('reason', '')}"
+                penalty = 0.70
+                log.info(f"   [MTF] {symbol}: 2 TFs disagree with {ai_direction} — penalty ×{penalty}")
             elif disagree_count == 1:
-                # Graduated: stronger H4 score = stronger penalty
-                h4_strength = abs(f1_score) / 10.0 if f1_score != 0 else 0.5
-                penalty = 1.0 - (h4_strength * 0.20)  # 0.90 for mild, 0.80 for strong
-                data["confidence"] = max(float(data.get("confidence", 0.40)) * penalty, 0.25)
-                data["reason"] = f"[1 TF disagrees ×{penalty:.2f}] {data.get('reason', '')}"
+                penalty = 0.85
+            else:
+                penalty = 1.0
+
+            if penalty < 1.0:
+                old_conf = float(data.get("confidence", 0.40))
+                data["confidence"] = max(old_conf * penalty, 0.20)
+                data["reason"] = f"[MTF ×{penalty} ({disagree_count} TFs disagree)] {data.get('reason', '')}"
 
         # Build AI context summary for trace logging (Stage 3)
         bull = sum(1 for v in base_signal.get("factor_scores", {}).values()

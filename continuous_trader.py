@@ -44,11 +44,11 @@ LOG_FILE = LOG_DIR / "trading.log"
 # ── Config integrity guard ────────────────────────────────────────────────────
 # Protect buy_threshold / sell_threshold from being silently reset by any
 # external process (Hermes, MCP, self_improver). Check every cycle.
-# Threshold calibration (from 992 historical samples):
-#   |score| >= 10 → 62% signal rate (too aggressive)
-#   |score| >= 12 → 38% signal rate (calibrated sweet spot)
-#   |score| >= 18 → <5% signal rate (too restrictive — was the bug)
-_PROTECTED_WEIGHTS = {"buy_threshold": 12, "sell_threshold": -12}
+# Threshold calibration (Senior Trader Overhaul 2026-04-23):
+#   H4/D1 weights reduced → max trend-only score ~14 (was ~28)
+#   |score| >= 8 allows M15 entry signals to fire in both directions
+#   Combined with graduated MTF penalty (not veto), enables counter-trend trades
+_PROTECTED_WEIGHTS = {"buy_threshold": 8, "sell_threshold": -8}
 
 def _check_config_integrity():
     """Warn and auto-restore if critical weights were changed externally."""
@@ -96,8 +96,8 @@ SYMBOLS = [
         "display": "XAUUSD",
         "pip": 0.10,
         "contract_size": 100,   # 100 oz/lot → pip_value = pip * contract_size = $10/pip/lot
-        "sl_pips": 50,          # was 30 — widened to survive Gold volatility (ATR ~10-15 pips)
-        "tp_pips": 80,          # was 50 — wider TP to let winners run
+        "sl_pips": 80,          # was 50 — institutional standard for Gold M15 (ATR ~10-15 pips, whips 30-40)
+        "tp_pips": 160,         # was 80 — enforces minimum 1:2 R:R at the broker level
         "lot": 0.01,
     },
     # SILVER DISABLED — 21.9% win rate, -$1,609 P&L. Re-enable once Gold is profitable.
@@ -106,22 +106,32 @@ SYMBOLS = [
     #     "display": "XAGUSD",
     #     "pip": 0.01,
     #     "contract_size": 5000,
-    #     "sl_pips": 15,
-    #     "tp_pips": 25,
+    #     "sl_pips": 30,
+    #     "tp_pips": 60,
     #     "lot": 0.01,
     # },
 ]
 
+# ── Session-Aware Risk Configuration ─────────────────────────────────────────
+# Gold behaves differently in each session. Asian = range, London = breakout,
+# NY overlap = the kill zone. Adjust lot and confidence gates accordingly.
+SESSION_CONFIG = {
+    "ASIAN":             {"lot_mult": 0.5,  "min_conf": 0.60},
+    "LONDON":            {"lot_mult": 0.7,  "min_conf": 0.55},
+    "LONDON_NY_OVERLAP": {"lot_mult": 1.0,  "min_conf": 0.50},
+    "NEW_YORK":          {"lot_mult": 0.7,  "min_conf": 0.55},
+}
+
 CONFIG = {
     "monitor_interval_s": 15,  # check positions every 15s
-    "analysis_interval_s": 300,  # was 60 → 5 min between analyses (stop over-trading: 490 trades/day → ~50)
-    "profit_close_pct": 1.5,  # was 0.8 → let winners run to +1.5% ($112 on $7500)
-    "loss_close_pct": 0.5,  # was 0.35 → slightly wider to reduce noise exits
-    "min_confidence": 0.55,  # minimum confidence to trade; AI signals target 0.65+, indicator fallback 0.55+
-    "max_trades_per_sym": 1,  # was 3 → no pyramiding until bot is profitable
-    "max_total_positions": 3,  # was 10 → focus on fewer, higher-quality trades
+    "analysis_interval_s": 300,  # 5 min between analyses
+    "profit_close_pct": 3.0,  # was 1.5 → let the broker TP at 160 pips be the primary exit
+    "loss_close_pct": 1.0,  # was 0.5 → align with wider 80-pip SL
+    "min_confidence": 0.55,  # base confidence gate (session config may override)
+    "max_trades_per_sym": 1,  # no pyramiding until bot is profitable
+    "max_total_positions": 3,  # focus on fewer, higher-quality trades
     "dry_run": False,  # live trading
-    "use_ai": True,  # use NVIDIA NIM API (MiniMax)
+    "use_ai": True,  # use NVIDIA NIM API
     "max_reconnect_attempts": 5,
     "reconnect_backoff_s": 10,
 }
@@ -404,8 +414,8 @@ def check_and_close_positions(
     closed = []
     profit_target = account_balance * (CONFIG["profit_close_pct"] / 100)
     loss_limit = account_balance * (CONFIG["loss_close_pct"] / 100)
-    trail_trigger = account_balance * 0.5 / 100  # was 0.2% → start trailing at +0.5% (give winners room)
-    trail_lock_pct = 0.50  # was 0.70 → lock 50% of peak (allow deeper pullbacks before locking in)
+    trail_trigger = account_balance * 1.0 / 100  # was 0.5% → start trailing at +1% (don't strangle small winners)
+    trail_lock_pct = 0.40  # was 0.50 → lock 40% of peak (keep more upside potential)
 
     for sym_cfg in SYMBOLS:
         broker_sym = sym_cfg["broker"]
@@ -535,11 +545,14 @@ def build_order_params(
     if atr > 0:
         sl_pips = min(int(atr * 2.5 / pip), sym_cfg["sl_pips"])  # was 1.5× → 2.5× ATR for SL
         tp_pips = min(int(atr * 3.5 / pip), sym_cfg["tp_pips"])  # was 2.0× → 3.5× ATR for TP
-        # Floor: minimum viable SL/TP — raised for Gold to survive noise
-        sl_floor = 25 if pip >= 0.10 else 5   # was 10 → 25 for Gold
-        tp_floor = 40 if pip >= 0.10 else 8   # was 15 → 40 for Gold
+        # Floor: minimum viable SL/TP — raised for Gold (institutional standard)
+        sl_floor = 40 if pip >= 0.10 else 8   # was 25 → 40 for Gold (survive 30-40 pip whips)
+        tp_floor = 80 if pip >= 0.10 else 16  # was 40 → 80 for Gold (enforce 1:2 R:R)
         sl_pips = max(sl_pips, sl_floor)
         tp_pips = max(tp_pips, tp_floor)
+        # Enforce minimum 1:2 R:R — TP must be at least 2× SL
+        if tp_pips < sl_pips * 2:
+            tp_pips = sl_pips * 2
     else:
         sl_pips = sym_cfg["sl_pips"]
         tp_pips = sym_cfg["tp_pips"]
@@ -1235,18 +1248,20 @@ class ContinuousTrader:
                         log.info(f"   🛑 {disp}: {_sym_consec} losses — 1-cycle pause")
                         can_open_new = False
 
-                    # Confidence gate — tiered by signal type:
-                    #   Normal AI signal      → 0.55 (full gate)
-                    #   Score override signal → 0.48 (indicators overrode AI; H4 not double-penalised)
+                    # Confidence gate — tiered by signal type + session awareness:
+                    #   Normal AI signal      → session min_conf (default 0.55)
+                    #   Score override signal → 0.45-0.48 (indicators overrode AI)
                     #   Indicator fallback    → 0.45 (no AI at all)
                     _sig_reason = signal_data.get("reason", "")
                     _is_ranging = signal_data.get("factor_scores", {}).get("adx_regime") == "RANGING"
+                    _sess_cfg = SESSION_CONFIG.get(session, {"lot_mult": 1.0, "min_conf": 0.55})
+                    _sess_min_conf = _sess_cfg["min_conf"]
                     if "[Score override" in _sig_reason:
                         _conf_gate = 0.45 if _is_ranging else 0.48
                     elif "[Indicator fallback]" in _sig_reason:
                         _conf_gate = 0.45
                     else:
-                        _conf_gate = 0.50 if _is_ranging else CONFIG["min_confidence"]  # 0.55
+                        _conf_gate = 0.50 if _is_ranging else _sess_min_conf
 
                     if (
                         can_open_new
@@ -1342,6 +1357,12 @@ class ContinuousTrader:
                             atr=atr,
                             lot_reduction=lot_reduction,
                         )
+
+                        # ── Session lot multiplier ──────────────────────
+                        _lot_mult = _sess_cfg.get("lot_mult", 1.0)
+                        if _lot_mult < 1.0:
+                            order["lot"] = max(round(order["lot"] * _lot_mult, 2), 0.01)
+                            log.info(f"   [SESSION] {session}: lot ×{_lot_mult} → {order['lot']}")
 
                         # ── Dynamic lot sizing (capital manager) ──────────
                         if self.capital:
