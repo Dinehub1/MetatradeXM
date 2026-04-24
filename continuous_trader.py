@@ -129,8 +129,8 @@ CONFIG = {
     "loss_close_pct": 1.0,  # was 0.5 → align with wider 80-pip SL
     "min_confidence": 0.48,  # base confidence gate — lowered from 0.55 (2026-04-24)
                               # Old 0.55 blocked ALL counter-trend signals after MTF penalty
-    "max_trades_per_sym": 1,  # no pyramiding until bot is profitable
-    "max_total_positions": 3,  # focus on fewer, higher-quality trades
+    "max_trades_per_sym": 10,  # 10 tranches per pyramid (2026-04-24: pyramid system)
+    "max_total_positions": 12,  # 10 tranches + 2 buffer for multi-symbol
     "dry_run": False,  # live trading
     "use_ai": True,  # use NVIDIA NIM API
     "max_reconnect_attempts": 5,
@@ -650,6 +650,15 @@ class ContinuousTrader:
             self.scaler = None
 
         try:
+            from risk.pyramid_manager import PyramidManager
+
+            self.pyramid = PyramidManager()
+            log.info(f"  [PYRAMID] 🔺 Smart 10-tranche pyramid system initialized")
+        except Exception as e:
+            log.warning(f"  [PYRAMID] Failed to init: {e}")
+            self.pyramid = None
+
+        try:
             from risk.smart_exit import SmartExitManager
 
             self.smart_exit = SmartExitManager()
@@ -1024,9 +1033,31 @@ class ContinuousTrader:
                     f"   W:{self.state['wins']} L:{self.state['losses']} "
                     f"({self.state['total_trades']} total trades)"
                 )
+                # Notify pyramid manager of closed positions
+                if self.pyramid:
+                    for _csym in closed_syms:
+                        _disp = next((s["display"] for s in SYMBOLS if s["broker"] == _csym), _csym)
+                        self.pyramid.on_position_closed(_disp, "")
                 # Refresh positions after closes
                 time.sleep(1)
                 positions_by_sym = get_positions_by_symbol(self.bridge)
+
+            # ── Pyramid tranche checks (every cycle, not just analysis) ────────
+            if self.pyramid and self.pyramid.active_pyramid_count() > 0:
+                try:
+                    _sym_lookup = {s["display"]: s for s in SYMBOLS}
+                    pyramid_actions = self.pyramid.check_pyramids(self.bridge, _sym_lookup)
+                    if pyramid_actions:
+                        for pa in pyramid_actions:
+                            log.info(
+                                f"   🔺 PYRAMID {pa['symbol']} tranche {pa['tranche']}/10 "
+                                f"@ {pa['price']:.2f} (+{pa['pips']:.1f}p) "
+                                f"total={pa['total_lot']:.2f}"
+                            )
+                        time.sleep(0.5)
+                        positions_by_sym = get_positions_by_symbol(self.bridge)
+                except Exception as e:
+                    log.warning(f"   [PYRAMID] Check error: {e}")
 
             # ── Analysis & new signals ───────────────────────────────────────
             run_analysis = now >= next_analysis
@@ -1359,25 +1390,15 @@ class ContinuousTrader:
                             lot_reduction=lot_reduction,
                         )
 
-                        # ── Session lot multiplier ──────────────────────
-                        _lot_mult = _sess_cfg.get("lot_mult", 1.0)
-                        if _lot_mult < 1.0:
-                            order["lot"] = max(round(order["lot"] * _lot_mult, 2), 0.01)
-                            log.info(f"   [SESSION] {session}: lot ×{_lot_mult} → {order['lot']}")
+                        # ── PYRAMID SYSTEM: Force 0.01 lot for tranche 1 ──
+                        # Override all lot sizing — pyramid manager controls size
+                        order["lot"] = 0.01
 
-                        # ── Dynamic lot sizing (capital manager) ──────────
-                        if self.capital:
-                            smart_lot = self.capital.compute_lot(
-                                balance=balance,
-                                atr=atr,
-                                atr_avg=atr,  # will improve once ATR history cached
-                                session=session,
+                        # Cache indicators for pyramid tranche checks
+                        if self.pyramid:
+                            self.pyramid.update_cached_indicators(
+                                disp, signal_data.get("indicators", {})
                             )
-                            if smart_lot == 0:
-                                log.info(f"   ⏭  {disp}: Capital mgr says skip")
-                                continue
-                            if smart_lot > 0:
-                                order["lot"] = smart_lot
 
                         if self.dry_run:
                             log.info(
@@ -1389,22 +1410,39 @@ class ContinuousTrader:
                                 broker_sym, direction, confidence, reason, "DRY_TRADE"
                             )
                         else:
+                            # Skip if pyramid already active for this symbol
+                            if self.pyramid and self.pyramid.has_active_pyramid(disp):
+                                log.info(f"   ⏸  {disp}: pyramid already active — skipping new entry")
+                                continue
+
                             result = self.bridge.place_order(order)
                             if result and hasattr(result, "order"):
                                 log.info(
-                                    f"   💰 ORDER #{result.order} — "
+                                    f"   💰 PYRAMID TRANCHE 1/10 #{result.order} — "
                                     f"{disp} {direction} @{order['price']:.2f} "
                                     f"SL={order['sl']} TP={order['tp']} "
-                                    f"lot={order['lot']} conf={confidence:.0%}"
+                                    f"lot=0.01 conf={confidence:.0%}"
                                 )
                                 _log_signal(
                                     broker_sym,
                                     direction,
                                     confidence,
                                     reason,
-                                    "TRADE",
+                                    "PYRAMID_START",
                                     ticket=result.order,
                                 )
+
+                                # ── Start pyramid session ────────────────────
+                                if self.pyramid:
+                                    self.pyramid.start_pyramid(
+                                        symbol=disp,
+                                        direction=direction,
+                                        entry_price=order["price"],
+                                        ticket=str(result.order),
+                                        pip_size=sym_cfg["pip"],
+                                        sl=order["sl"],
+                                        tp=order["tp"],
+                                    )
 
                                 # ── Record in trade memory ───────────────────
                                 if self.memory:
@@ -1459,42 +1497,15 @@ class ContinuousTrader:
                                 broker_sym, direction, confidence, reason, "LOW_CONF"
                             )
 
-                    # ── Position scaling (pyramiding) ────────────────────────
-                    if self.scaler and current_pos:
-                        try:
-                            scales = self.scaler.evaluate(
-                                positions=current_pos,
-                                account=acct,
-                                signal_data=signal_data,
-                                sym_cfg=sym_cfg,
-                                session=session,
-                                bridge=self.bridge,
+                    # ── Pyramid status logging (replaced old scaler) ──────────
+                    if self.pyramid and self.pyramid.has_active_pyramid(disp):
+                        _psess = self.pyramid.get_session(disp)
+                        if _psess:
+                            log.info(
+                                f"   🔺 {disp} pyramid: {_psess.tranche_count}/10 tranches "
+                                f"total={_psess.total_lot:.2f} lot "
+                                f"avg_entry={_psess.avg_entry_price:.2f}"
                             )
-                            if scales:
-                                for sc in scales:
-                                    log.info(
-                                        f"   📈 SCALED {disp} #{sc['scale_ticket']} "
-                                        f"{sc['direction']} +{sc['lot']}lot — {sc['reason']}"
-                                    )
-                                    _log_signal(
-                                        broker_sym,
-                                        sc["direction"],
-                                        confidence,
-                                        sc["reason"],
-                                        "SCALED",
-                                        ticket=sc["scale_ticket"],
-                                    )
-                                    symbols_status.setdefault(disp, {})[
-                                        "last_scale"
-                                    ] = {
-                                        "ticket": sc["scale_ticket"],
-                                        "lot": sc["lot"],
-                                        "ts": ts,
-                                    }
-                                time.sleep(0.5)
-                                positions_by_sym = get_positions_by_symbol(self.bridge)
-                        except Exception as e:
-                            log.warning(f"   [SCALER] Error for {disp}: {e}")
 
             # ── Write dashboard status ────────────────────────────────────────
             # Build open-positions list for dashboard
