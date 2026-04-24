@@ -926,6 +926,13 @@ class ContinuousTrader:
                     log.info(f"   {disp} {d} @{op:.2f} {fmt_profit(pr)}")
                     _cur_tickets[tk] = {"profit": pr, "direction": d, "sym_cfg": sym_cfg, "volume": getattr(p, "volume", 0.05)}
 
+            # ── Pyramid startup reconcile: purge ghost sessions every cycle ──
+            # Runs before the vanish-detection block so stale pyramid state is
+            # cleared before any trade decisions are made.
+            if self.pyramid and self.pyramid.active_pyramid_count() > 0:
+                _live_tickets = set(_cur_tickets.keys())
+                self.pyramid.force_reconcile(_live_tickets)
+
             # Detect tickets that vanished since last cycle (closed by broker SL/TP)
             if _prev_tickets:
                 for tk, info in _prev_tickets.items():
@@ -953,6 +960,10 @@ class ContinuousTrader:
                                 symbol=_sc["display"],
                                 direction=info["direction"],
                             )
+                            # Notify pyramid manager
+                            if self.pyramid:
+                                self.pyramid.on_position_closed(_sc["display"], tk)
+                            
                             self.state["total_trades"] += 1
                             if outcome == "WIN":
                                 self.state["wins"] += 1
@@ -1033,7 +1044,7 @@ class ContinuousTrader:
                     f"   W:{self.state['wins']} L:{self.state['losses']} "
                     f"({self.state['total_trades']} total trades)"
                 )
-                # Notify pyramid manager of closed positions
+                # Notify pyramid manager of closed positions (reconciliation will handle the details)
                 if self.pyramid:
                     for _csym in closed_syms:
                         _disp = next((s["display"] for s in SYMBOLS if s["broker"] == _csym), _csym)
@@ -1046,7 +1057,7 @@ class ContinuousTrader:
             if self.pyramid and self.pyramid.active_pyramid_count() > 0:
                 try:
                     _sym_lookup = {s["display"]: s for s in SYMBOLS}
-                    pyramid_actions = self.pyramid.check_pyramids(self.bridge, _sym_lookup)
+                    pyramid_actions = self.pyramid.check_pyramids(self.bridge, _sym_lookup, positions_by_sym)
                     if pyramid_actions:
                         for pa in pyramid_actions:
                             log.info(

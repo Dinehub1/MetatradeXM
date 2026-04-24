@@ -366,12 +366,15 @@ class PyramidManager:
                              PYRAMID_CFG["tranche_lot"], entry_price, sl, tp, 0)
         return session
 
-    def check_pyramids(self, bridge, symbols_cfg: dict) -> list:
+    def check_pyramids(self, bridge, symbols_cfg: dict, positions_by_sym: dict = None) -> list:
         """
         Check all active pyramids and add tranches where conditions are met.
         Called every monitor cycle (15s).
         Returns list of actions taken.
         """
+        if positions_by_sym is not None:
+            self._reconcile(positions_by_sym, symbols_cfg)
+
         actions = []
 
         for sym_key, session in list(self.sessions.items()):
@@ -485,18 +488,73 @@ class PyramidManager:
                      f"{session.tranche_count} tranches, {reason}")
 
     def on_position_closed(self, symbol: str, ticket: str):
-        """Called when any position closes — check if pyramid should be cleaned up."""
+        """Called when any position closes — check if pyramid should be cleaned up.
+
+        If ticket is empty string, it means our own close_position() fired for this
+        symbol — treat it as all tranches gone and close the entire pyramid.
+        """
         session = self.sessions.get(symbol)
         if not session:
             return
 
-        # Remove the closed tranche
-        session.tranches = [t for t in session.tranches if t["ticket"] != ticket]
+        if ticket:
+            # Remove only the specific closed tranche
+            session.tranches = [t for t in session.tranches if str(t["ticket"]) != str(ticket)]
+        else:
+            # Empty ticket = symbol closed by our own logic; wipe all tranches
+            log.info(f"[PYRAMID] {symbol}: empty-ticket close — clearing all tranches")
+            session.tranches = []
 
         if not session.tranches:
             self.close_pyramid(symbol, "all tranches closed")
         else:
             self._save()
+
+    def force_reconcile(self, open_tickets: set):
+        """Purge any pyramid session whose tickets no longer exist in MT5.
+
+        Call at startup (before the first trading cycle) when you have the real
+        set of open broker ticket IDs.  Prevents stale sessions from blocking
+        new entries after a bot restart.
+        """
+        for sym in list(self.sessions.keys()):
+            session = self.sessions[sym]
+            alive = [t for t in session.tranches if str(t["ticket"]) in open_tickets]
+            if len(alive) < len(session.tranches):
+                removed = len(session.tranches) - len(alive)
+                log.warning(
+                    f"[PYRAMID] force_reconcile: {sym} — "
+                    f"{removed} ghost tranche(s) removed (not in MT5)"
+                )
+                session.tranches = alive
+            if not session.tranches:
+                self.close_pyramid(sym, "force_reconcile: no live tranches")
+            else:
+                self._save()
+
+    def _reconcile(self, positions_by_sym: dict, symbols_cfg: dict):
+        """Ensure stored tranches actually exist in the broker's open positions."""
+        for sym, session in list(self.sessions.items()):
+            cfg = symbols_cfg.get(sym)
+            if not cfg:
+                continue
+
+            broker_sym = cfg["broker"]
+            open_pos = positions_by_sym.get(broker_sym, [])
+            open_tickets = {str(getattr(p, "ticket", "")) for p in open_pos}
+
+            # Filter tranches that still exist in broker
+            alive = [t for t in session.tranches if str(t["ticket"]) in open_tickets]
+
+            if len(alive) < len(session.tranches):
+                diff = len(session.tranches) - len(alive)
+                log.info(f"[PYRAMID] ⚠️ {sym}: {diff} tranches no longer exist in MT5. Syncing state.")
+                session.tranches = alive
+
+                if not session.tranches:
+                    self.close_pyramid(sym, "all tranches vanished from broker")
+                else:
+                    self._save()
 
     def update_cached_indicators(self, symbol: str, indicators: dict):
         """Cache indicators from the latest analysis for inter-cycle tranche checks."""
