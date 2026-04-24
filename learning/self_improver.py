@@ -8,6 +8,7 @@ Runs daily reviews, adjusts scoring weights, improves/generates skills.
 import json
 import logging
 import os
+import time
 import requests
 from datetime import datetime, timezone
 from pathlib import Path
@@ -116,9 +117,16 @@ class PerformanceAnalyzer:
 
         # 4. Improve existing skills
         all_outcomes = self.memory.get_all_outcomes(limit=50)
+        _backoff = 2  # seconds between API calls to avoid rate-limiting
         for skill_info in self.skill_mgr.list_skills():
             if skill_info["total_trades"] >= 10:
-                self.skill_mgr.improve_skill(skill_info["name"], all_outcomes)
+                try:
+                    self.skill_mgr.improve_skill(skill_info["name"], all_outcomes)
+                    _backoff = 2  # reset on success
+                except Exception as e:
+                    log.warning(f"[SELF-IMPROVE] Skill '{skill_info['name']}' improve failed: {e}")
+                    _backoff = min(_backoff * 2, 30)  # exponential backoff, cap 30s
+                time.sleep(_backoff)  # throttle API bursts
 
         # 5. Auto-generate skills from strong patterns
         for pattern in patterns:

@@ -116,10 +116,10 @@ SYMBOLS = [
 # Gold behaves differently in each session. Asian = range, London = breakout,
 # NY overlap = the kill zone. Adjust lot and confidence gates accordingly.
 SESSION_CONFIG = {
-    "ASIAN":             {"lot_mult": 0.5,  "min_conf": 0.60},
-    "LONDON":            {"lot_mult": 0.7,  "min_conf": 0.55},
-    "LONDON_NY_OVERLAP": {"lot_mult": 1.0,  "min_conf": 0.50},
-    "NEW_YORK":          {"lot_mult": 0.7,  "min_conf": 0.55},
+    "ASIAN":             {"lot_mult": 0.5,  "min_conf": 0.55},
+    "LONDON":            {"lot_mult": 0.7,  "min_conf": 0.48},
+    "LONDON_NY_OVERLAP": {"lot_mult": 1.0,  "min_conf": 0.45},
+    "NEW_YORK":          {"lot_mult": 0.7,  "min_conf": 0.48},
 }
 
 CONFIG = {
@@ -127,7 +127,8 @@ CONFIG = {
     "analysis_interval_s": 300,  # 5 min between analyses
     "profit_close_pct": 3.0,  # was 1.5 → let the broker TP at 160 pips be the primary exit
     "loss_close_pct": 1.0,  # was 0.5 → align with wider 80-pip SL
-    "min_confidence": 0.55,  # base confidence gate (session config may override)
+    "min_confidence": 0.48,  # base confidence gate — lowered from 0.55 (2026-04-24)
+                              # Old 0.55 blocked ALL counter-trend signals after MTF penalty
     "max_trades_per_sym": 1,  # no pyramiding until bot is profitable
     "max_total_positions": 3,  # focus on fewer, higher-quality trades
     "dry_run": False,  # live trading
@@ -1254,14 +1255,14 @@ class ContinuousTrader:
                     #   Indicator fallback    → 0.45 (no AI at all)
                     _sig_reason = signal_data.get("reason", "")
                     _is_ranging = signal_data.get("factor_scores", {}).get("adx_regime") == "RANGING"
-                    _sess_cfg = SESSION_CONFIG.get(session, {"lot_mult": 1.0, "min_conf": 0.55})
+                    _sess_cfg = SESSION_CONFIG.get(session, {"lot_mult": 1.0, "min_conf": 0.48})
                     _sess_min_conf = _sess_cfg["min_conf"]
                     if "[Score override" in _sig_reason:
                         _conf_gate = 0.45 if _is_ranging else 0.48
                     elif "[Indicator fallback]" in _sig_reason:
                         _conf_gate = 0.45
                     else:
-                        _conf_gate = 0.50 if _is_ranging else _sess_min_conf
+                        _conf_gate = 0.45 if _is_ranging else _sess_min_conf
 
                     if (
                         can_open_new

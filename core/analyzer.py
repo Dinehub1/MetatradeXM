@@ -1185,9 +1185,10 @@ Williams%R={tv_ind.get('williams_r','?')} Stoch_K={tv_ind.get('stoch_k','?')} St
                 _score_override = True
 
         # ── MULTI-TIMEFRAME DISAGREEMENT PENALTY ──────────────────────────────
-        # Replaces old H4-only penalty (×0.80) which was too weak.
-        # Count how many higher timeframes (H4, H1, D1) disagree with AI direction.
-        # 3 TFs disagree = hard block (0.25), 2 = ×0.60, 1 = graduated ×0.80-0.90.
+        # Graduated penalty based on how many higher TFs disagree.
+        # Calibration (2026-04-24): old ×0.55 for 3-TF made it IMPOSSIBLE
+        # for any signal to pass the 55% gate (95% × 0.55 = 52% < 55%).
+        # New values allow high-conviction counter-trend trades through.
         # Skip when score override already fired (score already includes TF info).
         _fs = base_signal.get("factor_scores", {})
         f1_score = _fs.get("f1_h4_trend", 0)
@@ -1206,21 +1207,21 @@ Williams%R={tv_ind.get('williams_r','?')} Stoch_K={tv_ind.get('stoch_k','?')} St
                 if f10_score > 0: disagree_count += 1  # D1 bullish
 
             # ── GRADUATED PENALTY (not a kill switch) ──
-            # OLD: 3 TFs disagree = hard block (confidence=0.25). This made BUY
-            # impossible during bearish trends, creating 100% SELL-only bias.
-            # NEW: proportional penalty. Strong AI signal (85%+) can survive
-            # the penalty and still pass the confidence gate (0.55).
-            # 85% × 0.55 = 46.75% → passes ranging gate (0.45), fails normal gate.
-            # 90% × 0.55 = 49.5% → passes ranging gate, nearly passes normal.
-            # This allows high-conviction counter-trend trades at Fib levels.
+            # Calibration math at each tier (AI 65% is typical):
+            #   3 TFs: 65% × 0.75 = 48.8% — passes ranging gate (0.45), near normal
+            #          85% × 0.75 = 63.8% — comfortably passes all gates
+            #   2 TFs: 65% × 0.85 = 55.3% — passes normal gate (0.55)
+            #   1 TF:  65% × 0.92 = 59.8% — minimal reduction
+            # This allows high-conviction counter-trend trades at Fib levels
+            # while still penalizing weak signals against the trend.
             if disagree_count >= 3:
-                penalty = 0.55
+                penalty = 0.75
                 log.info(f"   [MTF] {symbol}: 3 TFs disagree with {ai_direction} — penalty ×{penalty}")
             elif disagree_count == 2:
-                penalty = 0.70
+                penalty = 0.85
                 log.info(f"   [MTF] {symbol}: 2 TFs disagree with {ai_direction} — penalty ×{penalty}")
             elif disagree_count == 1:
-                penalty = 0.85
+                penalty = 0.92
             else:
                 penalty = 1.0
 

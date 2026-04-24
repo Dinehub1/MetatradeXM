@@ -1,0 +1,1773 @@
+Process,LogLine
+MetatradeXM,2026-04-23 13:03:57 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:03:58 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:03:58 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 86s)  Cycle #2556
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:04:13 [INFO ] [trader      ] 🔄 Cycle #2557  [2026-04-23 13:04:13]
+MetatradeXM,2026-04-23 13:04:18 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:04:18 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:04:18 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 66s)  Cycle #2557
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:04:33 [INFO ] [trader      ] 🔄 Cycle #2558  [2026-04-23 13:04:33]
+MetatradeXM,2026-04-23 13:04:35 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:04:36 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:04:36 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 48s)  Cycle #2558
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:04:51 [INFO ] [trader      ] 🔄 Cycle #2559  [2026-04-23 13:04:51]
+MetatradeXM,2026-04-23 13:04:53 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:04:53 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:04:53 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 31s)  Cycle #2559
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:05:08 [INFO ] [trader      ] 🔄 Cycle #2560  [2026-04-23 13:05:08]
+MetatradeXM,2026-04-23 13:05:09 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:05:09 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:05:09 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 15s)  Cycle #2560
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:05:24 [INFO ] [trader      ] 🔄 Cycle #2561  [2026-04-23 13:05:24]
+MetatradeXM,2026-04-23 13:05:24 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:05:25 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:05:25 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 0s)  Cycle #2561
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:05:40 [INFO ] [trader      ] 🔄 Cycle #2562  [2026-04-23 13:05:40]
+MetatradeXM,2026-04-23 13:05:40 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:05:41 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:05:41 [INFO ] [trader      ] 📊 Running market analysis  (LONDON_NY_OVERLAP)
+MetatradeXM,2026-04-23 13:05:41 [INFO ] [trader      ]    🔍 Analyzing XAUUSD...
+MetatradeXM,2026-04-23 13:05:41 [INFO ] [trader      ]    [LOCAL] XAUUSD: fetching broker candles
+MetatradeXM,2026-04-23 13:05:44 [INFO ] [trader      ]    [MT5] XAUUSD: fetched native MT5 indicators
+MetatradeXM,"2026-04-23 13:05:44 [INFO ] [analyzer    ]    [AI] Sending 6,438 chars to AI chain (NVIDIA→Gemini) — ADX=47 RSI=69 Score=-10.9"
+MetatradeXM,2026-04-23 13:05:44 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+MetatradeXM,2026-04-23 13:05:50 [INFO ] [ai_client   ]   [AI] T1-NVIDIA OK (meta/llama-3.3-70b-instruct) — [XAUUSD] HOLD 60%
+MetatradeXM,2026-04-23 13:05:50 [INFO ] [trader      ]    XAUUSD: HOLD conf=60% | The indicator score is negative and the ADX is trending
+MetatradeXM,2026-04-23 13:05:50 [INFO ] [trader      ]    ┌─ 📈 INDICATORS ─────────────────────────────────────
+MetatradeXM,2026-04-23 13:05:50 [INFO ] [trader      ]    │ ADX: 47.4  +DI: 35.6  -DI: 10.3  (TRENDING)
+MetatradeXM,2026-04-23 13:05:50 [INFO ] [trader      ]    │ RSI: 69.2  Stoch: K=79/D=89 BEARISH  W%R: -21
+MetatradeXM,2026-04-23 13:05:50 [INFO ] [trader      ]    │ MACD: BULLISH hist=4.784672  BB: ABOVE_MID squeeze=False
+MetatradeXM,2026-04-23 13:05:50 [INFO ] [trader      ]    │ EMA: 20=4715.77 50=4715.08 200=4738.09  Trend: MILD_BULL
+MetatradeXM,2026-04-23 13:05:50 [INFO ] [trader      ]    │ ATR: 10.67000  Price: 4730.51000  Chg: +0.335%  Vol: 0.69x
+MetatradeXM,2026-04-23 13:05:50 [INFO ] [trader      ]    │ Trends → D1: MILD_BEAR  H4: BEARISH    H1: BEARISH    M15: MILD_BULL
+MetatradeXM,2026-04-23 13:05:50 [INFO ] [trader      ]    │ Score: -10.9  Factors: H4=-10.0 H1=-10.0 RSI=-3.8 MACD=+6.0 ADX=+10.0 Stoch=-8.0 BB=+2.0 D1=-2.8 Fib=+9.0
+MetatradeXM,2026-04-23 13:05:50 [INFO ] [trader      ]    └──────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:05:50 [INFO ] [trader      ]    ⏭  XAUUSD: HOLD — no trade
+MetatradeXM,2026-04-23 13:05:50 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 289s)  Cycle #2562
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:06:05 [INFO ] [trader      ] 🔄 Cycle #2563  [2026-04-23 13:06:05]
+MetatradeXM,2026-04-23 13:06:06 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:06:06 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:06:06 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 273s)  Cycle #2563
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:06:21 [INFO ] [trader      ] 🔄 Cycle #2564  [2026-04-23 13:06:21]
+MetatradeXM,2026-04-23 13:06:22 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:06:22 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:06:22 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 257s)  Cycle #2564
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:06:37 [INFO ] [trader      ] 🔄 Cycle #2565  [2026-04-23 13:06:37]
+MetatradeXM,2026-04-23 13:06:38 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:06:38 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:06:38 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 241s)  Cycle #2565
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:06:53 [INFO ] [trader      ] 🔄 Cycle #2566  [2026-04-23 13:06:53]
+MetatradeXM,2026-04-23 13:06:53 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:06:54 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:06:54 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 225s)  Cycle #2566
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:07:09 [INFO ] [trader      ] 🔄 Cycle #2567  [2026-04-23 13:07:09]
+MetatradeXM,2026-04-23 13:07:09 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:07:10 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:07:10 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 210s)  Cycle #2567
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:07:25 [INFO ] [trader      ] 🔄 Cycle #2568  [2026-04-23 13:07:25]
+MetatradeXM,2026-04-23 13:07:25 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:07:26 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:07:26 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 194s)  Cycle #2568
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:07:41 [INFO ] [trader      ] 🔄 Cycle #2569  [2026-04-23 13:07:41]
+MetatradeXM,2026-04-23 13:07:41 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:07:41 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:07:41 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 178s)  Cycle #2569
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:07:56 [INFO ] [trader      ] 🔄 Cycle #2570  [2026-04-23 13:07:56]
+MetatradeXM,2026-04-23 13:07:57 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:07:57 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:07:57 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 162s)  Cycle #2570
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:08:12 [INFO ] [trader      ] 🔄 Cycle #2571  [2026-04-23 13:08:12]
+MetatradeXM,2026-04-23 13:08:14 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:08:14 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:08:14 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 145s)  Cycle #2571
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:08:29 [INFO ] [trader      ] 🔄 Cycle #2572  [2026-04-23 13:08:29]
+MetatradeXM,2026-04-23 13:08:31 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:08:31 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:08:31 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 128s)  Cycle #2572
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:08:46 [INFO ] [trader      ] 🔄 Cycle #2573  [2026-04-23 13:08:46]
+MetatradeXM,2026-04-23 13:08:47 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:08:47 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:08:47 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 112s)  Cycle #2573
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:09:02 [INFO ] [trader      ] 🔄 Cycle #2574  [2026-04-23 13:09:02]
+MetatradeXM,2026-04-23 13:09:03 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:09:06 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:09:06 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 93s)  Cycle #2574
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:09:21 [INFO ] [trader      ] 🔄 Cycle #2575  [2026-04-23 13:09:21]
+MetatradeXM,2026-04-23 13:09:22 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:09:22 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:09:22 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 77s)  Cycle #2575
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:09:37 [INFO ] [trader      ] 🔄 Cycle #2576  [2026-04-23 13:09:37]
+MetatradeXM,2026-04-23 13:09:38 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:09:38 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:09:38 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 61s)  Cycle #2576
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:09:53 [INFO ] [trader      ] 🔄 Cycle #2577  [2026-04-23 13:09:53]
+MetatradeXM,2026-04-23 13:09:53 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:09:54 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:09:54 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 45s)  Cycle #2577
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:10:09 [INFO ] [trader      ] 🔄 Cycle #2578  [2026-04-23 13:10:09]
+MetatradeXM,2026-04-23 13:10:09 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:10:10 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:10:10 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 30s)  Cycle #2578
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:10:25 [INFO ] [trader      ] 🔄 Cycle #2579  [2026-04-23 13:10:25]
+MetatradeXM,2026-04-23 13:10:25 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:10:26 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:10:26 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 14s)  Cycle #2579
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:10:41 [INFO ] [trader      ] 🔄 Cycle #2580  [2026-04-23 13:10:41]
+MetatradeXM,2026-04-23 13:10:41 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:10:41 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:10:41 [INFO ] [trader      ] 📊 Running market analysis  (LONDON_NY_OVERLAP)
+MetatradeXM,2026-04-23 13:10:41 [INFO ] [trader      ]    🔍 Analyzing XAUUSD...
+MetatradeXM,2026-04-23 13:10:42 [INFO ] [trader      ]    [LOCAL] XAUUSD: fetching broker candles
+MetatradeXM,2026-04-23 13:10:45 [INFO ] [trader      ]    [MT5] XAUUSD: fetched native MT5 indicators
+MetatradeXM,"2026-04-23 13:10:45 [INFO ] [analyzer    ]    [AI] Sending 6,431 chars to AI chain (NVIDIA→Gemini) — ADX=46 RSI=66 Score=-10.4"
+MetatradeXM,2026-04-23 13:10:45 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+MetatradeXM,2026-04-23 13:10:52 [INFO ] [ai_client   ]   [AI] T1-NVIDIA OK (meta/llama-3.3-70b-instruct) — [XAUUSD] HOLD 40%
+MetatradeXM,"2026-04-23 13:10:52 [INFO ] [trader      ]    XAUUSD: HOLD conf=40% | The indicator score is -10.4, which is negative, and th"
+MetatradeXM,2026-04-23 13:10:52 [INFO ] [trader      ]    ┌─ 📈 INDICATORS ─────────────────────────────────────
+MetatradeXM,2026-04-23 13:10:52 [INFO ] [trader      ]    │ ADX: 45.6  +DI: 34.8  -DI: 14.2  (TRENDING)
+MetatradeXM,2026-04-23 13:10:52 [INFO ] [trader      ]    │ RSI: 66.5  Stoch: K=73/D=88 BEARISH  W%R: -27
+MetatradeXM,2026-04-23 13:10:52 [INFO ] [trader      ]    │ MACD: BULLISH hist=4.581732  BB: ABOVE_MID squeeze=False
+MetatradeXM,2026-04-23 13:10:52 [INFO ] [trader      ]    │ EMA: 20=4715.47 50=4714.95 200=4738.06  Trend: MILD_BULL
+MetatradeXM,2026-04-23 13:10:52 [INFO ] [trader      ]    │ ATR: 10.91500  Price: 4727.33000  Chg: +0.244%  Vol: 1.18x
+MetatradeXM,2026-04-23 13:10:52 [INFO ] [trader      ]    │ Trends → D1: MILD_BEAR  H4: BEARISH    H1: BEARISH    M15: MILD_BULL
+MetatradeXM,2026-04-23 13:10:52 [INFO ] [trader      ]    │ Score: -10.4  Factors: H4=-10.0 H1=-10.0 RSI=-3.3 MACD=+6.0 ADX=+10.0 Stoch=-8.0 BB=+2.0 D1=-2.8 Fib=+9.0
+MetatradeXM,2026-04-23 13:10:52 [INFO ] [trader      ]    └──────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:10:52 [INFO ] [trader      ]    ⏭  XAUUSD: HOLD — no trade
+MetatradeXM,2026-04-23 13:10:52 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 288s)  Cycle #2580
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:11:07 [INFO ] [trader      ] 🔄 Cycle #2581  [2026-04-23 13:11:07]
+MetatradeXM,2026-04-23 13:11:07 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:11:08 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:11:08 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 272s)  Cycle #2581
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:11:23 [INFO ] [trader      ] 🔄 Cycle #2582  [2026-04-23 13:11:23]
+MetatradeXM,2026-04-23 13:11:23 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:11:24 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:11:24 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 257s)  Cycle #2582
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:11:39 [INFO ] [trader      ] 🔄 Cycle #2583  [2026-04-23 13:11:39]
+MetatradeXM,2026-04-23 13:11:39 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:11:40 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:11:40 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 240s)  Cycle #2583
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:11:55 [INFO ] [trader      ] 🔄 Cycle #2584  [2026-04-23 13:11:55]
+MetatradeXM,2026-04-23 13:11:55 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:11:56 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:11:56 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 224s)  Cycle #2584
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:12:11 [INFO ] [trader      ] 🔄 Cycle #2585  [2026-04-23 13:12:11]
+MetatradeXM,2026-04-23 13:12:11 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:12:12 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:12:12 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 209s)  Cycle #2585
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:12:27 [INFO ] [trader      ] 🔄 Cycle #2586  [2026-04-23 13:12:27]
+MetatradeXM,2026-04-23 13:12:27 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:12:27 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:12:27 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 193s)  Cycle #2586
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:12:42 [INFO ] [trader      ] 🔄 Cycle #2587  [2026-04-23 13:12:42]
+MetatradeXM,2026-04-23 13:12:43 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:12:43 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:12:43 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 177s)  Cycle #2587
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:12:58 [INFO ] [trader      ] 🔄 Cycle #2588  [2026-04-23 13:12:58]
+MetatradeXM,2026-04-23 13:12:59 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:12:59 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:12:59 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 161s)  Cycle #2588
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:13:14 [INFO ] [trader      ] 🔄 Cycle #2589  [2026-04-23 13:13:14]
+MetatradeXM,2026-04-23 13:13:15 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:13:15 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:13:15 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 145s)  Cycle #2589
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:13:30 [INFO ] [trader      ] 🔄 Cycle #2590  [2026-04-23 13:13:30]
+MetatradeXM,2026-04-23 13:13:30 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:13:31 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:13:31 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 129s)  Cycle #2590
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:13:46 [INFO ] [trader      ] 🔄 Cycle #2591  [2026-04-23 13:13:46]
+MetatradeXM,2026-04-23 13:13:46 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:13:47 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:13:47 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 113s)  Cycle #2591
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:14:02 [INFO ] [trader      ] 🔄 Cycle #2592  [2026-04-23 13:14:02]
+MetatradeXM,2026-04-23 13:14:02 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:14:03 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:14:03 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 98s)  Cycle #2592
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:14:18 [INFO ] [trader      ] 🔄 Cycle #2593  [2026-04-23 13:14:18]
+MetatradeXM,2026-04-23 13:14:18 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:14:18 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:14:18 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 82s)  Cycle #2593
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:14:34 [INFO ] [trader      ] 🔄 Cycle #2594  [2026-04-23 13:14:34]
+MetatradeXM,2026-04-23 13:14:34 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:14:34 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:14:34 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 66s)  Cycle #2594
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:14:49 [INFO ] [trader      ] 🔄 Cycle #2595  [2026-04-23 13:14:49]
+MetatradeXM,2026-04-23 13:14:50 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:14:50 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:14:50 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 50s)  Cycle #2595
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:15:05 [INFO ] [trader      ] 🔄 Cycle #2596  [2026-04-23 13:15:05]
+MetatradeXM,2026-04-23 13:15:06 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:15:06 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:15:06 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 34s)  Cycle #2596
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:15:21 [INFO ] [trader      ] 🔄 Cycle #2597  [2026-04-23 13:15:21]
+MetatradeXM,2026-04-23 13:15:23 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:15:27 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:15:27 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 13s)  Cycle #2597
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:15:42 [INFO ] [trader      ] 🔄 Cycle #2598  [2026-04-23 13:15:42]
+MetatradeXM,2026-04-23 13:15:42 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:15:43 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:15:43 [INFO ] [trader      ] 📊 Running market analysis  (LONDON_NY_OVERLAP)
+MetatradeXM,2026-04-23 13:15:43 [INFO ] [trader      ]    🔍 Analyzing XAUUSD...
+MetatradeXM,2026-04-23 13:15:44 [INFO ] [trader      ]    [LOCAL] XAUUSD: fetching broker candles
+MetatradeXM,2026-04-23 13:16:02 [WARNING] [webhook_bridge] [WEBHOOK] Cannot reach Windows server for candles
+MetatradeXM,2026-04-23 13:16:02 [WARNING] [trader      ] Candle fetch GOLD.i#/H4: timeout (15s) — skipped
+MetatradeXM,2026-04-23 13:16:03 [INFO ] [trader      ]    [MT5] XAUUSD: fetched native MT5 indicators
+MetatradeXM,"2026-04-23 13:16:03 [INFO ] [analyzer    ]    [AI] Sending 6,402 chars to AI chain (NVIDIA→Gemini) — ADX=43 RSI=69 Score=+1.9"
+MetatradeXM,2026-04-23 13:16:03 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+MetatradeXM,2026-04-23 13:16:05 [INFO ] [ai_client   ]   [AI] T1-NVIDIA OK (meta/llama-3.3-70b-instruct) — [XAUUSD] HOLD 27%
+MetatradeXM,"2026-04-23 13:16:05 [INFO ] [trader      ]    XAUUSD: HOLD conf=27% | The indicator score is 1.9, which is not strong enough"
+MetatradeXM,2026-04-23 13:16:05 [INFO ] [trader      ]    ┌─ 📈 INDICATORS ─────────────────────────────────────
+MetatradeXM,2026-04-23 13:16:05 [INFO ] [trader      ]    │ ADX: 43.0  +DI: 30.5  -DI: 15.2  (TRENDING)
+MetatradeXM,2026-04-23 13:16:05 [INFO ] [trader      ]    │ RSI: 68.8  Stoch: K=74/D=80 NONE  W%R: -26
+MetatradeXM,2026-04-23 13:16:05 [INFO ] [trader      ]    │ MACD: BULLISH hist=3.721897  BB: ABOVE_MID squeeze=False
+MetatradeXM,2026-04-23 13:16:05 [INFO ] [trader      ]    │ EMA: 20=4716.52 50=4715.40 200=4737.94  Trend: MILD_BULL
+MetatradeXM,2026-04-23 13:16:05 [INFO ] [trader      ]    │ ATR: 10.80357  Price: 4728.02000  Chg: +0.515%  Vol: 0.09x
+MetatradeXM,2026-04-23 13:16:05 [INFO ] [trader      ]    │ Trends → D1: MILD_BEAR  H4: BEARISH    H1: BEARISH    M15: MILD_BULL
+MetatradeXM,2026-04-23 13:16:05 [INFO ] [trader      ]    │ Score: +1.9  Factors: H4=-10.0 H1=-10.0 RSI=-3.8 MACD=+6.0 ADX=+10.0 BB=+2.0 D1=-2.8 Fib=+9.0
+MetatradeXM,2026-04-23 13:16:05 [INFO ] [trader      ]    └──────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:16:05 [INFO ] [trader      ]    ⏭  XAUUSD: HOLD — no trade
+MetatradeXM,2026-04-23 13:16:05 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 276s)  Cycle #2598
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:16:20 [INFO ] [trader      ] 🔄 Cycle #2599  [2026-04-23 13:16:20]
+MetatradeXM,2026-04-23 13:16:21 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:16:21 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:16:21 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 260s)  Cycle #2599
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:16:36 [INFO ] [trader      ] 🔄 Cycle #2600  [2026-04-23 13:16:36]
+MetatradeXM,2026-04-23 13:16:37 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:16:37 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:16:37 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+MetatradeXM,2026-04-23 13:16:39 [INFO ] [ai_client   ]   [AI] T1-NVIDIA OK (meta/llama-3.3-70b-instruct) — [skill-'time-bias'] ? 20%
+MetatradeXM,"2026-04-23 13:16:39 [INFO ] [skills      ] [SKILLS] Improvement for ''time-bias'': ['increase boost_amount during peak hours', 'add more symbols to the portfolio']"
+MetatradeXM,2026-04-23 13:16:39 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+MetatradeXM,2026-04-23 13:16:41 [INFO ] [ai_client   ]   [AI] T1-NVIDIA OK (meta/llama-3.3-70b-instruct) — [skill-momentum-scalp] ? 20%
+MetatradeXM,"2026-04-23 13:16:41 [INFO ] [skills      ] [SKILLS] Improvement for 'momentum-scalp': ['Increase min_adx to filter out weak trends', 'Adjust rsi_min and rsi_max to optimize entry points', 'Consider adding a maximum loss limit per trade']"
+MetatradeXM,2026-04-23 13:16:41 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+MetatradeXM,2026-04-23 13:16:41 [INFO ] [ai_client   ]   [AI] NVIDIA HTTP 0 — retry 1/1 in 2s...
+MetatradeXM,2026-04-23 13:16:43 [WARNING] [ai_client   ]   [AI] T1-NVIDIA/meta/llama-3.3-70b-instruct failed (HTTP ?: ) — all tiers exhausted
+MetatradeXM,2026-04-23 13:16:43 [WARNING] [skills      ] [SKILLS] Improve returned no data for ''mean-reversion''
+MetatradeXM,2026-04-23 13:16:43 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+MetatradeXM,2026-04-23 13:16:43 [INFO ] [ai_client   ]   [AI] NVIDIA HTTP 0 — retry 1/1 in 2s...
+MetatradeXM,2026-04-23 13:16:46 [WARNING] [ai_client   ]   [AI] T1-NVIDIA/meta/llama-3.3-70b-instruct failed (HTTP ?: ) — all tiers exhausted
+MetatradeXM,2026-04-23 13:16:46 [WARNING] [skills      ] [SKILLS] Improve returned no data for ''smart-exit''
+MetatradeXM,2026-04-23 13:16:46 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+MetatradeXM,2026-04-23 13:16:47 [INFO ] [ai_client   ]   [AI] T1-NVIDIA OK (meta/llama-3.3-70b-instruct) — [skill-asian-session-scalp] ? 20%
+MetatradeXM,"2026-04-23 13:16:47 [INFO ] [skills      ] [SKILLS] Improvement for 'asian-session-scalp': ['Re-evaluate the ADX threshold', 'Consider adding more symbols', 'Optimize the boost amount']"
+MetatradeXM,2026-04-23 13:16:47 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+MetatradeXM,2026-04-23 13:16:47 [INFO ] [ai_client   ]   [AI] NVIDIA HTTP 0 — retry 1/1 in 2s...
+MetatradeXM,2026-04-23 13:16:53 [INFO ] [ai_client   ]   [AI] T1-NVIDIA OK (meta/llama-3.3-70b-instruct) — [skill-'fade-detection'] ? 60%
+MetatradeXM,"2026-04-23 13:16:53 [INFO ] [skills      ] [SKILLS] Improvement for ''fade-detection'': ['increase min_adx to filter out weak trends', 'adjust rsi_min and rsi_max to optimize counter-trend detection']"
+MetatradeXM,2026-04-23 13:16:53 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+MetatradeXM,2026-04-23 13:16:56 [INFO ] [ai_client   ]   [AI] T1-NVIDIA OK (meta/llama-3.3-70b-instruct) — [skill-'position-scaling'] ? 40%
+MetatradeXM,"2026-04-23 13:16:56 [INFO ] [skills      ] [SKILLS] Improvement for ''position-scaling'': ['Increase min_confidence to filter out low-confidence trades', 'Decrease max_scales_per_trade to reduce risk', 'Implement a stop-loss mechanism to limit losses']"
+MetatradeXM,2026-04-23 13:16:56 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+MetatradeXM,2026-04-23 13:16:58 [INFO ] [ai_client   ]   [AI] T1-NVIDIA OK (meta/llama-3.3-70b-instruct) — [skill-'correlation-filter'] ? 20%
+MetatradeXM,"2026-04-23 13:16:58 [INFO ] [skills      ] [SKILLS] Improvement for ''correlation-filter'': ['increase min_correlation threshold', 'add additional symbols for diversification']"
+MetatradeXM,2026-04-23 13:16:58 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+MetatradeXM,2026-04-23 13:16:58 [INFO ] [ai_client   ]   [AI] NVIDIA HTTP 0 — retry 1/1 in 2s...
+MetatradeXM,2026-04-23 13:17:00 [WARNING] [ai_client   ]   [AI] T1-NVIDIA/meta/llama-3.3-70b-instruct failed (HTTP ?: ) — all tiers exhausted
+MetatradeXM,2026-04-23 13:17:00 [WARNING] [skills      ] [SKILLS] Improve returned no data for 'asian-bias'
+MetatradeXM,2026-04-23 13:17:00 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+MetatradeXM,2026-04-23 13:17:01 [INFO ] [ai_client   ]   [AI] T1-NVIDIA OK (meta/llama-3.3-70b-instruct) — [skill-filter-high-conf-losing] ? 20%
+MetatradeXM,"2026-04-23 13:17:01 [INFO ] [skills      ] [SKILLS] Improvement for 'filter-high-conf-losing': ['Re-evaluate the trend indicators', 'Adjust the risk management parameters']"
+MetatradeXM,2026-04-23 13:17:01 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+MetatradeXM,2026-04-23 13:17:01 [INFO ] [ai_client   ]   [AI] NVIDIA HTTP 0 — retry 1/1 in 2s...
+MetatradeXM,2026-04-23 13:17:05 [INFO ] [ai_client   ]   [AI] T1-NVIDIA OK (meta/llama-3.3-70b-instruct) — [skill-filter-asian-session-losses] ? 20%
+MetatradeXM,"2026-04-23 13:17:05 [INFO ] [skills      ] [SKILLS] Improvement for 'filter-asian-session-losses': ['Re-evaluate the trading strategy during the Asian session', 'Consider adding more conditions to filter out unprofitable trades']"
+MetatradeXM,2026-04-23 13:17:05 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+MetatradeXM,2026-04-23 13:17:14 [INFO ] [ai_client   ]   [AI] T1-NVIDIA OK (meta/llama-3.3-70b-instruct) — [skill-reverse-high-confidence] ? 20%
+MetatradeXM,"2026-04-23 13:17:14 [INFO ] [skills      ] [SKILLS] Improvement for 'reverse-high-confidence': ['re-evaluate the trend indicators', 'adjust the risk management parameters']"
+MetatradeXM,2026-04-23 13:17:14 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+MetatradeXM,2026-04-23 13:17:14 [INFO ] [ai_client   ]   [AI] NVIDIA HTTP 0 — retry 1/1 in 2s...
+MetatradeXM,2026-04-23 13:17:16 [WARNING] [ai_client   ]   [AI] T1-NVIDIA/meta/llama-3.3-70b-instruct failed (HTTP ?: ) — all tiers exhausted
+MetatradeXM,2026-04-23 13:17:16 [WARNING] [skills      ] [SKILLS] Improve returned no data for 'session-bias-unknown-losing'
+MetatradeXM,2026-04-23 13:17:16 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 245s)  Cycle #2600
+MetatradeXM,2026-04-23 13:17:21 [INFO ] [trader      ]
+MetatradeXM,🛑 Shutdown signal received — closing gracefully...
+MetatradeXM,2026-04-23 13:17:31 [INFO ] [trader      ]
+MetatradeXM,🛑 Trader stopped. Disconnecting...
+MetatradeXM,2026-04-23 13:17:31 [INFO ] [trader      ] 📊 Session stats: 624 trades | W:212 L:124
+MetatradeXM,2026-04-23 13:17:32 [INFO ] [trader      ] [BRIDGE] Using Windows MT5 Webhook → http://206.72.198.54:5001
+MetatradeXM,2026-04-23 13:17:32 [INFO ] [trader      ]   [MEMORY] Trade memory system initialized
+MetatradeXM,2026-04-23 13:17:32 [INFO ] [ai_client   ] [AI] Active tiers: T1-NVIDIA
+MetatradeXM,2026-04-23 13:17:32 [INFO ] [trader      ]   [SKILLS] Loaded 13 trading skills
+MetatradeXM,2026-04-23 13:17:32 [INFO ] [trader      ]   [FILTERS] Filter chain initialized
+MetatradeXM,2026-04-23 13:17:32 [INFO ] [trader      ]   [IMPROVE] Self-improvement engine initialized
+MetatradeXM,2026-04-23 13:17:32 [INFO ] [trader      ]   [SCALER] Position scaling system initialized
+MetatradeXM,2026-04-23 13:17:32 [INFO ] [smart_exit  ] [SMART EXIT] Smart exit manager initialized
+MetatradeXM,2026-04-23 13:17:32 [INFO ] [trader      ]   [SMART EXIT] Adaptive exit system initialized
+MetatradeXM,2026-04-23 13:17:32 [INFO ] [capital_mgr ] [CAPITAL] Initialized. Streak W:0 L:30 | Booked: $858.58 total
+MetatradeXM,2026-04-23 13:17:32 [INFO ] [trader      ]   [CAPITAL] Dynamic capital manager initialized
+MetatradeXM,2026-04-23 13:17:32 [INFO ] [bridges.tv_client] [TV] TradingView client started → ws://localhost:8887
+MetatradeXM,2026-04-23 13:17:32 [INFO ] [bridges.tv_client] [TV] Not available — will retry in background
+MetatradeXM,2026-04-23 13:17:37 [INFO ] [trader      ]   [TV] TradingView not available — using broker candles
+MetatradeXM,2026-04-23 13:17:37 [INFO ] [trader      ] ============================================================
+MetatradeXM,2026-04-23 13:17:37 [INFO ] [trader      ]   🚀 CONTINUOUS TRADER — XAUUSD + XAGUSD
+MetatradeXM,2026-04-23 13:17:37 [INFO ] [trader      ]   Mode: 🔴 LIVE TRADING
+MetatradeXM,2026-04-23 13:17:37 [INFO ] [trader      ]   Symbols: XAUUSD (GOLD.i#) + XAGUSD (SILVER.i#)
+MetatradeXM,2026-04-23 13:17:37 [INFO ] [trader      ]   Monitor: every 15s
+MetatradeXM,2026-04-23 13:17:37 [INFO ] [trader      ]   Analysis: every 300s
+MetatradeXM,2026-04-23 13:17:37 [INFO ] [trader      ]   Profit target: +1.5% | Loss limit: -0.5%
+MetatradeXM,2026-04-23 13:17:37 [INFO ] [trader      ] ============================================================
+MetatradeXM,2026-04-23 13:17:37 [INFO ] [trader      ] 🔌 Connecting to MetaTrader (attempt 1/5)...
+MetatradeXM,2026-04-23 13:17:38 [INFO ] [webhook_bridge]   ✅ Windows MT5 connected (login=1301214537 server=XMGlobal-MT5 6)
+MetatradeXM,2026-04-23 13:17:38 [INFO ] [trader      ] ✅ MetaTrader connected
+MetatradeXM,2026-04-23 13:17:39 [INFO ] [trader      ]   Account: #1301214537 (XMGlobal-MT5 6)
+MetatradeXM,2026-04-23 13:17:39 [INFO ] [trader      ]   Balance: $6873.27 | Equity: $6873.27
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:17:39 [INFO ] [trader      ] 🔄 Cycle #2601  [2026-04-23 13:17:39]
+MetatradeXM,2026-04-23 13:17:39 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:17:40 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:17:40 [INFO ] [trader      ] 📊 Running market analysis  (LONDON_NY_OVERLAP)
+MetatradeXM,2026-04-23 13:17:40 [INFO ] [trader      ]    🔍 Analyzing XAUUSD...
+MetatradeXM,2026-04-23 13:17:40 [INFO ] [trader      ]    [LOCAL] XAUUSD: fetching broker candles
+MetatradeXM,2026-04-23 13:17:47 [INFO ] [trader      ]
+MetatradeXM,🛑 Shutdown signal received — closing gracefully...
+MetatradeXM,2026-04-23 13:17:49 [INFO ] [trader      ]    [MT5] XAUUSD: fetched native MT5 indicators
+MetatradeXM,"2026-04-23 13:17:49 [INFO ] [analyzer    ]    [AI] Sending 6,402 chars to AI chain (NVIDIA→Gemini) — ADX=43 RSI=69 Score=+2.0"
+MetatradeXM,2026-04-23 13:17:49 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+MetatradeXM,2026-04-23 13:17:51 [INFO ] [ai_client   ]   [AI] T1-NVIDIA OK (meta/llama-3.3-70b-instruct) — [XAUUSD] HOLD 27%
+MetatradeXM,"2026-04-23 13:17:51 [INFO ] [trader      ]    XAUUSD: HOLD conf=27% | The indicator score is 2.0, which is not strong enough"
+MetatradeXM,2026-04-23 13:17:51 [INFO ] [trader      ]    ┌─ 📈 INDICATORS ─────────────────────────────────────
+MetatradeXM,2026-04-23 13:17:51 [INFO ] [trader      ]    │ ADX: 43.0  +DI: 30.2  -DI: 15.0  (TRENDING)
+MetatradeXM,2026-04-23 13:17:51 [INFO ] [trader      ]    │ RSI: 68.7  Stoch: K=74/D=80 NONE  W%R: -26
+MetatradeXM,2026-04-23 13:17:51 [INFO ] [trader      ]    │ MACD: BULLISH hist=3.702114  BB: ABOVE_MID squeeze=False
+MetatradeXM,2026-04-23 13:17:51 [INFO ] [trader      ]    │ EMA: 20=4716.49 50=4715.39 200=4737.93  Trend: MILD_BULL
+MetatradeXM,2026-04-23 13:17:51 [INFO ] [trader      ]    │ ATR: 10.91357  Price: 4727.71000  Chg: +0.519%  Vol: 0.23x
+MetatradeXM,2026-04-23 13:17:51 [INFO ] [trader      ]    │ Trends → D1: MILD_BEAR  H4: BEARISH    H1: BEARISH    M15: MILD_BULL
+MetatradeXM,2026-04-23 13:17:51 [INFO ] [trader      ]    │ Score: +2.0  Factors: H4=-10.0 H1=-10.0 RSI=-3.7 MACD=+6.0 ADX=+10.0 BB=+2.0 D1=-2.8 Fib=+9.0
+MetatradeXM,2026-04-23 13:17:51 [INFO ] [trader      ]    └──────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:17:51 [INFO ] [trader      ]    ⏭  XAUUSD: HOLD — no trade
+MetatradeXM,2026-04-23 13:17:51 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 287s)  Cycle #2601
+MetatradeXM,2026-04-23 13:18:06 [INFO ] [trader      ]
+MetatradeXM,🛑 Trader stopped. Disconnecting...
+MetatradeXM,2026-04-23 13:18:06 [INFO ] [trader      ] 📊 Session stats: 624 trades | W:212 L:124
+MetatradeXM,2026-04-23 13:18:07 [INFO ] [trader      ] [BRIDGE] Using Windows MT5 Webhook → http://206.72.198.54:5001
+MetatradeXM,2026-04-23 13:18:07 [INFO ] [trader      ]   [MEMORY] Trade memory system initialized
+MetatradeXM,2026-04-23 13:18:07 [INFO ] [ai_client   ] [AI] Active tiers: T1-NVIDIA
+MetatradeXM,2026-04-23 13:18:07 [INFO ] [trader      ]   [SKILLS] Loaded 13 trading skills
+MetatradeXM,2026-04-23 13:18:07 [INFO ] [trader      ]   [FILTERS] Filter chain initialized
+MetatradeXM,2026-04-23 13:18:07 [INFO ] [trader      ]   [IMPROVE] Self-improvement engine initialized
+MetatradeXM,2026-04-23 13:18:07 [INFO ] [trader      ]   [SCALER] Position scaling system initialized
+MetatradeXM,2026-04-23 13:18:07 [INFO ] [smart_exit  ] [SMART EXIT] Smart exit manager initialized
+MetatradeXM,2026-04-23 13:18:07 [INFO ] [trader      ]   [SMART EXIT] Adaptive exit system initialized
+MetatradeXM,2026-04-23 13:18:07 [INFO ] [capital_mgr ] [CAPITAL] Initialized. Streak W:0 L:30 | Booked: $858.58 total
+MetatradeXM,2026-04-23 13:18:07 [INFO ] [trader      ]   [CAPITAL] Dynamic capital manager initialized
+MetatradeXM,2026-04-23 13:18:07 [INFO ] [bridges.tv_client] [TV] TradingView client started → ws://localhost:8887
+MetatradeXM,2026-04-23 13:18:07 [INFO ] [bridges.tv_client] [TV] Not available — will retry in background
+MetatradeXM,2026-04-23 13:18:12 [INFO ] [trader      ]   [TV] TradingView not available — using broker candles
+MetatradeXM,2026-04-23 13:18:12 [INFO ] [trader      ] ============================================================
+MetatradeXM,2026-04-23 13:18:12 [INFO ] [trader      ]   🚀 CONTINUOUS TRADER — XAUUSD + XAGUSD
+MetatradeXM,2026-04-23 13:18:12 [INFO ] [trader      ]   Mode: 🔴 LIVE TRADING
+MetatradeXM,2026-04-23 13:18:12 [INFO ] [trader      ]   Symbols: XAUUSD (GOLD.i#) + XAGUSD (SILVER.i#)
+MetatradeXM,2026-04-23 13:18:12 [INFO ] [trader      ]   Monitor: every 15s
+MetatradeXM,2026-04-23 13:18:12 [INFO ] [trader      ]   Analysis: every 300s
+MetatradeXM,2026-04-23 13:18:12 [INFO ] [trader      ]   Profit target: +1.5% | Loss limit: -0.5%
+MetatradeXM,2026-04-23 13:18:12 [INFO ] [trader      ] ============================================================
+MetatradeXM,2026-04-23 13:18:12 [INFO ] [trader      ] 🔌 Connecting to MetaTrader (attempt 1/5)...
+MetatradeXM,2026-04-23 13:18:12 [INFO ] [webhook_bridge]   ✅ Windows MT5 connected (login=1301214537 server=XMGlobal-MT5 6)
+MetatradeXM,2026-04-23 13:18:12 [INFO ] [trader      ] ✅ MetaTrader connected
+MetatradeXM,2026-04-23 13:18:13 [INFO ] [trader      ]   Account: #1301214537 (XMGlobal-MT5 6)
+MetatradeXM,2026-04-23 13:18:13 [INFO ] [trader      ]   Balance: $6873.27 | Equity: $6873.27
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:18:13 [INFO ] [trader      ] 🔄 Cycle #2602  [2026-04-23 13:18:13]
+MetatradeXM,2026-04-23 13:18:13 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:18:13 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:18:13 [INFO ] [trader      ] 📊 Running market analysis  (LONDON_NY_OVERLAP)
+MetatradeXM,2026-04-23 13:18:13 [INFO ] [trader      ]    🔍 Analyzing XAUUSD...
+MetatradeXM,2026-04-23 13:18:14 [INFO ] [trader      ]    [LOCAL] XAUUSD: fetching broker candles
+MetatradeXM,2026-04-23 13:18:17 [INFO ] [trader      ]    [MT5] XAUUSD: fetched native MT5 indicators
+MetatradeXM,"2026-04-23 13:18:17 [INFO ] [analyzer    ]    [AI] Sending 6,402 chars to AI chain (NVIDIA→Gemini) — ADX=43 RSI=69 Score=+2.0"
+MetatradeXM,2026-04-23 13:18:17 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+MetatradeXM,2026-04-23 13:18:17 [INFO ] [ai_client   ]   [AI] NVIDIA HTTP 0 — retry 1/1 in 2s...
+MetatradeXM,2026-04-23 13:18:22 [INFO ] [ai_client   ]   [AI] T1-NVIDIA OK (meta/llama-3.3-70b-instruct) — [XAUUSD] HOLD 27%
+MetatradeXM,"2026-04-23 13:18:22 [INFO ] [trader      ]    XAUUSD: HOLD conf=27% | Indicator score is 2.0, which is not strong enough to w"
+MetatradeXM,2026-04-23 13:18:22 [INFO ] [trader      ]    ┌─ 📈 INDICATORS ─────────────────────────────────────
+MetatradeXM,2026-04-23 13:18:22 [INFO ] [trader      ]    │ ADX: 43.0  +DI: 30.2  -DI: 15.0  (TRENDING)
+MetatradeXM,2026-04-23 13:18:22 [INFO ] [trader      ]    │ RSI: 68.6  Stoch: K=74/D=80 NONE  W%R: -26
+MetatradeXM,2026-04-23 13:18:22 [INFO ] [trader      ]    │ MACD: BULLISH hist=3.698284  BB: ABOVE_MID squeeze=False
+MetatradeXM,2026-04-23 13:18:22 [INFO ] [trader      ]    │ EMA: 20=4716.48 50=4715.39 200=4737.93  Trend: MILD_BULL
+MetatradeXM,2026-04-23 13:18:22 [INFO ] [trader      ]    │ ATR: 10.91357  Price: 4727.65000  Chg: +0.512%  Vol: 0.26x
+MetatradeXM,2026-04-23 13:18:22 [INFO ] [trader      ]    │ Trends → D1: MILD_BEAR  H4: BEARISH    H1: BEARISH    M15: MILD_BULL
+MetatradeXM,2026-04-23 13:18:22 [INFO ] [trader      ]    │ Score: +2.0  Factors: H4=-10.0 H1=-10.0 RSI=-3.7 MACD=+6.0 ADX=+10.0 BB=+2.0 D1=-2.8 Fib=+9.0
+MetatradeXM,2026-04-23 13:18:22 [INFO ] [trader      ]    └──────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:18:22 [INFO ] [trader      ]    ⏭  XAUUSD: HOLD — no trade
+MetatradeXM,2026-04-23 13:18:22 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 290s)  Cycle #2602
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:18:37 [INFO ] [trader      ] 🔄 Cycle #2603  [2026-04-23 13:18:37]
+MetatradeXM,2026-04-23 13:18:37 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:18:38 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:18:38 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 274s)  Cycle #2603
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:18:53 [INFO ] [trader      ] 🔄 Cycle #2604  [2026-04-23 13:18:53]
+MetatradeXM,2026-04-23 13:18:53 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:18:54 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:18:54 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 258s)  Cycle #2604
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:19:09 [INFO ] [trader      ] 🔄 Cycle #2605  [2026-04-23 13:19:09]
+MetatradeXM,2026-04-23 13:19:09 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:19:09 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:19:09 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 243s)  Cycle #2605
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:19:24 [INFO ] [trader      ] 🔄 Cycle #2606  [2026-04-23 13:19:24]
+MetatradeXM,2026-04-23 13:19:25 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:19:25 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:19:25 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 227s)  Cycle #2606
+MetatradeXM,2026-04-23 13:19:26 [INFO ] [trader      ]
+MetatradeXM,🛑 Shutdown signal received — closing gracefully...
+MetatradeXM,2026-04-23 13:19:40 [INFO ] [trader      ]
+MetatradeXM,🛑 Trader stopped. Disconnecting...
+MetatradeXM,2026-04-23 13:19:40 [INFO ] [trader      ] 📊 Session stats: 624 trades | W:212 L:124
+MetatradeXM,2026-04-23 13:19:41 [INFO ] [trader      ] [BRIDGE] Using Windows MT5 Webhook → http://206.72.198.54:5001
+MetatradeXM,2026-04-23 13:19:41 [INFO ] [trader      ]   [MEMORY] Trade memory system initialized
+MetatradeXM,2026-04-23 13:19:41 [INFO ] [ai_client   ] [AI] Active tiers: T1-NVIDIA
+MetatradeXM,2026-04-23 13:19:41 [INFO ] [trader      ]   [SKILLS] Loaded 13 trading skills
+MetatradeXM,2026-04-23 13:19:41 [INFO ] [trader      ]   [FILTERS] Filter chain initialized
+MetatradeXM,2026-04-23 13:19:41 [INFO ] [trader      ]   [IMPROVE] Self-improvement engine initialized
+MetatradeXM,2026-04-23 13:19:41 [INFO ] [trader      ]   [SCALER] Position scaling system initialized
+MetatradeXM,2026-04-23 13:19:41 [INFO ] [smart_exit  ] [SMART EXIT] Smart exit manager initialized
+MetatradeXM,2026-04-23 13:19:41 [INFO ] [trader      ]   [SMART EXIT] Adaptive exit system initialized
+MetatradeXM,2026-04-23 13:19:41 [INFO ] [capital_mgr ] [CAPITAL] Initialized. Streak W:0 L:30 | Booked: $858.58 total
+MetatradeXM,2026-04-23 13:19:41 [INFO ] [trader      ]   [CAPITAL] Dynamic capital manager initialized
+MetatradeXM,2026-04-23 13:19:41 [INFO ] [bridges.tv_client] [TV] TradingView client started → ws://localhost:8887
+MetatradeXM,2026-04-23 13:19:41 [INFO ] [bridges.tv_client] [TV] Not available — will retry in background
+MetatradeXM,2026-04-23 13:19:46 [INFO ] [trader      ]   [TV] TradingView not available — using broker candles
+MetatradeXM,2026-04-23 13:19:46 [INFO ] [trader      ] ============================================================
+MetatradeXM,2026-04-23 13:19:46 [INFO ] [trader      ]   🚀 CONTINUOUS TRADER — XAUUSD + XAGUSD
+MetatradeXM,2026-04-23 13:19:46 [INFO ] [trader      ]   Mode: 🔴 LIVE TRADING
+MetatradeXM,2026-04-23 13:19:46 [INFO ] [trader      ]   Symbols: XAUUSD (GOLD.i#) + XAGUSD (SILVER.i#)
+MetatradeXM,2026-04-23 13:19:46 [INFO ] [trader      ]   Monitor: every 15s
+MetatradeXM,2026-04-23 13:19:46 [INFO ] [trader      ]   Analysis: every 300s
+MetatradeXM,2026-04-23 13:19:46 [INFO ] [trader      ]   Profit target: +1.5% | Loss limit: -0.5%
+MetatradeXM,2026-04-23 13:19:46 [INFO ] [trader      ] ============================================================
+MetatradeXM,2026-04-23 13:19:46 [INFO ] [trader      ] 🔌 Connecting to MetaTrader (attempt 1/5)...
+MetatradeXM,2026-04-23 13:19:46 [INFO ] [webhook_bridge]   ✅ Windows MT5 connected (login=1301214537 server=XMGlobal-MT5 6)
+MetatradeXM,2026-04-23 13:19:46 [INFO ] [trader      ] ✅ MetaTrader connected
+MetatradeXM,2026-04-23 13:19:47 [INFO ] [trader      ]   Account: #1301214537 (XMGlobal-MT5 6)
+MetatradeXM,2026-04-23 13:19:47 [INFO ] [trader      ]   Balance: $6873.27 | Equity: $6873.27
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:19:47 [INFO ] [trader      ] 🔄 Cycle #2607  [2026-04-23 13:19:47]
+MetatradeXM,2026-04-23 13:19:47 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:19:48 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:19:48 [INFO ] [trader      ] 📊 Running market analysis  (LONDON_NY_OVERLAP)
+MetatradeXM,2026-04-23 13:19:48 [INFO ] [trader      ]    🔍 Analyzing XAUUSD...
+MetatradeXM,2026-04-23 13:19:48 [INFO ] [trader      ]    [LOCAL] XAUUSD: fetching broker candles
+MetatradeXM,2026-04-23 13:19:51 [INFO ] [trader      ]    [MT5] XAUUSD: fetched native MT5 indicators
+MetatradeXM,"2026-04-23 13:19:52 [INFO ] [analyzer    ]    [AI] Sending 6,407 chars to AI chain (NVIDIA→Gemini) — ADX=43 RSI=68 Score=-1.1"
+MetatradeXM,2026-04-23 13:19:52 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+MetatradeXM,2026-04-23 13:19:58 [INFO ] [ai_client   ]   [AI] T1-NVIDIA OK (meta/llama-3.3-70b-instruct) — [XAUUSD] HOLD 32%
+MetatradeXM,"2026-04-23 13:19:58 [INFO ] [trader      ]    XAUUSD: HOLD conf=32% | Indicator score is -1.1, which is slightly bearish, and"
+MetatradeXM,2026-04-23 13:19:58 [INFO ] [trader      ]    ┌─ 📈 INDICATORS ─────────────────────────────────────
+MetatradeXM,2026-04-23 13:19:58 [INFO ] [trader      ]    │ ADX: 43.0  +DI: 30.2  -DI: 15.0  (TRENDING)
+MetatradeXM,2026-04-23 13:19:58 [INFO ] [trader      ]    │ RSI: 68.1  Stoch: K=72/D=79 NONE  W%R: -28
+MetatradeXM,2026-04-23 13:19:58 [INFO ] [trader      ]    │ MACD: BULLISH hist=3.612769  BB: ABOVE_MID squeeze=False
+MetatradeXM,2026-04-23 13:19:58 [INFO ] [trader      ]    │ EMA: 20=4716.36 50=4715.34 200=4737.92  Trend: MILD_BULL
+MetatradeXM,2026-04-23 13:19:58 [INFO ] [trader      ]    │ ATR: 10.91357  Price: 4726.31000  Chg: +0.488%  Vol: 0.36x
+MetatradeXM,2026-04-23 13:19:58 [INFO ] [trader      ]    │ Trends → D1: MILD_BEAR  H4: BEARISH    H1: BEARISH    M15: MILD_BULL
+MetatradeXM,2026-04-23 13:19:58 [INFO ] [trader      ]    │ Score: -1.1  Factors: H4=-10.0 H1=-10.0 RSI=-3.6 MACD=+6.0 ADX=+10.0 BB=+2.0 D1=-2.8 Fib=+9.0
+MetatradeXM,2026-04-23 13:19:58 [INFO ] [trader      ]    └──────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:19:58 [INFO ] [trader      ]    ⏭  XAUUSD: HOLD — no trade
+MetatradeXM,2026-04-23 13:19:58 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 288s)  Cycle #2607
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:20:13 [INFO ] [trader      ] 🔄 Cycle #2608  [2026-04-23 13:20:13]
+MetatradeXM,2026-04-23 13:20:14 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:20:14 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:20:14 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 272s)  Cycle #2608
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:20:29 [INFO ] [trader      ] 🔄 Cycle #2609  [2026-04-23 13:20:29]
+MetatradeXM,2026-04-23 13:20:30 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:20:30 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:20:30 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 256s)  Cycle #2609
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:20:45 [INFO ] [trader      ] 🔄 Cycle #2610  [2026-04-23 13:20:45]
+MetatradeXM,2026-04-23 13:20:46 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:20:46 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:20:46 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 240s)  Cycle #2610
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:21:01 [INFO ] [trader      ] 🔄 Cycle #2611  [2026-04-23 13:21:01]
+MetatradeXM,2026-04-23 13:21:01 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:21:02 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:21:02 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 224s)  Cycle #2611
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:21:17 [INFO ] [trader      ] 🔄 Cycle #2612  [2026-04-23 13:21:17]
+MetatradeXM,2026-04-23 13:21:17 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:21:18 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:21:18 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 209s)  Cycle #2612
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:21:33 [INFO ] [trader      ] 🔄 Cycle #2613  [2026-04-23 13:21:33]
+MetatradeXM,2026-04-23 13:21:33 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:21:33 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:21:33 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 193s)  Cycle #2613
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:21:48 [INFO ] [trader      ] 🔄 Cycle #2614  [2026-04-23 13:21:48]
+MetatradeXM,2026-04-23 13:21:49 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:21:49 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:21:49 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 177s)  Cycle #2614
+MetatradeXM,2026-04-23 13:21:57 [INFO ] [trader      ]
+MetatradeXM,🛑 Shutdown signal received — closing gracefully...
+MetatradeXM,2026-04-23 13:22:04 [INFO ] [trader      ]
+MetatradeXM,🛑 Trader stopped. Disconnecting...
+MetatradeXM,2026-04-23 13:22:04 [INFO ] [trader      ] 📊 Session stats: 624 trades | W:212 L:124
+MetatradeXM,2026-04-23 13:22:05 [INFO ] [trader      ] [BRIDGE] Using Windows MT5 Webhook → http://206.72.198.54:5001
+MetatradeXM,2026-04-23 13:22:05 [INFO ] [trader      ]   [MEMORY] Trade memory system initialized
+MetatradeXM,2026-04-23 13:22:05 [INFO ] [ai_client   ] [AI] Active tiers: T1-NVIDIA
+MetatradeXM,2026-04-23 13:22:05 [INFO ] [trader      ]   [SKILLS] Loaded 13 trading skills
+MetatradeXM,2026-04-23 13:22:05 [INFO ] [trader      ]   [FILTERS] Filter chain initialized
+MetatradeXM,2026-04-23 13:22:05 [INFO ] [trader      ]   [IMPROVE] Self-improvement engine initialized
+MetatradeXM,2026-04-23 13:22:05 [INFO ] [trader      ]   [SCALER] Position scaling system initialized
+MetatradeXM,2026-04-23 13:22:05 [INFO ] [smart_exit  ] [SMART EXIT] Smart exit manager initialized
+MetatradeXM,2026-04-23 13:22:05 [INFO ] [trader      ]   [SMART EXIT] Adaptive exit system initialized
+MetatradeXM,2026-04-23 13:22:05 [INFO ] [capital_mgr ] [CAPITAL] Initialized. Streak W:0 L:30 | Booked: $858.58 total
+MetatradeXM,2026-04-23 13:22:05 [INFO ] [trader      ]   [CAPITAL] Dynamic capital manager initialized
+MetatradeXM,2026-04-23 13:22:05 [INFO ] [bridges.tv_client] [TV] TradingView client started → ws://localhost:8887
+MetatradeXM,2026-04-23 13:22:05 [INFO ] [bridges.tv_client] [TV] Not available — will retry in background
+MetatradeXM,2026-04-23 13:22:10 [INFO ] [trader      ]   [TV] TradingView not available — using broker candles
+MetatradeXM,2026-04-23 13:22:10 [INFO ] [trader      ] ============================================================
+MetatradeXM,2026-04-23 13:22:10 [INFO ] [trader      ]   🚀 CONTINUOUS TRADER — XAUUSD + XAGUSD
+MetatradeXM,2026-04-23 13:22:10 [INFO ] [trader      ]   Mode: 🔴 LIVE TRADING
+MetatradeXM,2026-04-23 13:22:10 [INFO ] [trader      ]   Symbols: XAUUSD (GOLD.i#) + XAGUSD (SILVER.i#)
+MetatradeXM,2026-04-23 13:22:10 [INFO ] [trader      ]   Monitor: every 15s
+MetatradeXM,2026-04-23 13:22:10 [INFO ] [trader      ]   Analysis: every 300s
+MetatradeXM,2026-04-23 13:22:10 [INFO ] [trader      ]   Profit target: +1.5% | Loss limit: -0.5%
+MetatradeXM,2026-04-23 13:22:10 [INFO ] [trader      ] ============================================================
+MetatradeXM,2026-04-23 13:22:10 [INFO ] [trader      ] 🔌 Connecting to MetaTrader (attempt 1/5)...
+MetatradeXM,2026-04-23 13:22:10 [INFO ] [webhook_bridge]   ✅ Windows MT5 connected (login=1301214537 server=XMGlobal-MT5 6)
+MetatradeXM,2026-04-23 13:22:10 [INFO ] [trader      ] ✅ MetaTrader connected
+MetatradeXM,2026-04-23 13:22:11 [INFO ] [trader      ]   Account: #1301214537 (XMGlobal-MT5 6)
+MetatradeXM,2026-04-23 13:22:11 [INFO ] [trader      ]   Balance: $6873.27 | Equity: $6873.27
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:22:11 [INFO ] [trader      ] 🔄 Cycle #2615  [2026-04-23 13:22:11]
+MetatradeXM,2026-04-23 13:22:11 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:22:13 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:22:13 [INFO ] [trader      ] 📊 Running market analysis  (LONDON_NY_OVERLAP)
+MetatradeXM,2026-04-23 13:22:13 [INFO ] [trader      ]    🔍 Analyzing XAUUSD...
+MetatradeXM,2026-04-23 13:22:14 [INFO ] [trader      ]    [LOCAL] XAUUSD: fetching broker candles
+MetatradeXM,2026-04-23 13:22:30 [INFO ] [trader      ]    [MT5] XAUUSD: fetched native MT5 indicators
+MetatradeXM,"2026-04-23 13:22:30 [INFO ] [analyzer    ]    [AI] Sending 6,401 chars to AI chain (NVIDIA→Gemini) — ADX=43 RSI=69 Score=+1.9"
+MetatradeXM,2026-04-23 13:22:30 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+MetatradeXM,2026-04-23 13:22:36 [INFO ] [ai_client   ]   [AI] T1-NVIDIA OK (meta/llama-3.3-70b-instruct) — [XAUUSD] HOLD 27%
+MetatradeXM,"2026-04-23 13:22:36 [INFO ] [trader      ]    XAUUSD: HOLD conf=27% | The indicator score is 1.9, which is not strong enough"
+MetatradeXM,2026-04-23 13:22:36 [INFO ] [trader      ]    ┌─ 📈 INDICATORS ─────────────────────────────────────
+MetatradeXM,2026-04-23 13:22:36 [INFO ] [trader      ]    │ ADX: 43.0  +DI: 30.2  -DI: 15.0  (TRENDING)
+MetatradeXM,2026-04-23 13:22:36 [INFO ] [trader      ]    │ RSI: 69.2  Stoch: K=76/D=80 NONE  W%R: -24
+MetatradeXM,2026-04-23 13:22:36 [INFO ] [trader      ]    │ MACD: BULLISH hist=3.786991  BB: ABOVE_MID squeeze=False
+MetatradeXM,2026-04-23 13:22:36 [INFO ] [trader      ]    │ EMA: 20=4716.62 50=4715.44 200=4737.95  Trend: MILD_BULL
+MetatradeXM,2026-04-23 13:22:36 [INFO ] [trader      ]    │ ATR: 10.91357  Price: 4729.04000  Chg: +0.557%  Vol: 0.54x
+MetatradeXM,2026-04-23 13:22:36 [INFO ] [trader      ]    │ Trends → D1: MILD_BEAR  H4: BEARISH    H1: BEARISH    M15: MILD_BULL
+MetatradeXM,2026-04-23 13:22:36 [INFO ] [trader      ]    │ Score: +1.9  Factors: H4=-10.0 H1=-10.0 RSI=-3.8 MACD=+6.0 ADX=+10.0 BB=+2.0 D1=-2.8 Fib=+9.0
+MetatradeXM,2026-04-23 13:22:36 [INFO ] [trader      ]    └──────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:22:36 [INFO ] [trader      ]    ⏭  XAUUSD: HOLD — no trade
+MetatradeXM,2026-04-23 13:22:36 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 274s)  Cycle #2615
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:22:51 [INFO ] [trader      ] 🔄 Cycle #2616  [2026-04-23 13:22:51]
+MetatradeXM,"2026-04-23 13:23:06 [WARNING] [webhook_bridge] [WEBHOOK] get_account_info error: HTTPConnectionPool(host='206.72.198.54', port=5001): Max retries exceeded with url: /account (Caused by ConnectTimeoutError(<urllib3.connection.HTTPConnection object at 0xf48980a276d0>, 'Connection to 206.72.198.54 timed out. (connect timeout=15)'))"
+MetatradeXM,2026-04-23 13:23:06 [INFO ] [trader      ] 💰 Balance: $1000.00 | Equity: $1000.00 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:23:08 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:23:08 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 242s)  Cycle #2616
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:23:23 [INFO ] [trader      ] 🔄 Cycle #2617  [2026-04-23 13:23:23]
+MetatradeXM,2026-04-23 13:23:23 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:23:24 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:23:24 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 227s)  Cycle #2617
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:23:39 [INFO ] [trader      ] 🔄 Cycle #2618  [2026-04-23 13:23:39]
+MetatradeXM,2026-04-23 13:23:39 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:23:39 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:23:39 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 211s)  Cycle #2618
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:23:54 [INFO ] [trader      ] 🔄 Cycle #2619  [2026-04-23 13:23:54]
+MetatradeXM,2026-04-23 13:23:55 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:23:55 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:23:55 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 195s)  Cycle #2619
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:24:10 [INFO ] [trader      ] 🔄 Cycle #2620  [2026-04-23 13:24:10]
+MetatradeXM,2026-04-23 13:24:11 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:24:11 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:24:11 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 179s)  Cycle #2620
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:24:26 [INFO ] [trader      ] 🔄 Cycle #2621  [2026-04-23 13:24:26]
+MetatradeXM,2026-04-23 13:24:26 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:24:27 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:24:27 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 163s)  Cycle #2621
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:24:42 [INFO ] [trader      ] 🔄 Cycle #2622  [2026-04-23 13:24:42]
+MetatradeXM,2026-04-23 13:24:42 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:24:43 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:24:43 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 147s)  Cycle #2622
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:24:58 [INFO ] [trader      ] 🔄 Cycle #2623  [2026-04-23 13:24:58]
+MetatradeXM,2026-04-23 13:24:58 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:24:59 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:24:59 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 132s)  Cycle #2623
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:25:14 [INFO ] [trader      ] 🔄 Cycle #2624  [2026-04-23 13:25:14]
+MetatradeXM,2026-04-23 13:25:16 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:25:16 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:25:16 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 114s)  Cycle #2624
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:25:31 [INFO ] [trader      ] 🔄 Cycle #2625  [2026-04-23 13:25:31]
+MetatradeXM,2026-04-23 13:25:32 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:25:32 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:25:32 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 98s)  Cycle #2625
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:25:47 [INFO ] [trader      ] 🔄 Cycle #2626  [2026-04-23 13:25:47]
+MetatradeXM,2026-04-23 13:25:48 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:25:48 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:25:48 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 82s)  Cycle #2626
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:26:03 [INFO ] [trader      ] 🔄 Cycle #2627  [2026-04-23 13:26:03]
+MetatradeXM,2026-04-23 13:26:05 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:26:05 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:26:05 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 65s)  Cycle #2627
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:26:20 [INFO ] [trader      ] 🔄 Cycle #2628  [2026-04-23 13:26:20]
+MetatradeXM,2026-04-23 13:26:21 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:26:21 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:26:21 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 49s)  Cycle #2628
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:26:36 [INFO ] [trader      ] 🔄 Cycle #2629  [2026-04-23 13:26:36]
+MetatradeXM,2026-04-23 13:26:36 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:26:37 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:26:37 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 33s)  Cycle #2629
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:26:52 [INFO ] [trader      ] 🔄 Cycle #2630  [2026-04-23 13:26:52]
+MetatradeXM,2026-04-23 13:26:52 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:26:53 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:26:53 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 17s)  Cycle #2630
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:27:08 [INFO ] [trader      ] 🔄 Cycle #2631  [2026-04-23 13:27:08]
+MetatradeXM,2026-04-23 13:27:08 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:27:09 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:27:09 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 2s)  Cycle #2631
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:27:24 [INFO ] [trader      ] 🔄 Cycle #2632  [2026-04-23 13:27:24]
+MetatradeXM,2026-04-23 13:27:24 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:27:24 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:27:24 [INFO ] [trader      ] 📊 Running market analysis  (LONDON_NY_OVERLAP)
+MetatradeXM,2026-04-23 13:27:24 [INFO ] [trader      ]    🔍 Analyzing XAUUSD...
+MetatradeXM,2026-04-23 13:27:25 [INFO ] [trader      ]    [LOCAL] XAUUSD: fetching broker candles
+MetatradeXM,2026-04-23 13:27:28 [INFO ] [trader      ]    [MT5] XAUUSD: fetched native MT5 indicators
+MetatradeXM,"2026-04-23 13:27:28 [INFO ] [analyzer    ]    [AI] Sending 6,407 chars to AI chain (NVIDIA→Gemini) — ADX=43 RSI=68 Score=-1.1"
+MetatradeXM,2026-04-23 13:27:28 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+MetatradeXM,2026-04-23 13:27:30 [INFO ] [ai_client   ]   [AI] T1-NVIDIA OK (meta/llama-3.3-70b-instruct) — [XAUUSD] HOLD 32%
+MetatradeXM,"2026-04-23 13:27:30 [INFO ] [trader      ]    XAUUSD: HOLD conf=32% | Indicator score is -1.1, which is negative, and the buy"
+MetatradeXM,2026-04-23 13:27:30 [INFO ] [trader      ]    ┌─ 📈 INDICATORS ─────────────────────────────────────
+MetatradeXM,2026-04-23 13:27:30 [INFO ] [trader      ]    │ ADX: 43.0  +DI: 30.1  -DI: 15.0  (TRENDING)
+MetatradeXM,2026-04-23 13:27:30 [INFO ] [trader      ]    │ RSI: 68.2  Stoch: K=72/D=79 NONE  W%R: -28
+MetatradeXM,2026-04-23 13:27:30 [INFO ] [trader      ]    │ MACD: BULLISH hist=3.628723  BB: ABOVE_MID squeeze=False
+MetatradeXM,2026-04-23 13:27:30 [INFO ] [trader      ]    │ EMA: 20=4716.38 50=4715.35 200=4737.92  Trend: MILD_BULL
+MetatradeXM,2026-04-23 13:27:30 [INFO ] [trader      ]    │ ATR: 10.93857  Price: 4726.56000  Chg: +0.483%  Vol: 0.93x
+MetatradeXM,2026-04-23 13:27:30 [INFO ] [trader      ]    │ Trends → D1: MILD_BEAR  H4: BEARISH    H1: BEARISH    M15: MILD_BULL
+MetatradeXM,2026-04-23 13:27:30 [INFO ] [trader      ]    │ Score: -1.1  Factors: H4=-10.0 H1=-10.0 RSI=-3.6 MACD=+6.0 ADX=+10.0 BB=+2.0 D1=-2.8 Fib=+9.0
+MetatradeXM,2026-04-23 13:27:30 [INFO ] [trader      ]    └──────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:27:30 [INFO ] [trader      ]    ⏭  XAUUSD: HOLD — no trade
+MetatradeXM,2026-04-23 13:27:30 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 293s)  Cycle #2632
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:27:45 [INFO ] [trader      ] 🔄 Cycle #2633  [2026-04-23 13:27:45]
+MetatradeXM,2026-04-23 13:27:45 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:27:46 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:27:46 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 278s)  Cycle #2633
+MetatradeXM,2026-04-23 13:27:50 [INFO ] [trader      ]
+MetatradeXM,🛑 Shutdown signal received — closing gracefully...
+MetatradeXM,2026-04-23 13:28:01 [INFO ] [trader      ]
+MetatradeXM,🛑 Trader stopped. Disconnecting...
+MetatradeXM,2026-04-23 13:28:01 [INFO ] [trader      ] 📊 Session stats: 624 trades | W:212 L:124
+MetatradeXM,2026-04-23 13:28:01 [INFO ] [trader      ] [BRIDGE] Using Windows MT5 Webhook → http://206.72.198.54:5001
+MetatradeXM,2026-04-23 13:28:01 [INFO ] [trader      ]   [MEMORY] Trade memory system initialized
+MetatradeXM,2026-04-23 13:28:01 [INFO ] [ai_client   ] [AI] Active tiers: T1-NVIDIA
+MetatradeXM,2026-04-23 13:28:01 [INFO ] [trader      ]   [SKILLS] Loaded 13 trading skills
+MetatradeXM,2026-04-23 13:28:01 [INFO ] [trader      ]   [FILTERS] Filter chain initialized
+MetatradeXM,2026-04-23 13:28:01 [INFO ] [trader      ]   [IMPROVE] Self-improvement engine initialized
+MetatradeXM,2026-04-23 13:28:01 [INFO ] [trader      ]   [SCALER] Position scaling system initialized
+MetatradeXM,2026-04-23 13:28:01 [INFO ] [smart_exit  ] [SMART EXIT] Smart exit manager initialized
+MetatradeXM,2026-04-23 13:28:01 [INFO ] [trader      ]   [SMART EXIT] Adaptive exit system initialized
+MetatradeXM,2026-04-23 13:28:01 [INFO ] [capital_mgr ] [CAPITAL] Initialized. Streak W:0 L:30 | Booked: $858.58 total
+MetatradeXM,2026-04-23 13:28:01 [INFO ] [trader      ]   [CAPITAL] Dynamic capital manager initialized
+MetatradeXM,2026-04-23 13:28:01 [INFO ] [bridges.tv_client] [TV] TradingView client started → ws://localhost:8887
+MetatradeXM,2026-04-23 13:28:01 [INFO ] [bridges.tv_client] [TV] Not available — will retry in background
+MetatradeXM,2026-04-23 13:28:06 [INFO ] [trader      ]   [TV] TradingView not available — using broker candles
+MetatradeXM,2026-04-23 13:28:06 [INFO ] [trader      ] ============================================================
+MetatradeXM,2026-04-23 13:28:06 [INFO ] [trader      ]   🚀 CONTINUOUS TRADER — XAUUSD + XAGUSD
+MetatradeXM,2026-04-23 13:28:06 [INFO ] [trader      ]   Mode: 🔴 LIVE TRADING
+MetatradeXM,2026-04-23 13:28:06 [INFO ] [trader      ]   Symbols: XAUUSD (GOLD.i#) + XAGUSD (SILVER.i#)
+MetatradeXM,2026-04-23 13:28:06 [INFO ] [trader      ]   Monitor: every 15s
+MetatradeXM,2026-04-23 13:28:06 [INFO ] [trader      ]   Analysis: every 300s
+MetatradeXM,2026-04-23 13:28:06 [INFO ] [trader      ]   Profit target: +1.5% | Loss limit: -0.5%
+MetatradeXM,2026-04-23 13:28:06 [INFO ] [trader      ] ============================================================
+MetatradeXM,2026-04-23 13:28:06 [INFO ] [trader      ] 🔌 Connecting to MetaTrader (attempt 1/5)...
+MetatradeXM,2026-04-23 13:28:07 [INFO ] [webhook_bridge]   ✅ Windows MT5 connected (login=1301214537 server=XMGlobal-MT5 6)
+MetatradeXM,2026-04-23 13:28:07 [INFO ] [trader      ] ✅ MetaTrader connected
+MetatradeXM,2026-04-23 13:28:07 [INFO ] [trader      ]   Account: #1301214537 (XMGlobal-MT5 6)
+MetatradeXM,2026-04-23 13:28:07 [INFO ] [trader      ]   Balance: $6873.27 | Equity: $6873.27
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:28:07 [INFO ] [trader      ] 🔄 Cycle #2634  [2026-04-23 13:28:07]
+MetatradeXM,2026-04-23 13:28:07 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:28:08 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:28:08 [INFO ] [trader      ] 📊 Running market analysis  (LONDON_NY_OVERLAP)
+MetatradeXM,2026-04-23 13:28:08 [INFO ] [trader      ]    🔍 Analyzing XAUUSD...
+MetatradeXM,2026-04-23 13:28:08 [INFO ] [trader      ]    [LOCAL] XAUUSD: fetching broker candles
+MetatradeXM,2026-04-23 13:28:12 [INFO ] [trader      ]    [MT5] XAUUSD: fetched native MT5 indicators
+MetatradeXM,"2026-04-23 13:28:12 [INFO ] [analyzer    ]    [AI] Sending 6,402 chars to AI chain (NVIDIA→Gemini) — ADX=43 RSI=69 Score=+1.9"
+MetatradeXM,2026-04-23 13:28:12 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+MetatradeXM,2026-04-23 13:28:17 [INFO ] [ai_client   ]   [AI] T1-NVIDIA OK (meta/llama-3.3-70b-instruct) — [XAUUSD] HOLD 27%
+MetatradeXM,"2026-04-23 13:28:17 [INFO ] [trader      ]    XAUUSD: HOLD conf=27% | The indicator score is 1.9, which is not strong enough"
+MetatradeXM,2026-04-23 13:28:17 [INFO ] [trader      ]    ┌─ 📈 INDICATORS ─────────────────────────────────────
+MetatradeXM,2026-04-23 13:28:17 [INFO ] [trader      ]    │ ADX: 43.0  +DI: 30.1  -DI: 15.0  (TRENDING)
+MetatradeXM,2026-04-23 13:28:17 [INFO ] [trader      ]    │ RSI: 68.9  Stoch: K=75/D=80 NONE  W%R: -25
+MetatradeXM,2026-04-23 13:28:17 [INFO ] [trader      ]    │ MACD: BULLISH hist=3.739128  BB: ABOVE_MID squeeze=False
+MetatradeXM,2026-04-23 13:28:17 [INFO ] [trader      ]    │ EMA: 20=4716.54 50=4715.41 200=4737.94  Trend: MILD_BULL
+MetatradeXM,2026-04-23 13:28:17 [INFO ] [trader      ]    │ ATR: 10.93857  Price: 4728.29000  Chg: +0.516%  Vol: 1.01x
+MetatradeXM,2026-04-23 13:28:17 [INFO ] [trader      ]    │ Trends → D1: MILD_BEAR  H4: BEARISH    H1: BEARISH    M15: MILD_BULL
+MetatradeXM,2026-04-23 13:28:17 [INFO ] [trader      ]    │ Score: +1.9  Factors: H4=-10.0 H1=-10.0 RSI=-3.8 MACD=+6.0 ADX=+10.0 BB=+2.0 D1=-2.8 Fib=+9.0
+MetatradeXM,2026-04-23 13:28:17 [INFO ] [trader      ]    └──────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:28:17 [INFO ] [trader      ]    ⏭  XAUUSD: HOLD — no trade
+MetatradeXM,2026-04-23 13:28:17 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 290s)  Cycle #2634
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:28:32 [INFO ] [trader      ] 🔄 Cycle #2635  [2026-04-23 13:28:32]
+MetatradeXM,2026-04-23 13:28:32 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:28:33 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:28:33 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 274s)  Cycle #2635
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:28:48 [INFO ] [trader      ] 🔄 Cycle #2636  [2026-04-23 13:28:48]
+MetatradeXM,2026-04-23 13:28:48 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:28:48 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:28:48 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 258s)  Cycle #2636
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:29:03 [INFO ] [trader      ] 🔄 Cycle #2637  [2026-04-23 13:29:03]
+MetatradeXM,2026-04-23 13:29:04 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:29:04 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:29:04 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 242s)  Cycle #2637
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:29:19 [INFO ] [trader      ] 🔄 Cycle #2638  [2026-04-23 13:29:19]
+MetatradeXM,2026-04-23 13:29:20 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:29:20 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:29:20 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 226s)  Cycle #2638
+MetatradeXM,2026-04-23 13:29:23 [INFO ] [trader      ]
+MetatradeXM,🛑 Shutdown signal received — closing gracefully...
+MetatradeXM,2026-04-23 13:29:35 [INFO ] [trader      ]
+MetatradeXM,🛑 Trader stopped. Disconnecting...
+MetatradeXM,2026-04-23 13:29:35 [INFO ] [trader      ] 📊 Session stats: 624 trades | W:212 L:124
+MetatradeXM,2026-04-23 13:29:36 [INFO ] [trader      ] [BRIDGE] Using Windows MT5 Webhook → http://206.72.198.54:5001
+MetatradeXM,2026-04-23 13:29:36 [INFO ] [trader      ]   [MEMORY] Trade memory system initialized
+MetatradeXM,2026-04-23 13:29:36 [INFO ] [ai_client   ] [AI] Active tiers: T1-NVIDIA
+MetatradeXM,2026-04-23 13:29:36 [INFO ] [trader      ]   [SKILLS] Loaded 13 trading skills
+MetatradeXM,2026-04-23 13:29:36 [INFO ] [trader      ]   [FILTERS] Filter chain initialized
+MetatradeXM,2026-04-23 13:29:36 [INFO ] [trader      ]   [IMPROVE] Self-improvement engine initialized
+MetatradeXM,2026-04-23 13:29:36 [INFO ] [trader      ]   [SCALER] Position scaling system initialized
+MetatradeXM,2026-04-23 13:29:36 [INFO ] [smart_exit  ] [SMART EXIT] Smart exit manager initialized
+MetatradeXM,2026-04-23 13:29:36 [INFO ] [trader      ]   [SMART EXIT] Adaptive exit system initialized
+MetatradeXM,2026-04-23 13:29:36 [INFO ] [capital_mgr ] [CAPITAL] Initialized. Streak W:0 L:30 | Booked: $858.58 total
+MetatradeXM,2026-04-23 13:29:36 [INFO ] [trader      ]   [CAPITAL] Dynamic capital manager initialized
+MetatradeXM,2026-04-23 13:29:36 [INFO ] [bridges.tv_client] [TV] TradingView client started → ws://localhost:8887
+MetatradeXM,2026-04-23 13:29:36 [INFO ] [bridges.tv_client] [TV] Not available — will retry in background
+MetatradeXM,2026-04-23 13:29:41 [INFO ] [trader      ]   [TV] TradingView not available — using broker candles
+MetatradeXM,2026-04-23 13:29:41 [INFO ] [trader      ] ============================================================
+MetatradeXM,2026-04-23 13:29:41 [INFO ] [trader      ]   🚀 CONTINUOUS TRADER — XAUUSD + XAGUSD
+MetatradeXM,2026-04-23 13:29:41 [INFO ] [trader      ]   Mode: 🔴 LIVE TRADING
+MetatradeXM,2026-04-23 13:29:41 [INFO ] [trader      ]   Symbols: XAUUSD (GOLD.i#) + XAGUSD (SILVER.i#)
+MetatradeXM,2026-04-23 13:29:41 [INFO ] [trader      ]   Monitor: every 15s
+MetatradeXM,2026-04-23 13:29:41 [INFO ] [trader      ]   Analysis: every 300s
+MetatradeXM,2026-04-23 13:29:41 [INFO ] [trader      ]   Profit target: +1.5% | Loss limit: -0.5%
+MetatradeXM,2026-04-23 13:29:41 [INFO ] [trader      ] ============================================================
+MetatradeXM,2026-04-23 13:29:41 [INFO ] [trader      ] 🔌 Connecting to MetaTrader (attempt 1/5)...
+MetatradeXM,2026-04-23 13:29:41 [INFO ] [webhook_bridge]   ✅ Windows MT5 connected (login=1301214537 server=XMGlobal-MT5 6)
+MetatradeXM,2026-04-23 13:29:41 [INFO ] [trader      ] ✅ MetaTrader connected
+MetatradeXM,2026-04-23 13:29:45 [INFO ] [trader      ]   Account: #1301214537 (XMGlobal-MT5 6)
+MetatradeXM,2026-04-23 13:29:45 [INFO ] [trader      ]   Balance: $6873.27 | Equity: $6873.27
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:29:45 [INFO ] [trader      ] 🔄 Cycle #2639  [2026-04-23 13:29:45]
+MetatradeXM,2026-04-23 13:29:45 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:29:46 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:29:46 [INFO ] [trader      ] 📊 Running market analysis  (LONDON_NY_OVERLAP)
+MetatradeXM,2026-04-23 13:29:46 [INFO ] [trader      ]    🔍 Analyzing XAUUSD...
+MetatradeXM,2026-04-23 13:29:46 [INFO ] [trader      ]    [LOCAL] XAUUSD: fetching broker candles
+MetatradeXM,"2026-04-23 13:30:02 [WARNING] [webhook_bridge] [WEBHOOK] get_candles error: HTTPConnectionPool(host='206.72.198.54', port=5001): Read timed out. (read timeout=15)"
+MetatradeXM,2026-04-23 13:30:02 [WARNING] [trader      ] Candle fetch GOLD.i#/M15: timeout (15s) — skipped
+MetatradeXM,2026-04-23 13:30:04 [INFO ] [trader      ]    [MT5] XAUUSD: fetched native MT5 indicators
+MetatradeXM,2026-04-23 13:30:04 [WARNING] [trader      ] Analysis error for XAUUSD: 'M15'
+MetatradeXM,2026-04-23 13:30:04 [INFO ] [trader      ]    XAUUSD: HOLD conf=0% | Analysis failed: 'M15'
+MetatradeXM,2026-04-23 13:30:04 [INFO ] [trader      ]    ┌─ 📈 INDICATORS ─────────────────────────────────────
+MetatradeXM,2026-04-23 13:30:04 [INFO ] [trader      ]    │ ADX: 0.0  +DI: 0.0  -DI: 0.0  (RANGING)
+MetatradeXM,2026-04-23 13:30:04 [INFO ] [trader      ]    │ RSI: 50.0  Stoch: K=50/D=50   W%R: -50
+MetatradeXM,2026-04-23 13:30:04 [INFO ] [trader      ]    │ MACD: N/A hist=0.000000  BB: N/A squeeze=False
+MetatradeXM,2026-04-23 13:30:04 [INFO ] [trader      ]    │ EMA: 20=0.00 50=0.00 200=0.00  Trend: N/A
+MetatradeXM,2026-04-23 13:30:04 [INFO ] [trader      ]    │ ATR: 0.00000  Price: 0.00000  Chg: +0.000%  Vol: 1.00x
+MetatradeXM,2026-04-23 13:30:04 [INFO ] [trader      ]    │ Trends → D1: ?          H4: ?          H1: ?          M15: ?
+MetatradeXM,2026-04-23 13:30:04 [INFO ] [trader      ]    │ Score: +0.0  Factors: all neutral
+MetatradeXM,2026-04-23 13:30:04 [INFO ] [trader      ]    └──────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:30:04 [INFO ] [trader      ]    [DEAD MARKET] XAUUSD: ADX=0.0 + score=0 — no momentum
+MetatradeXM,2026-04-23 13:30:04 [INFO ] [trader      ]    ⏭  XAUUSD: HOLD — no trade
+MetatradeXM,2026-04-23 13:30:04 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 280s)  Cycle #2639
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:30:19 [INFO ] [trader      ] 🔄 Cycle #2640  [2026-04-23 13:30:19]
+MetatradeXM,2026-04-23 13:30:19 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:30:20 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:30:20 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 264s)  Cycle #2640
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:30:35 [INFO ] [trader      ] 🔄 Cycle #2641  [2026-04-23 13:30:35]
+MetatradeXM,2026-04-23 13:30:35 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:30:36 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:30:36 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 248s)  Cycle #2641
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:30:51 [INFO ] [trader      ] 🔄 Cycle #2642  [2026-04-23 13:30:51]
+MetatradeXM,2026-04-23 13:30:51 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:30:52 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:30:52 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 233s)  Cycle #2642
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:31:07 [INFO ] [trader      ] 🔄 Cycle #2643  [2026-04-23 13:31:07]
+MetatradeXM,2026-04-23 13:31:07 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:31:07 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:31:07 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 217s)  Cycle #2643
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:31:22 [INFO ] [trader      ] 🔄 Cycle #2644  [2026-04-23 13:31:22]
+MetatradeXM,2026-04-23 13:31:23 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:31:23 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:31:23 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 201s)  Cycle #2644
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:31:38 [INFO ] [trader      ] 🔄 Cycle #2645  [2026-04-23 13:31:38]
+MetatradeXM,2026-04-23 13:31:39 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:31:39 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:31:39 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 185s)  Cycle #2645
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:31:54 [INFO ] [trader      ] 🔄 Cycle #2646  [2026-04-23 13:31:54]
+MetatradeXM,2026-04-23 13:31:55 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:31:55 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:31:55 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 169s)  Cycle #2646
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:32:10 [INFO ] [trader      ] 🔄 Cycle #2647  [2026-04-23 13:32:10]
+MetatradeXM,2026-04-23 13:32:10 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:32:11 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:32:11 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 153s)  Cycle #2647
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:32:26 [INFO ] [trader      ] 🔄 Cycle #2648  [2026-04-23 13:32:26]
+MetatradeXM,2026-04-23 13:32:26 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:32:27 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:32:27 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 137s)  Cycle #2648
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:32:42 [INFO ] [trader      ] 🔄 Cycle #2649  [2026-04-23 13:32:42]
+MetatradeXM,2026-04-23 13:32:42 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:32:43 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:32:43 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 121s)  Cycle #2649
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:32:58 [INFO ] [trader      ] 🔄 Cycle #2650  [2026-04-23 13:32:58]
+MetatradeXM,2026-04-23 13:32:58 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:32:59 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:32:59 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 106s)  Cycle #2650
+MetatradeXM,────────────────────────────────────────────────────────────
+MetatradeXM,2026-04-23 13:33:14 [INFO ] [trader      ] 🔄 Cycle #2651  [2026-04-23 13:33:14]
+MetatradeXM,2026-04-23 13:33:14 [INFO ] [trader      ] 💰 Balance: $6873.27 | Equity: $6873.27 | P&L: ▲ $+0.00
+MetatradeXM,2026-04-23 13:33:15 [INFO ] [trader      ]
+MetatradeXM,🛑 Shutdown signal received — closing gracefully...
+MetatradeXM,2026-04-23 13:33:15 [INFO ] [trader      ] 📊 Open positions: 0
+MetatradeXM,2026-04-23 13:33:15 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 90s)  Cycle #2651
+MetatradeXM,2026-04-23 13:33:30 [INFO ] [trader      ]
+MetatradeXM,🛑 Trader stopped. Disconnecting...
+MetatradeXM,2026-04-23 13:33:30 [INFO ] [trader      ] 📊 Session stats: 624 trades | W:212 L:124
+trading-bot,2026-04-24 08:20:27 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 54s)  Cycle #6574
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:20:42 [INFO ] [trader      ] 🔄 Cycle #6575  [2026-04-24 08:20:42]
+trading-bot,2026-04-24 08:20:43 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:20:43 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:20:43 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 38s)  Cycle #6575
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:20:58 [INFO ] [trader      ] 🔄 Cycle #6576  [2026-04-24 08:20:58]
+trading-bot,2026-04-24 08:20:59 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:20:59 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:20:59 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 23s)  Cycle #6576
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:21:14 [INFO ] [trader      ] 🔄 Cycle #6577  [2026-04-24 08:21:14]
+trading-bot,2026-04-24 08:21:14 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:21:15 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:21:15 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 7s)  Cycle #6577
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:21:30 [INFO ] [trader      ] 🔄 Cycle #6578  [2026-04-24 08:21:30]
+trading-bot,2026-04-24 08:21:30 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:21:31 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:21:31 [INFO ] [trader      ] 📊 Running market analysis  (LONDON)
+trading-bot,2026-04-24 08:21:31 [INFO ] [trader      ]    🔍 Analyzing XAUUSD...
+trading-bot,2026-04-24 08:21:31 [INFO ] [trader      ]    [LOCAL] XAUUSD: fetching broker candles
+trading-bot,2026-04-24 08:21:35 [INFO ] [trader      ]    [MT5] XAUUSD: fetched native MT5 indicators
+trading-bot,"2026-04-24 08:21:35 [INFO ] [analyzer    ]    [AI] Sending 6,099 chars to AI chain (NVIDIA→Gemini) — ADX=29 RSI=66 Score=+5.7"
+trading-bot,2026-04-24 08:21:35 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+trading-bot,2026-04-24 08:21:38 [INFO ] [ai_client   ]   [AI] T1-NVIDIA OK (meta/llama-3.3-70b-instruct) — [XAUUSD] HOLD 50%
+trading-bot,2026-04-24 08:21:38 [INFO ] [trader      ]    XAUUSD: HOLD conf=50% | The indicator score is neutral and there is no clear se
+trading-bot,2026-04-24 08:21:38 [INFO ] [trader      ]    ┌─ 📈 INDICATORS ─────────────────────────────────────
+trading-bot,2026-04-24 08:21:38 [INFO ] [trader      ]    │ ADX: 29.0  +DI: 30.6  -DI: 12.2  (TRENDING)
+trading-bot,2026-04-24 08:21:38 [INFO ] [trader      ]    │ RSI: 65.5  Stoch: K=97/D=89 NONE  W%R: -3
+trading-bot,2026-04-24 08:21:38 [INFO ] [trader      ]    │ MACD: BULLISH hist=2.999604  BB: ABOVE_MID squeeze=False
+trading-bot,2026-04-24 08:21:38 [INFO ] [trader      ]    │ EMA: 20=4683.33 50=4688.65 200=4715.57  Trend: BEARISH
+trading-bot,2026-04-24 08:21:38 [INFO ] [trader      ]    │ ATR: 8.17143  Price: 4696.54000  Chg: +0.459%  Vol: 0.60x
+trading-bot,2026-04-24 08:21:38 [INFO ] [trader      ]    │ Trends → D1: MILD_BEAR  H4: BEARISH    H1: BEARISH    M15: BEARISH
+trading-bot,2026-04-24 08:21:38 [INFO ] [trader      ]    │ Score: +5.7  Factors: H4=-6.0 H1=-8.0 RSI=-3.1 MACD=+6.0 ADX=+9.7 Stoch=-4.0 BB=+2.0 D1=-1.4 Fib=+9.0
+trading-bot,2026-04-24 08:21:38 [INFO ] [trader      ]    └──────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:21:38 [INFO ] [trader      ]    ⏭  XAUUSD: HOLD — no trade
+trading-bot,2026-04-24 08:21:38 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 292s)  Cycle #6578
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:21:53 [INFO ] [trader      ] 🔄 Cycle #6579  [2026-04-24 08:21:53]
+trading-bot,2026-04-24 08:21:53 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:21:54 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:21:54 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 276s)  Cycle #6579
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:22:09 [INFO ] [trader      ] 🔄 Cycle #6580  [2026-04-24 08:22:09]
+trading-bot,2026-04-24 08:22:09 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:22:10 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:22:10 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 260s)  Cycle #6580
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:22:25 [INFO ] [trader      ] 🔄 Cycle #6581  [2026-04-24 08:22:25]
+trading-bot,2026-04-24 08:22:25 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:22:25 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:22:25 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 244s)  Cycle #6581
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:22:40 [INFO ] [trader      ] 🔄 Cycle #6582  [2026-04-24 08:22:40]
+trading-bot,2026-04-24 08:22:41 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:22:41 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:22:41 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 228s)  Cycle #6582
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:22:56 [INFO ] [trader      ] 🔄 Cycle #6583  [2026-04-24 08:22:56]
+trading-bot,2026-04-24 08:22:57 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:22:57 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:22:57 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 212s)  Cycle #6583
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:23:12 [INFO ] [trader      ] 🔄 Cycle #6584  [2026-04-24 08:23:12]
+trading-bot,2026-04-24 08:23:13 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:23:13 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:23:13 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 196s)  Cycle #6584
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:23:28 [INFO ] [trader      ] 🔄 Cycle #6585  [2026-04-24 08:23:28]
+trading-bot,2026-04-24 08:23:29 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:23:29 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:23:29 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 180s)  Cycle #6585
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:23:44 [INFO ] [trader      ] 🔄 Cycle #6586  [2026-04-24 08:23:44]
+trading-bot,2026-04-24 08:23:44 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:23:45 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:23:45 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 165s)  Cycle #6586
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:24:00 [INFO ] [trader      ] 🔄 Cycle #6587  [2026-04-24 08:24:00]
+trading-bot,2026-04-24 08:24:00 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:24:01 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:24:01 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 149s)  Cycle #6587
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:24:16 [INFO ] [trader      ] 🔄 Cycle #6588  [2026-04-24 08:24:16]
+trading-bot,2026-04-24 08:24:16 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:24:16 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:24:16 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 133s)  Cycle #6588
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:24:31 [INFO ] [trader      ] 🔄 Cycle #6589  [2026-04-24 08:24:31]
+trading-bot,2026-04-24 08:24:32 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:24:32 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:24:32 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 117s)  Cycle #6589
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:24:47 [INFO ] [trader      ] 🔄 Cycle #6590  [2026-04-24 08:24:47]
+trading-bot,2026-04-24 08:24:48 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:24:48 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:24:48 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 101s)  Cycle #6590
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:25:03 [INFO ] [trader      ] 🔄 Cycle #6591  [2026-04-24 08:25:03]
+trading-bot,2026-04-24 08:25:04 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:25:04 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:25:04 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 85s)  Cycle #6591
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:25:19 [INFO ] [trader      ] 🔄 Cycle #6592  [2026-04-24 08:25:19]
+trading-bot,2026-04-24 08:25:20 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:25:20 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:25:20 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 69s)  Cycle #6592
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:25:35 [INFO ] [trader      ] 🔄 Cycle #6593  [2026-04-24 08:25:35]
+trading-bot,2026-04-24 08:25:35 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:25:36 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:25:36 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 54s)  Cycle #6593
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:25:51 [INFO ] [trader      ] 🔄 Cycle #6594  [2026-04-24 08:25:51]
+trading-bot,2026-04-24 08:25:51 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:25:52 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:25:52 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 38s)  Cycle #6594
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:26:07 [INFO ] [trader      ] 🔄 Cycle #6595  [2026-04-24 08:26:07]
+trading-bot,2026-04-24 08:26:07 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:26:08 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:26:08 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 22s)  Cycle #6595
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:26:23 [INFO ] [trader      ] 🔄 Cycle #6596  [2026-04-24 08:26:23]
+trading-bot,2026-04-24 08:26:23 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:26:23 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:26:23 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 6s)  Cycle #6596
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:26:38 [INFO ] [trader      ] 🔄 Cycle #6597  [2026-04-24 08:26:38]
+trading-bot,2026-04-24 08:26:39 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:26:39 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:26:39 [INFO ] [trader      ] 📊 Running market analysis  (LONDON)
+trading-bot,2026-04-24 08:26:39 [INFO ] [trader      ]    🔍 Analyzing XAUUSD...
+trading-bot,2026-04-24 08:26:40 [INFO ] [trader      ]    [LOCAL] XAUUSD: fetching broker candles
+trading-bot,2026-04-24 08:26:43 [INFO ] [trader      ]    [MT5] XAUUSD: fetched native MT5 indicators
+trading-bot,"2026-04-24 08:26:43 [INFO ] [analyzer    ]    [AI] Sending 6,110 chars to AI chain (NVIDIA→Gemini) — ADX=29 RSI=63 Score=+12.1"
+trading-bot,2026-04-24 08:26:43 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+trading-bot,2026-04-24 08:26:45 [INFO ] [ai_client   ]   [AI] T1-NVIDIA OK (meta/llama-3.3-70b-instruct) — [XAUUSD] BUY 65%
+trading-bot,2026-04-24 08:26:45 [INFO ] [analyzer    ]    [MTF] XAUUSD: 3 TFs disagree with BUY — penalty ×0.55
+trading-bot,2026-04-24 08:26:45 [INFO ] [trader      ]    XAUUSD: BUY  conf=36% | [MTF ×0.55 (3 TFs disagree)] Price is at the 61.8% Fibo
+trading-bot,2026-04-24 08:26:45 [INFO ] [trader      ]    ┌─ 📈 INDICATORS ─────────────────────────────────────
+trading-bot,2026-04-24 08:26:45 [INFO ] [trader      ]    │ ADX: 29.0  +DI: 30.6  -DI: 12.2  (TRENDING)
+trading-bot,2026-04-24 08:26:45 [INFO ] [trader      ]    │ RSI: 62.5  Stoch: K=79/D=83 NONE  W%R: -21
+trading-bot,2026-04-24 08:26:45 [INFO ] [trader      ]    │ MACD: BULLISH hist=2.639673  BB: ABOVE_MID squeeze=False
+trading-bot,2026-04-24 08:26:45 [INFO ] [trader      ]    │ EMA: 20=4682.79 50=4688.43 200=4715.52  Trend: BEARISH
+trading-bot,2026-04-24 08:26:45 [INFO ] [trader      ]    │ ATR: 8.17143  Price: 4690.90000  Chg: +0.335%  Vol: 0.92x
+trading-bot,2026-04-24 08:26:45 [INFO ] [trader      ]    │ Trends → D1: MILD_BEAR  H4: BEARISH    H1: BEARISH    M15: BEARISH
+trading-bot,2026-04-24 08:26:45 [INFO ] [trader      ]    │ Score: +12.1  Factors: H4=-6.0 H1=-8.0 RSI=-2.5 MACD=+6.0 ADX=+9.7 BB=+2.0 D1=-1.4 Fib=+10.8
+trading-bot,2026-04-24 08:26:45 [INFO ] [trader      ]    └──────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:26:45 [INFO ] [trader      ]    ⏭  XAUUSD: confidence too low (36% < 55%)
+trading-bot,2026-04-24 08:26:45 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 293s)  Cycle #6597
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:27:00 [INFO ] [trader      ] 🔄 Cycle #6598  [2026-04-24 08:27:00]
+trading-bot,2026-04-24 08:27:01 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:27:01 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:27:01 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 277s)  Cycle #6598
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:27:16 [INFO ] [trader      ] 🔄 Cycle #6599  [2026-04-24 08:27:16]
+trading-bot,2026-04-24 08:27:16 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:27:17 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:27:17 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 261s)  Cycle #6599
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:27:32 [INFO ] [trader      ] 🔄 Cycle #6600  [2026-04-24 08:27:32]
+trading-bot,2026-04-24 08:27:32 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:27:33 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:27:33 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+trading-bot,2026-04-24 08:27:36 [INFO ] [ai_client   ]   [AI] T1-NVIDIA OK (meta/llama-3.3-70b-instruct) — [skill-'time-bias'] ? 0%
+trading-bot,"2026-04-24 08:27:36 [INFO ] [skills      ] [SKILLS] Improvement for ''time-bias'': ['Collect more data to accurately assess performance', 'Consider adjusting the boost_amount parameter']"
+trading-bot,2026-04-24 08:27:36 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+trading-bot,2026-04-24 08:27:36 [INFO ] [ai_client   ]   [AI] NVIDIA HTTP 0 — retry 1/1 in 2s...
+trading-bot,2026-04-24 08:27:40 [INFO ] [ai_client   ]   [AI] T1-NVIDIA OK (meta/llama-3.3-70b-instruct) — [skill-momentum-scalp] ? 60%
+trading-bot,"2026-04-24 08:27:40 [INFO ] [skills      ] [SKILLS] Improvement for 'momentum-scalp': ['increase min_adx to filter out weak trends', 'adjust rsi_min and rsi_max to optimize entry points']"
+trading-bot,2026-04-24 08:27:40 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+trading-bot,2026-04-24 08:27:41 [INFO ] [ai_client   ]   [AI] T1-NVIDIA OK (meta/llama-3.3-70b-instruct) — [skill-'mean-reversion'] ? 60%
+trading-bot,"2026-04-24 08:27:41 [INFO ] [skills      ] [SKILLS] Improvement for ''mean-reversion'': ['Increase max_adx to allow more trades', 'Adjust boost_amount to optimize trade sizing']"
+trading-bot,2026-04-24 08:27:41 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+trading-bot,2026-04-24 08:27:43 [INFO ] [ai_client   ]   [AI] T1-NVIDIA OK (meta/llama-3.3-70b-instruct) — [skill-'smart-exit'] ? 60%
+trading-bot,"2026-04-24 08:27:43 [INFO ] [skills      ] [SKILLS] Improvement for ''smart-exit'': ['Improve risk management to reduce large losses', 'Refine entry and exit strategies to increase win rate', 'Consider adding more factors to factors_json for better decision making']"
+trading-bot,2026-04-24 08:27:43 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+trading-bot,2026-04-24 08:27:45 [INFO ] [ai_client   ]   [AI] T1-NVIDIA OK (meta/llama-3.3-70b-instruct) — [skill-asian-session-scalp] ? 60%
+trading-bot,"2026-04-24 08:27:45 [INFO ] [skills      ] [SKILLS] Improvement for 'asian-session-scalp': ['Increase the max_adx value to allow for more trades', 'Tighten the session condition to only include the Asian session', 'Adjust the boost_amount to optimize trade sizing']"
+trading-bot,2026-04-24 08:27:45 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+trading-bot,2026-04-24 08:27:45 [INFO ] [ai_client   ]   [AI] NVIDIA HTTP 0 — retry 1/1 in 2s...
+trading-bot,2026-04-24 08:27:49 [INFO ] [ai_client   ]   [AI] T1-NVIDIA OK (meta/llama-3.3-70b-instruct) — [skill-'fade-detection'] ? 60%
+trading-bot,"2026-04-24 08:27:49 [INFO ] [skills      ] [SKILLS] Improvement for ''fade-detection'': ['Increase the min_adx threshold to filter out weaker trends', 'Adjust the rsi_min and rsi_max parameters to better capture reversal points']"
+trading-bot,2026-04-24 08:27:49 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+trading-bot,2026-04-24 08:27:50 [INFO ] [ai_client   ]   [AI] T1-NVIDIA OK (meta/llama-3.3-70b-instruct) — [skill-'position-scaling'] ? 60%
+trading-bot,"2026-04-24 08:27:50 [INFO ] [skills      ] [SKILLS] Improvement for ''position-scaling'': ['Increase min_confidence to filter out low-confidence trades', 'Decrease max_total_risk_pct to reduce potential losses']"
+trading-bot,2026-04-24 08:27:50 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+trading-bot,2026-04-24 08:27:54 [INFO ] [ai_client   ]   [AI] T1-NVIDIA OK (meta/llama-3.3-70b-instruct) — [skill-'correlation-filter'] ? 60%
+trading-bot,"2026-04-24 08:27:54 [INFO ] [skills      ] [SKILLS] Improvement for ''correlation-filter'': ['Increase min_correlation threshold', 'Add additional symbols for diversification']"
+trading-bot,2026-04-24 08:27:54 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+trading-bot,2026-04-24 08:27:55 [INFO ] [ai_client   ]   [AI] T1-NVIDIA OK (meta/llama-3.3-70b-instruct) — [skill-low-confidence-filter] ? 60%
+trading-bot,"2026-04-24 08:27:55 [INFO ] [skills      ] [SKILLS] Improvement for 'low-confidence-filter': ['Increase minimum ADX threshold', 'Refine confidence level filtering']"
+trading-bot,2026-04-24 08:27:55 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+trading-bot,2026-04-24 08:27:55 [INFO ] [ai_client   ]   [AI] NVIDIA HTTP 0 — retry 1/1 in 2s...
+trading-bot,2026-04-24 08:27:57 [WARNING] [ai_client   ]   [AI] T1-NVIDIA/meta/llama-3.3-70b-instruct failed (HTTP ?: ) — all tiers exhausted
+trading-bot,2026-04-24 08:27:57 [WARNING] [skills      ] [SKILLS] Improve returned no data for 'asian-bias'
+trading-bot,2026-04-24 08:27:57 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+trading-bot,2026-04-24 08:27:57 [INFO ] [ai_client   ]   [AI] NVIDIA HTTP 0 — retry 1/1 in 2s...
+trading-bot,2026-04-24 08:28:00 [INFO ] [ai_client   ]   [AI] T1-NVIDIA OK (meta/llama-3.3-70b-instruct) — [skill-filter-high-conf-losing] ? 60%
+trading-bot,"2026-04-24 08:28:00 [INFO ] [skills      ] [SKILLS] Improvement for 'filter-high-conf-losing': ['increase confidence threshold', 'refine factor weights']"
+trading-bot,2026-04-24 08:28:00 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+trading-bot,2026-04-24 08:28:01 [INFO ] [ai_client   ]   [AI] NVIDIA HTTP 0 — retry 1/1 in 2s...
+trading-bot,2026-04-24 08:28:03 [WARNING] [ai_client   ]   [AI] T1-NVIDIA/meta/llama-3.3-70b-instruct failed (HTTP ?: ) — all tiers exhausted
+trading-bot,2026-04-24 08:28:03 [WARNING] [skills      ] [SKILLS] Improve returned no data for 'avoid-unknown-session-filter'
+trading-bot,2026-04-24 08:28:03 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+trading-bot,2026-04-24 08:28:03 [INFO ] [ai_client   ]   [AI] NVIDIA HTTP 0 — retry 1/1 in 2s...
+trading-bot,2026-04-24 08:28:05 [WARNING] [ai_client   ]   [AI] T1-NVIDIA/meta/llama-3.3-70b-instruct failed (HTTP ?: ) — all tiers exhausted
+trading-bot,2026-04-24 08:28:05 [WARNING] [skills      ] [SKILLS] Improve returned no data for 'unknown-session-avoid'
+trading-bot,2026-04-24 08:28:05 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+trading-bot,2026-04-24 08:28:05 [INFO ] [ai_client   ]   [AI] NVIDIA HTTP 0 — retry 1/1 in 2s...
+trading-bot,2026-04-24 08:28:07 [WARNING] [ai_client   ]   [AI] T1-NVIDIA/meta/llama-3.3-70b-instruct failed (HTTP ?: ) — all tiers exhausted
+trading-bot,2026-04-24 08:28:07 [WARNING] [skills      ] [SKILLS] Improve returned no data for 'ny-losing-trade'
+trading-bot,2026-04-24 08:28:07 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+trading-bot,2026-04-24 08:28:07 [INFO ] [ai_client   ]   [AI] NVIDIA HTTP 0 — retry 1/1 in 2s...
+trading-bot,2026-04-24 08:28:09 [WARNING] [ai_client   ]   [AI] T1-NVIDIA/meta/llama-3.3-70b-instruct failed (HTTP ?: ) — all tiers exhausted
+trading-bot,2026-04-24 08:28:09 [WARNING] [skills      ] [SKILLS] Improve returned no data for 'avoid-unknown-session'
+trading-bot,2026-04-24 08:28:09 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+trading-bot,2026-04-24 08:28:09 [INFO ] [ai_client   ]   [AI] NVIDIA HTTP 0 — retry 1/1 in 2s...
+trading-bot,2026-04-24 08:28:11 [WARNING] [ai_client   ]   [AI] T1-NVIDIA/meta/llama-3.3-70b-instruct failed (HTTP ?: ) — all tiers exhausted
+trading-bot,2026-04-24 08:28:11 [WARNING] [skills      ] [SKILLS] Improve returned no data for 'filter-asian-session-losses'
+trading-bot,2026-04-24 08:28:11 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+trading-bot,2026-04-24 08:28:11 [INFO ] [ai_client   ]   [AI] NVIDIA HTTP 0 — retry 1/1 in 2s...
+trading-bot,2026-04-24 08:28:13 [WARNING] [ai_client   ]   [AI] T1-NVIDIA/meta/llama-3.3-70b-instruct failed (HTTP ?: ) — all tiers exhausted
+trading-bot,2026-04-24 08:28:13 [WARNING] [skills      ] [SKILLS] Improve returned no data for 'reverse-high-confidence'
+trading-bot,2026-04-24 08:28:13 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+trading-bot,2026-04-24 08:28:13 [INFO ] [ai_client   ]   [AI] NVIDIA HTTP 0 — retry 1/1 in 2s...
+trading-bot,2026-04-24 08:28:15 [WARNING] [ai_client   ]   [AI] T1-NVIDIA/meta/llama-3.3-70b-instruct failed (HTTP ?: ) — all tiers exhausted
+trading-bot,2026-04-24 08:28:15 [WARNING] [skills      ] [SKILLS] Improve returned no data for 'session-bias-unknown-losing'
+trading-bot,2026-04-24 08:28:15 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+trading-bot,2026-04-24 08:28:15 [INFO ] [ai_client   ]   [AI] NVIDIA HTTP 0 — retry 1/1 in 2s...
+trading-bot,2026-04-24 08:28:18 [WARNING] [ai_client   ]   [AI] T1-NVIDIA/meta/llama-3.3-70b-instruct failed (HTTP ?: ) — all tiers exhausted
+trading-bot,2026-04-24 08:28:18 [WARNING] [skills      ] [SKILLS] Improve returned no data for 'high-conf-trades'
+trading-bot,2026-04-24 08:28:18 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 245s)  Cycle #6600
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:28:33 [INFO ] [trader      ] 🔄 Cycle #6601  [2026-04-24 08:28:33]
+trading-bot,2026-04-24 08:28:33 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:28:33 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:28:33 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 185s)  Cycle #6601
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:28:48 [INFO ] [trader      ] 🔄 Cycle #6602  [2026-04-24 08:28:48]
+trading-bot,2026-04-24 08:28:49 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:28:49 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:28:49 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 169s)  Cycle #6602
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:29:04 [INFO ] [trader      ] 🔄 Cycle #6603  [2026-04-24 08:29:04]
+trading-bot,2026-04-24 08:29:05 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:29:05 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:29:05 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 153s)  Cycle #6603
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:29:20 [INFO ] [trader      ] 🔄 Cycle #6604  [2026-04-24 08:29:20]
+trading-bot,2026-04-24 08:29:21 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:29:21 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:29:21 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 137s)  Cycle #6604
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:29:36 [INFO ] [trader      ] 🔄 Cycle #6605  [2026-04-24 08:29:36]
+trading-bot,2026-04-24 08:29:36 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:29:37 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:29:37 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 121s)  Cycle #6605
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:29:52 [INFO ] [trader      ] 🔄 Cycle #6606  [2026-04-24 08:29:52]
+trading-bot,2026-04-24 08:29:52 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:29:53 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:29:53 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 105s)  Cycle #6606
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:30:08 [INFO ] [trader      ] 🔄 Cycle #6607  [2026-04-24 08:30:08]
+trading-bot,2026-04-24 08:30:08 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:30:09 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:30:09 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 89s)  Cycle #6607
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:30:24 [INFO ] [trader      ] 🔄 Cycle #6608  [2026-04-24 08:30:24]
+trading-bot,2026-04-24 08:30:24 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:30:25 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:30:25 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 73s)  Cycle #6608
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:30:40 [INFO ] [trader      ] 🔄 Cycle #6609  [2026-04-24 08:30:40]
+trading-bot,2026-04-24 08:30:40 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:30:40 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:30:40 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 58s)  Cycle #6609
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:30:55 [INFO ] [trader      ] 🔄 Cycle #6610  [2026-04-24 08:30:55]
+trading-bot,2026-04-24 08:30:56 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:30:56 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:30:56 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 42s)  Cycle #6610
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:31:11 [INFO ] [trader      ] 🔄 Cycle #6611  [2026-04-24 08:31:11]
+trading-bot,2026-04-24 08:31:12 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:31:12 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:31:12 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 26s)  Cycle #6611
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:31:27 [INFO ] [trader      ] 🔄 Cycle #6612  [2026-04-24 08:31:27]
+trading-bot,2026-04-24 08:31:28 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:31:28 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:31:28 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 10s)  Cycle #6612
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:31:43 [INFO ] [trader      ] 🔄 Cycle #6613  [2026-04-24 08:31:43]
+trading-bot,2026-04-24 08:31:43 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:31:44 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:31:44 [INFO ] [trader      ] 📊 Running market analysis  (LONDON)
+trading-bot,2026-04-24 08:31:44 [INFO ] [trader      ]    🔍 Analyzing XAUUSD...
+trading-bot,2026-04-24 08:31:44 [INFO ] [trader      ]    [LOCAL] XAUUSD: fetching broker candles
+trading-bot,2026-04-24 08:31:48 [INFO ] [trader      ]    [MT5] XAUUSD: fetched native MT5 indicators
+trading-bot,"2026-04-24 08:31:48 [INFO ] [analyzer    ]    [AI] Sending 6,111 chars to AI chain (NVIDIA→Gemini) — ADX=30 RSI=60 Score=+12.8"
+trading-bot,2026-04-24 08:31:48 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+trading-bot,2026-04-24 08:31:50 [INFO ] [ai_client   ]   [AI] T1-NVIDIA OK (meta/llama-3.3-70b-instruct) — [XAUUSD] BUY 65%
+trading-bot,2026-04-24 08:31:50 [INFO ] [analyzer    ]    [MTF] XAUUSD: 3 TFs disagree with BUY — penalty ×0.55
+trading-bot,2026-04-24 08:31:50 [INFO ] [trader      ]    XAUUSD: BUY  conf=36% | [MTF ×0.55 (3 TFs disagree)] Price is at the 61.8% Fibo
+trading-bot,2026-04-24 08:31:50 [INFO ] [trader      ]    ┌─ 📈 INDICATORS ─────────────────────────────────────
+trading-bot,2026-04-24 08:31:50 [INFO ] [trader      ]    │ ADX: 30.1  +DI: 27.6  -DI: 12.6  (TRENDING)
+trading-bot,2026-04-24 08:31:50 [INFO ] [trader      ]    │ RSI: 60.3  Stoch: K=64/D=69 NONE  W%R: -36
+trading-bot,2026-04-24 08:31:50 [INFO ] [trader      ]    │ MACD: BULLISH hist=2.159071  BB: ABOVE_MID squeeze=False
+trading-bot,2026-04-24 08:31:50 [INFO ] [trader      ]    │ EMA: 20=4682.89 50=4688.24 200=4715.22  Trend: BEARISH
+trading-bot,2026-04-24 08:31:50 [INFO ] [trader      ]    │ ATR: 7.84429  Price: 4686.53000  Chg: +0.302%  Vol: 0.12x
+trading-bot,2026-04-24 08:31:50 [INFO ] [trader      ]    │ Trends → D1: MILD_BEAR  H4: BEARISH    H1: BEARISH    M15: BEARISH
+trading-bot,2026-04-24 08:31:50 [INFO ] [trader      ]    │ Score: +12.8  Factors: H4=-6.0 H1=-8.0 RSI=-2.1 MACD=+6.0 ADX=+10.0 BB=+2.0 D1=-1.4 Fib=+10.8
+trading-bot,2026-04-24 08:31:50 [INFO ] [trader      ]    └──────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:31:50 [INFO ] [trader      ]    ⏭  XAUUSD: confidence too low (36% < 55%)
+trading-bot,2026-04-24 08:31:50 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 293s)  Cycle #6613
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:32:05 [INFO ] [trader      ] 🔄 Cycle #6614  [2026-04-24 08:32:05]
+trading-bot,2026-04-24 08:32:05 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:32:05 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:32:06 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 277s)  Cycle #6614
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:32:21 [INFO ] [trader      ] 🔄 Cycle #6615  [2026-04-24 08:32:21]
+trading-bot,2026-04-24 08:32:21 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:32:21 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:32:21 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 261s)  Cycle #6615
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:32:36 [INFO ] [trader      ] 🔄 Cycle #6616  [2026-04-24 08:32:36]
+trading-bot,2026-04-24 08:32:37 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:32:37 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:32:37 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 245s)  Cycle #6616
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:32:52 [INFO ] [trader      ] 🔄 Cycle #6617  [2026-04-24 08:32:52]
+trading-bot,2026-04-24 08:32:53 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:32:53 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:32:53 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 229s)  Cycle #6617
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:33:08 [INFO ] [trader      ] 🔄 Cycle #6618  [2026-04-24 08:33:08]
+trading-bot,2026-04-24 08:33:09 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:33:09 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:33:09 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 214s)  Cycle #6618
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:33:24 [INFO ] [trader      ] 🔄 Cycle #6619  [2026-04-24 08:33:24]
+trading-bot,2026-04-24 08:33:24 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:33:25 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:33:25 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 198s)  Cycle #6619
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:33:40 [INFO ] [trader      ] 🔄 Cycle #6620  [2026-04-24 08:33:40]
+trading-bot,2026-04-24 08:33:40 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:33:41 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:33:41 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 182s)  Cycle #6620
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:33:56 [INFO ] [trader      ] 🔄 Cycle #6621  [2026-04-24 08:33:56]
+trading-bot,2026-04-24 08:33:56 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:33:57 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:33:57 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 166s)  Cycle #6621
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:34:12 [INFO ] [trader      ] 🔄 Cycle #6622  [2026-04-24 08:34:12]
+trading-bot,2026-04-24 08:34:12 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:34:12 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:34:12 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 150s)  Cycle #6622
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:34:27 [INFO ] [trader      ] 🔄 Cycle #6623  [2026-04-24 08:34:27]
+trading-bot,2026-04-24 08:34:28 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:34:28 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:34:28 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 134s)  Cycle #6623
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:34:43 [INFO ] [trader      ] 🔄 Cycle #6624  [2026-04-24 08:34:43]
+trading-bot,2026-04-24 08:34:44 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:34:44 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:34:44 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 118s)  Cycle #6624
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:34:59 [INFO ] [trader      ] 🔄 Cycle #6625  [2026-04-24 08:34:59]
+trading-bot,2026-04-24 08:35:00 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:35:00 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:35:00 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 103s)  Cycle #6625
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:35:15 [INFO ] [trader      ] 🔄 Cycle #6626  [2026-04-24 08:35:15]
+trading-bot,2026-04-24 08:35:15 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:35:16 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:35:16 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 87s)  Cycle #6626
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:35:31 [INFO ] [trader      ] 🔄 Cycle #6627  [2026-04-24 08:35:31]
+trading-bot,2026-04-24 08:35:31 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:35:32 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:35:32 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 71s)  Cycle #6627
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:35:47 [INFO ] [trader      ] 🔄 Cycle #6628  [2026-04-24 08:35:47]
+trading-bot,2026-04-24 08:35:47 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:35:48 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:35:48 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 55s)  Cycle #6628
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:36:03 [INFO ] [trader      ] 🔄 Cycle #6629  [2026-04-24 08:36:03]
+trading-bot,2026-04-24 08:36:03 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:36:03 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:36:03 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 39s)  Cycle #6629
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:36:18 [INFO ] [trader      ] 🔄 Cycle #6630  [2026-04-24 08:36:18]
+trading-bot,2026-04-24 08:36:19 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:36:19 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:36:19 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 23s)  Cycle #6630
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:36:34 [INFO ] [trader      ] 🔄 Cycle #6631  [2026-04-24 08:36:34]
+trading-bot,2026-04-24 08:36:35 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:36:35 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:36:35 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 7s)  Cycle #6631
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:36:50 [INFO ] [trader      ] 🔄 Cycle #6632  [2026-04-24 08:36:50]
+trading-bot,2026-04-24 08:36:51 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:36:51 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:36:51 [INFO ] [trader      ] 📊 Running market analysis  (LONDON)
+trading-bot,2026-04-24 08:36:51 [INFO ] [trader      ]    🔍 Analyzing XAUUSD...
+trading-bot,2026-04-24 08:36:52 [INFO ] [trader      ]    [LOCAL] XAUUSD: fetching broker candles
+trading-bot,2026-04-24 08:36:55 [INFO ] [trader      ]    [MT5] XAUUSD: fetched native MT5 indicators
+trading-bot,"2026-04-24 08:36:55 [INFO ] [analyzer    ]    [AI] Sending 6,106 chars to AI chain (NVIDIA→Gemini) — ADX=30 RSI=59 Score=+11.7"
+trading-bot,2026-04-24 08:36:55 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+trading-bot,2026-04-24 08:36:57 [INFO ] [ai_client   ]   [AI] T1-NVIDIA OK (meta/llama-3.3-70b-instruct) — [XAUUSD] BUY 65%
+trading-bot,2026-04-24 08:36:57 [INFO ] [analyzer    ]    [MTF] XAUUSD: 3 TFs disagree with BUY — penalty ×0.55
+trading-bot,2026-04-24 08:36:57 [INFO ] [trader      ]    XAUUSD: BUY  conf=36% | [MTF ×0.55 (3 TFs disagree)] Price is at the 61.8% Fibo
+trading-bot,2026-04-24 08:36:57 [INFO ] [trader      ]    ┌─ 📈 INDICATORS ─────────────────────────────────────
+trading-bot,2026-04-24 08:36:57 [INFO ] [trader      ]    │ ADX: 29.5  +DI: 27.2  -DI: 13.7  (TRENDING)
+trading-bot,2026-04-24 08:36:57 [INFO ] [trader      ]    │ RSI: 59.5  Stoch: K=62/D=68 NONE  W%R: -38
+trading-bot,2026-04-24 08:36:57 [INFO ] [trader      ]    │ MACD: BULLISH hist=2.101636  BB: ABOVE_MID squeeze=False
+trading-bot,2026-04-24 08:36:57 [INFO ] [trader      ]    │ EMA: 20=4682.80 50=4688.21 200=4715.21  Trend: BEARISH
+trading-bot,2026-04-24 08:36:57 [INFO ] [trader      ]    │ ATR: 7.95000  Price: 4685.63000  Chg: +0.297%  Vol: 0.48x
+trading-bot,2026-04-24 08:36:57 [INFO ] [trader      ]    │ Trends → D1: MILD_BEAR  H4: BEARISH    H1: BEARISH    M15: BEARISH
+trading-bot,2026-04-24 08:36:57 [INFO ] [trader      ]    │ Score: +11.7  Factors: H4=-6.0 H1=-8.0 MACD=+6.0 ADX=+9.8 BB=+2.0 D1=-1.4 Fib=+10.8
+trading-bot,2026-04-24 08:36:57 [INFO ] [trader      ]    └──────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:36:57 [INFO ] [trader      ]    ⏭  XAUUSD: confidence too low (36% < 55%)
+trading-bot,2026-04-24 08:36:57 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 292s)  Cycle #6632
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:37:12 [INFO ] [trader      ] 🔄 Cycle #6633  [2026-04-24 08:37:12]
+trading-bot,2026-04-24 08:37:13 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:37:13 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:37:13 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 276s)  Cycle #6633
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:37:28 [INFO ] [trader      ] 🔄 Cycle #6634  [2026-04-24 08:37:28]
+trading-bot,2026-04-24 08:37:29 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:37:29 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:37:29 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 261s)  Cycle #6634
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:37:44 [INFO ] [trader      ] 🔄 Cycle #6635  [2026-04-24 08:37:44]
+trading-bot,2026-04-24 08:37:45 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:37:45 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:37:45 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 245s)  Cycle #6635
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:38:00 [INFO ] [trader      ] 🔄 Cycle #6636  [2026-04-24 08:38:00]
+trading-bot,2026-04-24 08:38:00 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:38:01 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:38:01 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 229s)  Cycle #6636
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:38:16 [INFO ] [trader      ] 🔄 Cycle #6637  [2026-04-24 08:38:16]
+trading-bot,2026-04-24 08:38:16 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:38:17 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:38:17 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 213s)  Cycle #6637
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:38:32 [INFO ] [trader      ] 🔄 Cycle #6638  [2026-04-24 08:38:32]
+trading-bot,2026-04-24 08:38:32 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:38:33 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:38:33 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 197s)  Cycle #6638
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:38:48 [INFO ] [trader      ] 🔄 Cycle #6639  [2026-04-24 08:38:48]
+trading-bot,2026-04-24 08:38:48 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:38:49 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:38:49 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 181s)  Cycle #6639
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:39:04 [INFO ] [trader      ] 🔄 Cycle #6640  [2026-04-24 08:39:04]
+trading-bot,2026-04-24 08:39:04 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:39:04 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:39:04 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 165s)  Cycle #6640
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:39:19 [INFO ] [trader      ] 🔄 Cycle #6641  [2026-04-24 08:39:19]
+trading-bot,2026-04-24 08:39:20 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:39:20 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:39:20 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 149s)  Cycle #6641
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:39:35 [INFO ] [trader      ] 🔄 Cycle #6642  [2026-04-24 08:39:35]
+trading-bot,2026-04-24 08:39:36 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:39:36 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:39:36 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 134s)  Cycle #6642
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:39:51 [INFO ] [trader      ] 🔄 Cycle #6643  [2026-04-24 08:39:51]
+trading-bot,2026-04-24 08:39:52 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:39:52 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:39:52 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 118s)  Cycle #6643
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:40:07 [INFO ] [trader      ] 🔄 Cycle #6644  [2026-04-24 08:40:07]
+trading-bot,2026-04-24 08:40:07 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:40:08 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:40:08 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 102s)  Cycle #6644
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:40:23 [INFO ] [trader      ] 🔄 Cycle #6645  [2026-04-24 08:40:23]
+trading-bot,2026-04-24 08:40:23 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:40:24 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:40:24 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 86s)  Cycle #6645
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:40:39 [INFO ] [trader      ] 🔄 Cycle #6646  [2026-04-24 08:40:39]
+trading-bot,2026-04-24 08:40:39 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:40:40 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:40:40 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 70s)  Cycle #6646
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:40:55 [INFO ] [trader      ] 🔄 Cycle #6647  [2026-04-24 08:40:55]
+trading-bot,2026-04-24 08:40:55 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:40:55 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:40:55 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 54s)  Cycle #6647
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:41:10 [INFO ] [trader      ] 🔄 Cycle #6648  [2026-04-24 08:41:10]
+trading-bot,2026-04-24 08:41:11 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:41:11 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:41:11 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 38s)  Cycle #6648
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:41:26 [INFO ] [trader      ] 🔄 Cycle #6649  [2026-04-24 08:41:26]
+trading-bot,2026-04-24 08:41:27 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:41:27 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:41:27 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 23s)  Cycle #6649
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:41:42 [INFO ] [trader      ] 🔄 Cycle #6650  [2026-04-24 08:41:42]
+trading-bot,2026-04-24 08:41:43 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:41:43 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:41:43 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 7s)  Cycle #6650
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:41:58 [INFO ] [trader      ] 🔄 Cycle #6651  [2026-04-24 08:41:58]
+trading-bot,2026-04-24 08:41:58 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:41:59 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:41:59 [INFO ] [trader      ] 📊 Running market analysis  (LONDON)
+trading-bot,2026-04-24 08:41:59 [INFO ] [trader      ]    🔍 Analyzing XAUUSD...
+trading-bot,2026-04-24 08:41:59 [INFO ] [trader      ]    [LOCAL] XAUUSD: fetching broker candles
+trading-bot,2026-04-24 08:42:03 [INFO ] [trader      ]    [MT5] XAUUSD: fetched native MT5 indicators
+trading-bot,"2026-04-24 08:42:03 [INFO ] [analyzer    ]    [AI] Sending 6,130 chars to AI chain (NVIDIA→Gemini) — ADX=30 RSI=63 Score=+20.2"
+trading-bot,2026-04-24 08:42:03 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+trading-bot,2026-04-24 08:42:06 [INFO ] [ai_client   ]   [AI] T1-NVIDIA OK (meta/llama-3.3-70b-instruct) — [XAUUSD] BUY 65%
+trading-bot,2026-04-24 08:42:06 [INFO ] [analyzer    ]    [MTF] XAUUSD: 3 TFs disagree with BUY — penalty ×0.55
+trading-bot,2026-04-24 08:42:06 [INFO ] [trader      ]    XAUUSD: BUY  conf=36% | [MTF ×0.55 (3 TFs disagree)] Price is at the 61.8% Fibo
+trading-bot,2026-04-24 08:42:06 [INFO ] [trader      ]    ┌─ 📈 INDICATORS ─────────────────────────────────────
+trading-bot,2026-04-24 08:42:06 [INFO ] [trader      ]    │ ADX: 29.5  +DI: 26.8  -DI: 13.5  (TRENDING)
+trading-bot,2026-04-24 08:42:06 [INFO ] [trader      ]    │ RSI: 62.7  Stoch: K=74/D=72 BULLISH  W%R: -26
+trading-bot,2026-04-24 08:42:06 [INFO ] [trader      ]    │ MACD: BULLISH hist=2.354353  BB: ABOVE_MID squeeze=False
+trading-bot,2026-04-24 08:42:06 [INFO ] [trader      ]    │ EMA: 20=4683.18 50=4688.36 200=4715.25  Trend: BEARISH
+trading-bot,2026-04-24 08:42:06 [INFO ] [trader      ]    │ ATR: 8.06143  Price: 4689.59000  Chg: +0.377%  Vol: 0.81x
+trading-bot,2026-04-24 08:42:06 [INFO ] [trader      ]    │ Trends → D1: MILD_BEAR  H4: BEARISH    H1: BEARISH    M15: BEARISH
+trading-bot,2026-04-24 08:42:06 [INFO ] [trader      ]    │ Score: +20.2  Factors: H4=-6.0 H1=-8.0 RSI=-2.5 MACD=+6.0 ADX=+9.8 Stoch=+8.0 BB=+2.0 D1=-1.4 Fib=+10.8
+trading-bot,2026-04-24 08:42:06 [INFO ] [trader      ]    └──────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:42:06 [INFO ] [trader      ]    ⏭  XAUUSD: confidence too low (36% < 55%)
+trading-bot,2026-04-24 08:42:06 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 292s)  Cycle #6651
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:42:21 [INFO ] [trader      ] 🔄 Cycle #6652  [2026-04-24 08:42:21]
+trading-bot,2026-04-24 08:42:21 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:42:22 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:42:22 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 276s)  Cycle #6652
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:42:37 [INFO ] [trader      ] 🔄 Cycle #6653  [2026-04-24 08:42:37]
+trading-bot,2026-04-24 08:42:37 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:42:38 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:42:38 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 260s)  Cycle #6653
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:42:53 [INFO ] [trader      ] 🔄 Cycle #6654  [2026-04-24 08:42:53]
+trading-bot,2026-04-24 08:42:53 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:42:53 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:42:53 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 244s)  Cycle #6654
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:43:08 [INFO ] [trader      ] 🔄 Cycle #6655  [2026-04-24 08:43:08]
+trading-bot,2026-04-24 08:43:09 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:43:09 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:43:09 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 228s)  Cycle #6655
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:43:24 [INFO ] [trader      ] 🔄 Cycle #6656  [2026-04-24 08:43:24]
+trading-bot,2026-04-24 08:43:25 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:43:25 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:43:25 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 212s)  Cycle #6656
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:43:40 [INFO ] [trader      ] 🔄 Cycle #6657  [2026-04-24 08:43:40]
+trading-bot,2026-04-24 08:43:41 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:43:41 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:43:41 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 197s)  Cycle #6657
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:43:56 [INFO ] [trader      ] 🔄 Cycle #6658  [2026-04-24 08:43:56]
+trading-bot,2026-04-24 08:43:56 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:43:57 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:43:57 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 181s)  Cycle #6658
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:44:12 [INFO ] [trader      ] 🔄 Cycle #6659  [2026-04-24 08:44:12]
+trading-bot,2026-04-24 08:44:12 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:44:13 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:44:13 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 165s)  Cycle #6659
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:44:28 [INFO ] [trader      ] 🔄 Cycle #6660  [2026-04-24 08:44:28]
+trading-bot,2026-04-24 08:44:28 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:44:29 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:44:29 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 149s)  Cycle #6660
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:44:44 [INFO ] [trader      ] 🔄 Cycle #6661  [2026-04-24 08:44:44]
+trading-bot,2026-04-24 08:44:44 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:44:44 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:44:44 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 133s)  Cycle #6661
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:44:59 [INFO ] [trader      ] 🔄 Cycle #6662  [2026-04-24 08:44:59]
+trading-bot,2026-04-24 08:45:00 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:45:00 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:45:00 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 117s)  Cycle #6662
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:45:15 [INFO ] [trader      ] 🔄 Cycle #6663  [2026-04-24 08:45:15]
+trading-bot,2026-04-24 08:45:16 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:45:16 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:45:16 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 101s)  Cycle #6663
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:45:31 [INFO ] [trader      ] 🔄 Cycle #6664  [2026-04-24 08:45:31]
+trading-bot,2026-04-24 08:45:32 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:45:32 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:45:32 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 85s)  Cycle #6664
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:45:47 [INFO ] [trader      ] 🔄 Cycle #6665  [2026-04-24 08:45:47]
+trading-bot,2026-04-24 08:45:47 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:45:48 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:45:48 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 70s)  Cycle #6665
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:46:03 [INFO ] [trader      ] 🔄 Cycle #6666  [2026-04-24 08:46:03]
+trading-bot,2026-04-24 08:46:03 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:46:04 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:46:04 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 54s)  Cycle #6666
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:46:19 [INFO ] [trader      ] 🔄 Cycle #6667  [2026-04-24 08:46:19]
+trading-bot,2026-04-24 08:46:19 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:46:20 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:46:20 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 38s)  Cycle #6667
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:46:35 [INFO ] [trader      ] 🔄 Cycle #6668  [2026-04-24 08:46:35]
+trading-bot,2026-04-24 08:46:35 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:46:35 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:46:35 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 22s)  Cycle #6668
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:46:50 [INFO ] [trader      ] 🔄 Cycle #6669  [2026-04-24 08:46:50]
+trading-bot,2026-04-24 08:46:51 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:46:51 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:46:51 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 6s)  Cycle #6669
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:47:06 [INFO ] [trader      ] 🔄 Cycle #6670  [2026-04-24 08:47:06]
+trading-bot,2026-04-24 08:47:07 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:47:07 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:47:07 [INFO ] [trader      ] 📊 Running market analysis  (LONDON)
+trading-bot,2026-04-24 08:47:07 [INFO ] [trader      ]    🔍 Analyzing XAUUSD...
+trading-bot,2026-04-24 08:47:08 [INFO ] [trader      ]    [LOCAL] XAUUSD: fetching broker candles
+trading-bot,2026-04-24 08:47:11 [INFO ] [trader      ]    [MT5] XAUUSD: fetched native MT5 indicators
+trading-bot,"2026-04-24 08:47:11 [INFO ] [analyzer    ]    [AI] Sending 6,131 chars to AI chain (NVIDIA→Gemini) — ADX=30 RSI=61 Score=+20.7"
+trading-bot,2026-04-24 08:47:11 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+trading-bot,2026-04-24 08:47:13 [INFO ] [ai_client   ]   [AI] T1-NVIDIA OK (meta/llama-3.3-70b-instruct) — [XAUUSD] BUY 65%
+trading-bot,2026-04-24 08:47:13 [INFO ] [analyzer    ]    [MTF] XAUUSD: 3 TFs disagree with BUY — penalty ×0.55
+trading-bot,2026-04-24 08:47:13 [INFO ] [trader      ]    XAUUSD: BUY  conf=36% | [MTF ×0.55 (3 TFs disagree)] Price is at the 61.8% Fibo
+trading-bot,2026-04-24 08:47:13 [INFO ] [trader      ]    ┌─ 📈 INDICATORS ─────────────────────────────────────
+trading-bot,2026-04-24 08:47:13 [INFO ] [trader      ]    │ ADX: 30.4  +DI: 25.8  -DI: 12.0  (TRENDING)
+trading-bot,2026-04-24 08:47:13 [INFO ] [trader      ]    │ RSI: 60.9  Stoch: K=75/D=71 BULLISH  W%R: -25
+trading-bot,2026-04-24 08:47:13 [INFO ] [trader      ]    │ MACD: BULLISH hist=2.145513  BB: ABOVE_MID squeeze=False
+trading-bot,2026-04-24 08:47:13 [INFO ] [trader      ]    │ EMA: 20=4683.68 50=4688.36 200=4714.67  Trend: BEARISH
+trading-bot,2026-04-24 08:47:13 [INFO ] [trader      ]    │ ATR: 7.86071  Price: 4689.78000  Chg: +0.422%  Vol: 0.15x
+trading-bot,2026-04-24 08:47:13 [INFO ] [trader      ]    │ Trends → D1: MILD_BEAR  H4: BEARISH    H1: BEARISH    M15: BEARISH
+trading-bot,2026-04-24 08:47:13 [INFO ] [trader      ]    │ Score: +20.7  Factors: H4=-6.0 H1=-8.0 RSI=-2.2 MACD=+6.0 ADX=+10.0 Stoch=+8.0 BB=+2.0 D1=-1.4 Fib=+10.8
+trading-bot,2026-04-24 08:47:13 [INFO ] [trader      ]    └──────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:47:13 [INFO ] [trader      ]    ⏭  XAUUSD: confidence too low (36% < 55%)
+trading-bot,2026-04-24 08:47:13 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 293s)  Cycle #6670
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:47:28 [INFO ] [trader      ] 🔄 Cycle #6671  [2026-04-24 08:47:28]
+trading-bot,2026-04-24 08:47:28 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:47:29 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:47:29 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 277s)  Cycle #6671
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:47:44 [INFO ] [trader      ] 🔄 Cycle #6672  [2026-04-24 08:47:44]
+trading-bot,2026-04-24 08:47:44 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:47:45 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:47:45 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 261s)  Cycle #6672
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:48:00 [INFO ] [trader      ] 🔄 Cycle #6673  [2026-04-24 08:48:00]
+trading-bot,2026-04-24 08:48:00 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:48:00 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:48:00 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 245s)  Cycle #6673
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:48:15 [INFO ] [trader      ] 🔄 Cycle #6674  [2026-04-24 08:48:15]
+trading-bot,2026-04-24 08:48:16 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:48:16 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:48:16 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 230s)  Cycle #6674
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:48:31 [INFO ] [trader      ] 🔄 Cycle #6675  [2026-04-24 08:48:31]
+trading-bot,2026-04-24 08:48:32 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:48:32 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:48:32 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 214s)  Cycle #6675
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:48:47 [INFO ] [trader      ] 🔄 Cycle #6676  [2026-04-24 08:48:47]
+trading-bot,2026-04-24 08:48:48 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:48:48 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:48:48 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 198s)  Cycle #6676
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:49:03 [INFO ] [trader      ] 🔄 Cycle #6677  [2026-04-24 08:49:03]
+trading-bot,2026-04-24 08:49:04 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:49:04 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:49:04 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 182s)  Cycle #6677
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:49:19 [INFO ] [trader      ] 🔄 Cycle #6678  [2026-04-24 08:49:19]
+trading-bot,2026-04-24 08:49:19 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:49:20 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:49:20 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 166s)  Cycle #6678
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:49:35 [INFO ] [trader      ] 🔄 Cycle #6679  [2026-04-24 08:49:35]
+trading-bot,2026-04-24 08:49:35 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:49:36 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:49:36 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 150s)  Cycle #6679
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:49:51 [INFO ] [trader      ] 🔄 Cycle #6680  [2026-04-24 08:49:51]
+trading-bot,2026-04-24 08:49:51 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:49:52 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:49:52 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 134s)  Cycle #6680
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:50:07 [INFO ] [trader      ] 🔄 Cycle #6681  [2026-04-24 08:50:07]
+trading-bot,2026-04-24 08:50:07 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:50:07 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:50:07 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 118s)  Cycle #6681
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:50:22 [INFO ] [trader      ] 🔄 Cycle #6682  [2026-04-24 08:50:22]
+trading-bot,2026-04-24 08:50:23 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:50:23 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:50:23 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 103s)  Cycle #6682
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:50:38 [INFO ] [trader      ] 🔄 Cycle #6683  [2026-04-24 08:50:38]
+trading-bot,2026-04-24 08:50:39 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:50:39 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:50:39 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 87s)  Cycle #6683
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:50:54 [INFO ] [trader      ] 🔄 Cycle #6684  [2026-04-24 08:50:54]
+trading-bot,2026-04-24 08:50:54 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:50:55 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:50:55 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 71s)  Cycle #6684
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:51:10 [INFO ] [trader      ] 🔄 Cycle #6685  [2026-04-24 08:51:10]
+trading-bot,2026-04-24 08:51:10 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:51:11 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:51:11 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 55s)  Cycle #6685
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:51:26 [INFO ] [trader      ] 🔄 Cycle #6686  [2026-04-24 08:51:26]
+trading-bot,2026-04-24 08:51:26 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:51:27 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:51:27 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 39s)  Cycle #6686
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:51:42 [INFO ] [trader      ] 🔄 Cycle #6687  [2026-04-24 08:51:42]
+trading-bot,2026-04-24 08:51:42 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:51:43 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:51:43 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 23s)  Cycle #6687
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:51:58 [INFO ] [trader      ] 🔄 Cycle #6688  [2026-04-24 08:51:58]
+trading-bot,2026-04-24 08:51:58 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:51:58 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:51:58 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 7s)  Cycle #6688
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:52:13 [INFO ] [trader      ] 🔄 Cycle #6689  [2026-04-24 08:52:13]
+trading-bot,2026-04-24 08:52:14 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:52:14 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:52:14 [INFO ] [trader      ] 📊 Running market analysis  (LONDON)
+trading-bot,2026-04-24 08:52:14 [INFO ] [trader      ]    🔍 Analyzing XAUUSD...
+trading-bot,2026-04-24 08:52:15 [INFO ] [trader      ]    [LOCAL] XAUUSD: fetching broker candles
+trading-bot,2026-04-24 08:52:18 [INFO ] [trader      ]    [MT5] XAUUSD: fetched native MT5 indicators
+trading-bot,"2026-04-24 08:52:18 [INFO ] [analyzer    ]    [AI] Sending 6,132 chars to AI chain (NVIDIA→Gemini) — ADX=31 RSI=62 Score=+20.6"
+trading-bot,2026-04-24 08:52:18 [INFO ] [ai_client   ]   [AI] Trying T1-NVIDIA (meta/llama-3.3-70b-instruct)...
+trading-bot,2026-04-24 08:52:20 [INFO ] [ai_client   ]   [AI] T1-NVIDIA OK (meta/llama-3.3-70b-instruct) — [XAUUSD] BUY 65%
+trading-bot,2026-04-24 08:52:20 [INFO ] [analyzer    ]    [MTF] XAUUSD: 3 TFs disagree with BUY — penalty ×0.55
+trading-bot,2026-04-24 08:52:20 [INFO ] [trader      ]    XAUUSD: BUY  conf=36% | [MTF ×0.55 (3 TFs disagree)] Price is at the 61.8% Fibo
+trading-bot,2026-04-24 08:52:20 [INFO ] [trader      ]    ┌─ 📈 INDICATORS ─────────────────────────────────────
+trading-bot,2026-04-24 08:52:20 [INFO ] [trader      ]    │ ADX: 31.0  +DI: 28.3  -DI: 11.9  (TRENDING)
+trading-bot,2026-04-24 08:52:20 [INFO ] [trader      ]    │ RSI: 61.6  Stoch: K=78/D=72 BULLISH  W%R: -22
+trading-bot,2026-04-24 08:52:20 [INFO ] [trader      ]    │ MACD: BULLISH hist=2.208692  BB: ABOVE_MID squeeze=False
+trading-bot,2026-04-24 08:52:20 [INFO ] [trader      ]    │ EMA: 20=4683.78 50=4688.40 200=4714.68  Trend: BEARISH
+trading-bot,2026-04-24 08:52:20 [INFO ] [trader      ]    │ ATR: 7.98071  Price: 4690.77000  Chg: +0.446%  Vol: 0.49x
+trading-bot,2026-04-24 08:52:20 [INFO ] [trader      ]    │ Trends → D1: MILD_BEAR  H4: BEARISH    H1: BEARISH    M15: BEARISH
+trading-bot,2026-04-24 08:52:20 [INFO ] [trader      ]    │ Score: +20.6  Factors: H4=-6.0 H1=-8.0 RSI=-2.3 MACD=+6.0 ADX=+10.0 Stoch=+8.0 BB=+2.0 D1=-1.4 Fib=+10.8
+trading-bot,2026-04-24 08:52:20 [INFO ] [trader      ]    └──────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:52:20 [INFO ] [trader      ]    ⏭  XAUUSD: confidence too low (36% < 55%)
+trading-bot,2026-04-24 08:52:20 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 293s)  Cycle #6689
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:52:35 [INFO ] [trader      ] 🔄 Cycle #6690  [2026-04-24 08:52:35]
+trading-bot,2026-04-24 08:52:35 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:52:36 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:52:36 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 277s)  Cycle #6690
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:52:51 [INFO ] [trader      ] 🔄 Cycle #6691  [2026-04-24 08:52:51]
+trading-bot,2026-04-24 08:52:51 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:52:52 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:52:52 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 261s)  Cycle #6691
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:53:07 [INFO ] [trader      ] 🔄 Cycle #6692  [2026-04-24 08:53:07]
+trading-bot,2026-04-24 08:53:07 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:53:07 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:53:07 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 246s)  Cycle #6692
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:53:22 [INFO ] [trader      ] 🔄 Cycle #6693  [2026-04-24 08:53:22]
+trading-bot,2026-04-24 08:53:23 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:53:23 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:53:23 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 230s)  Cycle #6693
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:53:38 [INFO ] [trader      ] 🔄 Cycle #6694  [2026-04-24 08:53:38]
+trading-bot,2026-04-24 08:53:39 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:53:39 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:53:39 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 214s)  Cycle #6694
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:53:54 [INFO ] [trader      ] 🔄 Cycle #6695  [2026-04-24 08:53:54]
+trading-bot,2026-04-24 08:53:54 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:53:55 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:53:55 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 198s)  Cycle #6695
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:54:10 [INFO ] [trader      ] 🔄 Cycle #6696  [2026-04-24 08:54:10]
+trading-bot,2026-04-24 08:54:10 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:54:11 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:54:11 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 182s)  Cycle #6696
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:54:26 [INFO ] [trader      ] 🔄 Cycle #6697  [2026-04-24 08:54:26]
+trading-bot,2026-04-24 08:54:26 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:54:27 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:54:27 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 166s)  Cycle #6697
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:54:42 [INFO ] [trader      ] 🔄 Cycle #6698  [2026-04-24 08:54:42]
+trading-bot,2026-04-24 08:54:42 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:54:43 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:54:43 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 150s)  Cycle #6698
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:54:58 [INFO ] [trader      ] 🔄 Cycle #6699  [2026-04-24 08:54:58]
+trading-bot,2026-04-24 08:54:58 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:54:58 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:54:58 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 135s)  Cycle #6699
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:55:13 [INFO ] [trader      ] 🔄 Cycle #6700  [2026-04-24 08:55:13]
+trading-bot,2026-04-24 08:55:14 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:55:14 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:55:14 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 119s)  Cycle #6700
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:55:29 [INFO ] [trader      ] 🔄 Cycle #6701  [2026-04-24 08:55:29]
+trading-bot,2026-04-24 08:55:30 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:55:30 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:55:30 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 103s)  Cycle #6701
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:55:45 [INFO ] [trader      ] 🔄 Cycle #6702  [2026-04-24 08:55:45]
+trading-bot,2026-04-24 08:55:46 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:55:46 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:55:46 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 87s)  Cycle #6702
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:56:01 [INFO ] [trader      ] 🔄 Cycle #6703  [2026-04-24 08:56:01]
+trading-bot,2026-04-24 08:56:02 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:56:02 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:56:02 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 71s)  Cycle #6703
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:56:17 [INFO ] [trader      ] 🔄 Cycle #6704  [2026-04-24 08:56:17]
+trading-bot,2026-04-24 08:56:17 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:56:18 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:56:18 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 55s)  Cycle #6704
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:56:33 [INFO ] [trader      ] 🔄 Cycle #6705  [2026-04-24 08:56:33]
+trading-bot,2026-04-24 08:56:33 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:56:34 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:56:34 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 39s)  Cycle #6705
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:56:49 [INFO ] [trader      ] 🔄 Cycle #6706  [2026-04-24 08:56:49]
+trading-bot,2026-04-24 08:56:49 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:56:49 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:56:49 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 23s)  Cycle #6706
+trading-bot,────────────────────────────────────────────────────────────
+trading-bot,2026-04-24 08:57:04 [INFO ] [trader      ] 🔄 Cycle #6707  [2026-04-24 08:57:04]
+trading-bot,2026-04-24 08:57:05 [INFO ] [trader      ] 💰 Balance: $6937.75 | Equity: $6937.75 | P&L: ▲ $+0.00
+trading-bot,2026-04-24 08:57:05 [INFO ] [trader      ] 📊 Open positions: 0
+trading-bot,2026-04-24 08:57:05 [INFO ] [trader      ]    💤 Next check in 15s  (analysis in 8s)  Cycle #6707
