@@ -115,10 +115,10 @@ SYMBOLS = [
 # Gold behaves differently in each session. Asian = range, London = breakout,
 # NY overlap = the kill zone. Adjust lot and confidence gates accordingly.
 SESSION_CONFIG = {
-    "ASIAN":             {"lot_mult": 0.5,  "min_conf": 0.55},
-    "LONDON":            {"lot_mult": 0.7,  "min_conf": 0.48},
-    "LONDON_NY_OVERLAP": {"lot_mult": 1.0,  "min_conf": 0.45},
-    "NEW_YORK":          {"lot_mult": 0.7,  "min_conf": 0.48},
+    "ASIAN":             {"lot_mult": 0.5,  "min_conf": 0.85},
+    "LONDON":            {"lot_mult": 0.7,  "min_conf": 0.82},
+    "LONDON_NY_OVERLAP": {"lot_mult": 1.0,  "min_conf": 0.80},
+    "NEW_YORK":          {"lot_mult": 0.7,  "min_conf": 0.82},
 }
 
 CONFIG = {
@@ -126,7 +126,7 @@ CONFIG = {
     "analysis_interval_s": 60,  # 1 min between analyses
     "profit_close_pct": 3.0,  # was 1.5 → let the broker TP at 160 pips be the primary exit
     "loss_close_pct": 1.0,  # was 0.5 → align with wider 80-pip SL
-    "min_confidence": 0.48,  # base confidence gate — lowered from 0.55 (2026-04-24)
+    "min_confidence": 0.85,  # base confidence gate — raised for edge
                               # Old 0.55 blocked ALL counter-trend signals after MTF penalty
     "max_trades_per_sym": 10,  # 10 tranches per pyramid (2026-04-24: pyramid system)
     "max_total_positions": 12,  # 10 tranches + 2 buffer for multi-symbol
