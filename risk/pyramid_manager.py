@@ -532,6 +532,52 @@ class PyramidManager:
             else:
                 self._save()
 
+    def hard_sync(self, bridge, symbols_cfg: dict):
+        """Sync ALL pyramid sessions against actual MT5 positions via bridge.
+
+        This is the primary anti-phantom-state method. Call at the TOP of every
+        trading cycle, BEFORE any entry/exit logic. Unlike force_reconcile()
+        (which needs a pre-built ticket set), this method queries MT5 directly.
+
+        Args:
+            bridge:      The active bridge instance (WebhookBridge or WSBridge)
+            symbols_cfg: Dict of display_name -> sym_cfg (e.g. {"XAUUSD": {...}})
+        """
+        if not self.sessions:
+            return  # nothing to sync
+
+        # Gather all live tickets from MT5 in one call
+        try:
+            all_positions = bridge.get_open_positions()
+            live_tickets = {str(getattr(p, "ticket", "")) for p in (all_positions or [])}
+        except Exception as e:
+            log.warning(f"[PYRAMID] hard_sync: position fetch failed: {e}")
+            return
+
+        purged_total = 0
+        for sym in list(self.sessions.keys()):
+            session = self.sessions[sym]
+            before = len(session.tranches)
+            session.tranches = [
+                t for t in session.tranches if str(t["ticket"]) in live_tickets
+            ]
+            removed = before - len(session.tranches)
+
+            if removed > 0:
+                purged_total += removed
+                log.warning(
+                    f"[PYRAMID] hard_sync: {sym} — "
+                    f"{removed} phantom tranche(s) purged (not in MT5)"
+                )
+
+            if not session.tranches:
+                self.close_pyramid(sym, "hard_sync: all tranches gone from MT5")
+            elif removed > 0:
+                self._save()
+
+        if purged_total > 0:
+            log.info(f"[PYRAMID] hard_sync complete: {purged_total} phantom(s) removed")
+
     def _reconcile(self, positions_by_sym: dict, symbols_cfg: dict):
         """Ensure stored tranches actually exist in the broker's open positions."""
         for sym, session in list(self.sessions.items()):

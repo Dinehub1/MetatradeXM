@@ -89,10 +89,25 @@ def _ensure_symbol(symbol):
 
 @app.route('/status', methods=['GET'])
 def get_status():
-    """Terminal connection status."""
+    """Terminal connection status — auto-reconnects if MT5 API went stale."""
     with mt5_lock:
         term = mt5.terminal_info()
         connected = term is not None
+
+        # Auto-reconnect: MT5 Python API can lose its handle while
+        # the terminal itself is still running.  Re-initialize.
+        if not connected:
+            log.info("[STATUS] terminal_info() returned None — attempting re-init...")
+            if mt5.initialize():
+                term = mt5.terminal_info()
+                connected = term is not None
+                if connected:
+                    log.info("[STATUS] Re-initialized MT5 successfully")
+                else:
+                    log.warning("[STATUS] Re-init succeeded but terminal still not connected")
+            else:
+                log.warning("[STATUS] Re-init failed: %s", mt5.last_error())
+
         info = mt5.account_info()
     resp = {"status": "running", "terminal_connected": connected}
     if info:
@@ -726,6 +741,239 @@ def get_indicators(symbol, tf=None):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# WEBSOCKET STREAMING SERVER — Real-time data to Ubuntu bot
+# ══════════════════════════════════════════════════════════════════════════════
+
+import asyncio
+import json
+import time as _time
+
+try:
+    import websockets
+    import websockets.server
+    _HAS_WEBSOCKETS = True
+except ImportError:
+    _HAS_WEBSOCKETS = False
+    log.warning("websockets not installed — pip install websockets (WS server disabled)")
+
+# Tracked symbols for streaming (same as bot trades)
+WS_SYMBOLS = ["GOLD.i#", "SILVER.i#"]
+WS_PORT = 5002
+
+# Connected WebSocket clients
+_ws_clients = set()
+_ws_lock = threading.Lock()
+
+
+def _gather_tick_data(symbol):
+    """Get current tick data for a symbol (called under mt5_lock)."""
+    tick = mt5.symbol_info_tick(symbol)
+    if tick is None:
+        return None
+    return {
+        "type": "tick",
+        "symbol": symbol,
+        "bid": tick.bid,
+        "ask": tick.ask,
+        "last": tick.last,
+        "time": tick.time,
+        "spread": round(tick.ask - tick.bid, 5),
+    }
+
+
+def _gather_positions():
+    """Get all open positions (called under mt5_lock)."""
+    pos_list = mt5.positions_get()
+    if pos_list is None:
+        return {"type": "positions", "positions": []}
+    positions = []
+    for p in pos_list:
+        positions.append({
+            "ticket": p.ticket,
+            "symbol": p.symbol,
+            "type_id": p.type,  # 0=BUY, 1=SELL
+            "volume": p.volume,
+            "price_open": p.price_open,
+            "sl": p.sl,
+            "tp": p.tp,
+            "profit": p.profit,
+            "comment": p.comment,
+            "time": p.time,
+        })
+    return {"type": "positions", "positions": positions}
+
+
+def _gather_account():
+    """Get account info (called under mt5_lock)."""
+    info = mt5.account_info()
+    if info is None:
+        return None
+    return {
+        "type": "account",
+        "login": info.login,
+        "server": info.server,
+        "balance": info.balance,
+        "equity": info.equity,
+        "margin": info.margin,
+        "margin_free": info.margin_free,
+        "leverage": info.leverage,
+        "currency": info.currency,
+        "time": int(_time.time()),
+    }
+
+
+async def _ws_handler(websocket):
+    """Handle a single WebSocket client connection."""
+    client_addr = websocket.remote_address
+    log.info(f"[WS] Client connected: {client_addr}")
+
+    with _ws_lock:
+        _ws_clients.add(websocket)
+
+    try:
+        # Send initial account + positions snapshot
+        with mt5_lock:
+            acct = _gather_account()
+            positions = _gather_positions()
+        if acct:
+            await websocket.send(json.dumps(acct))
+        await websocket.send(json.dumps(positions))
+
+        # Keep connection alive and listen for client messages
+        async for message in websocket:
+            # Client can send "subscribe" messages or ping
+            try:
+                msg = json.loads(message)
+                if msg.get("type") == "ping":
+                    await websocket.send(json.dumps({"type": "pong"}))
+            except json.JSONDecodeError:
+                pass
+    except websockets.exceptions.ConnectionClosed:
+        log.info(f"[WS] Client disconnected: {client_addr}")
+    except Exception as e:
+        log.warning(f"[WS] Client error ({client_addr}): {e}")
+    finally:
+        with _ws_lock:
+            _ws_clients.discard(websocket)
+
+
+async def _broadcast(message_json: str):
+    """Broadcast a JSON message to all connected WebSocket clients."""
+    with _ws_lock:
+        clients = list(_ws_clients)
+
+    if not clients:
+        return
+
+    disconnected = []
+    for ws in clients:
+        try:
+            await ws.send(message_json)
+        except Exception:
+            disconnected.append(ws)
+
+    if disconnected:
+        with _ws_lock:
+            for ws in disconnected:
+                _ws_clients.discard(ws)
+
+
+async def _streaming_loop():
+    """Main streaming loop — broadcasts ticks, positions, account at intervals."""
+    tick_interval = 0.5      # ticks every 500ms
+    position_interval = 5.0  # positions every 5s
+    account_interval = 30.0  # account every 30s
+    heartbeat_interval = 15.0
+
+    last_position = 0
+    last_account = 0
+    last_heartbeat = 0
+
+    log.info(f"[WS] Streaming loop started (tick={tick_interval}s, pos={position_interval}s)")
+
+    while True:
+        now = _time.time()
+
+        with _ws_lock:
+            has_clients = len(_ws_clients) > 0
+
+        if not has_clients:
+            await asyncio.sleep(1.0)
+            continue
+
+        # ── Tick data (high frequency) ──────────────────────────────────
+        try:
+            tick_messages = []
+            with mt5_lock:
+                for sym in WS_SYMBOLS:
+                    _ensure_symbol(sym)
+                    tick_data = _gather_tick_data(sym)
+                    if tick_data:
+                        tick_messages.append(json.dumps(tick_data))
+
+            for msg in tick_messages:
+                await _broadcast(msg)
+        except Exception as e:
+            log.debug(f"[WS] Tick broadcast error: {e}")
+
+        # ── Positions (medium frequency) ────────────────────────────────
+        if now - last_position >= position_interval:
+            try:
+                with mt5_lock:
+                    pos_data = _gather_positions()
+                await _broadcast(json.dumps(pos_data))
+                last_position = now
+            except Exception as e:
+                log.debug(f"[WS] Position broadcast error: {e}")
+
+        # ── Account (low frequency) ─────────────────────────────────────
+        if now - last_account >= account_interval:
+            try:
+                with mt5_lock:
+                    acct_data = _gather_account()
+                if acct_data:
+                    await _broadcast(json.dumps(acct_data))
+                last_account = now
+            except Exception as e:
+                log.debug(f"[WS] Account broadcast error: {e}")
+
+        # ── Heartbeat ───────────────────────────────────────────────────
+        if now - last_heartbeat >= heartbeat_interval:
+            await _broadcast(json.dumps({"type": "heartbeat", "time": int(now)}))
+            last_heartbeat = now
+
+        await asyncio.sleep(tick_interval)
+
+
+async def _start_ws_server():
+    """Start the WebSocket server and streaming loop."""
+    server = await websockets.serve(
+        _ws_handler,
+        "0.0.0.0",
+        WS_PORT,
+        ping_interval=30,
+        ping_timeout=10,
+    )
+    log.info(f"[WS] WebSocket server running on ws://0.0.0.0:{WS_PORT}")
+
+    # Run streaming loop alongside the WebSocket server
+    await asyncio.gather(
+        server.wait_closed() if hasattr(server, 'wait_closed') else asyncio.Future(),
+        _streaming_loop(),
+    )
+
+
+def _run_ws_server_thread():
+    """Run the async WebSocket server in its own event loop (for threading)."""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(_start_ws_server())
+    except Exception as e:
+        log.error(f"[WS] Server error: {e}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 
 if __name__ == '__main__':
     if not init_mt5():
@@ -733,5 +981,18 @@ if __name__ == '__main__':
     else:
         log.info("MT5 Webhook server ready on port 5001")
         log.info("Endpoints: /status /account /positions /tick /candles /history /webhook /modify /indicators")
-    app.run(host='0.0.0.0', port=5001, threaded=True)
 
+    # Start WebSocket server in background thread (if websockets is installed)
+    if _HAS_WEBSOCKETS:
+        ws_thread = threading.Thread(
+            target=_run_ws_server_thread,
+            name="ws-server",
+            daemon=True,
+        )
+        ws_thread.start()
+        log.info(f"WebSocket streaming server started on port {WS_PORT}")
+    else:
+        log.warning("WebSocket server DISABLED — install websockets: pip install websockets")
+
+    # Start Flask HTTP server (main thread — blocking)
+    app.run(host='0.0.0.0', port=5001, threaded=True)

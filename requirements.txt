@@ -1,7 +1,8 @@
 # ── Core dependencies ─────────────────────────────────────────────────────────
-metaapi-cloud-sdk>=9.0.0          # Cross-platform MT5 broker bridge
-websocket-client==1.6.1           # TradingView WebSocket client (tv_client.py)
-requests==2.31.0                  # OpenRouter / MetaApi REST calls
+# metaapi-cloud-sdk>=9.0.0        # DISABLED — migrated to WebSocket-only architecture
+websocket-client==1.6.1           # WebSocket client (ws_bridge.py on Ubuntu)
+websockets>=12.0                  # WebSocket server (win_webhook_mt5.py on Windows)
+requests==2.31.0                  # OpenRouter / WebhookBridge REST calls
 numpy>=1.24.3                     # Indicator math
 pandas>=2.0.3                     # Candle DataFrame processing
 python-dotenv==1.0.0              # .env loading helper (optional, manual loader in place)

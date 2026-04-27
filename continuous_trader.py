@@ -315,22 +315,30 @@ def fmt_profit(p: float) -> str:
 
 
 def make_bridge():
-    # Priority 1: Windows MT5 Webhook Bridge (HTTP to Windows machine)
+    ws_url = os.environ.get("WIN_WS_URL", "")
     webhook_url = os.environ.get("WIN_WEBHOOK_URL", "")
+
+    # Priority 1: WebSocket Bridge (real-time data + HTTP execution)
+    if ws_url and webhook_url:
+        from bridges.ws_bridge import WSBridge
+        log.info(f"[BRIDGE] Using WebSocket Bridge → {ws_url}")
+        return WSBridge(ws_url, webhook_url)
+
+    # Priority 2: HTTP-only Webhook Bridge (polling fallback)
     if webhook_url:
         from bridges.webhook_bridge import WebhookBridge
         log.info(f"[BRIDGE] Using Windows MT5 Webhook → {webhook_url}")
         return WebhookBridge(webhook_url)
 
-    # Priority 2: MetaApi Cloud Bridge (cross-platform)
-    token = os.environ.get("METAAPI_TOKEN", "")
-    account_id = os.environ.get("METAAPI_ACCOUNT_ID", "")
-    if token and account_id:
-        from bridges.metaapi_bridge import MetaApiBridge
-        log.info("[BRIDGE] Using MetaApi Cloud Bridge")
-        return MetaApiBridge(token, account_id)
+    # # Priority 3: MetaApi Cloud Bridge (DISABLED — kept as backup)
+    # token = os.environ.get("METAAPI_TOKEN", "")
+    # account_id = os.environ.get("METAAPI_ACCOUNT_ID", "")
+    # if token and account_id:
+    #     from bridges.metaapi_bridge import MetaApiBridge
+    #     log.info("[BRIDGE] Using MetaApi Cloud Bridge")
+    #     return MetaApiBridge(token, account_id)
 
-    # Priority 3: Direct MT5 (Windows-only)
+    # Priority 4: Direct MT5 (Windows-only)
     from bridges.mt5_bridge import MT5Bridge
     log.info("[BRIDGE] Using Direct MT5 Bridge (Windows-only)")
     return MT5Bridge()
@@ -826,8 +834,11 @@ class ContinuousTrader:
         log.info("=" * 60)
 
         if not self._ensure_connected():
-            log.error("Cannot start — MetaTrader connection failed")
-            return
+            log.error("Cannot connect to MetaTrader — will keep retrying every 60s")
+            while not self._stop and not self._ensure_connected():
+                time.sleep(60)
+            if self._stop:
+                return
 
         # Print initial account info
         acct = self._get_account()
@@ -926,12 +937,13 @@ class ContinuousTrader:
                     log.info(f"   {disp} {d} @{op:.2f} {fmt_profit(pr)}")
                     _cur_tickets[tk] = {"profit": pr, "direction": d, "sym_cfg": sym_cfg, "volume": getattr(p, "volume", 0.05)}
 
-            # ── Pyramid startup reconcile: purge ghost sessions every cycle ──
-            # Runs before the vanish-detection block so stale pyramid state is
-            # cleared before any trade decisions are made.
-            if self.pyramid and self.pyramid.active_pyramid_count() > 0:
-                _live_tickets = set(_cur_tickets.keys())
-                self.pyramid.force_reconcile(_live_tickets)
+            # ── Pyramid hard sync: purge phantom tranches every cycle ────────
+            # Queries MT5 directly via bridge to ensure pyramid state reflects
+            # reality. Replaces the old force_reconcile approach.
+            if self.pyramid:
+                self.pyramid.hard_sync(
+                    self.bridge, {s["display"]: s for s in SYMBOLS}
+                )
 
             # Detect tickets that vanished since last cycle (closed by broker SL/TP)
             if _prev_tickets:
