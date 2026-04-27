@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 import os
 _WS_URL    = os.environ.get("TV_WS_URL", "ws://localhost:8887")
-_RECONNECT = 5   # seconds between reconnect attempts
+_RECONNECT = 30   # seconds between reconnect attempts (don't spam on failure)
 
 
 class TradingViewClient:
@@ -33,6 +33,7 @@ class TradingViewClient:
         self._running = False
         self._thread  = None
         self._connected = False
+        self._first_error_logged = False  # only log connection error once visibly
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -87,7 +88,11 @@ class TradingViewClient:
             try:
                 self._connect_and_read()
             except Exception as e:
-                logger.warning("[TV] Disconnected: %s — reconnect in %ds", e, _RECONNECT)
+                if not self._first_error_logged:
+                    logger.info("[TV] Not available — will retry in background")
+                    self._first_error_logged = True
+                else:
+                    logger.debug("[TV] Reconnect failed: %s", e)
                 self._connected = False
             if self._running:
                 time.sleep(_RECONNECT)
@@ -111,10 +116,15 @@ class TradingViewClient:
 
     def _on_close(self, ws, code, msg):
         self._connected = False
-        logger.warning("[TV] Connection closed (%s %s)", code, msg)
+        logger.debug("[TV] Connection closed (%s %s)", code, msg)
 
     def _on_error(self, ws, err):
-        logger.error("[TV] Error: %s", err)
+        # Only log first error visibly — rest at DEBUG to avoid log spam
+        if not self._first_error_logged:
+            logger.info("[TV] Not available — will retry in background")
+            self._first_error_logged = True
+        else:
+            logger.debug("[TV] Error: %s", err)
 
     def _on_message(self, ws, raw):
         try:

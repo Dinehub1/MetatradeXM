@@ -102,37 +102,14 @@ class TradeMemory:
         """Record when a new trade is opened."""
         ts = datetime.now(timezone.utc).isoformat()
         with sqlite3.connect(self.db_path) as conn:
-            def _safe_json(obj):
-                """Convert numpy/bool types to JSON-serializable Python types."""
-                import math
-                if isinstance(obj, dict):
-                    return {k: _safe_json(v) for k, v in obj.items()}
-                if isinstance(obj, (list, tuple)):
-                    return [_safe_json(i) for i in obj]
-                if isinstance(obj, bool):
-                    return bool(obj)
-                try:
-                    import numpy as np
-                    if isinstance(obj, (np.integer,)):
-                        return int(obj)
-                    if isinstance(obj, (np.floating,)):
-                        return float(obj)
-                    if isinstance(obj, (np.bool_,)):
-                        return bool(obj)
-                except ImportError:
-                    pass
-                if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
-                    return None
-                return obj
-
             conn.execute("""
                 INSERT INTO trade_entries
                 (ts, ticket, symbol, direction, entry_price, confidence,
                  factors_json, conditions_json, skills_used)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (ts, str(ticket), symbol, direction, entry_price, confidence,
-                  json.dumps(_safe_json(factors or {})),
-                  json.dumps(_safe_json(conditions or {})),
+                  json.dumps(self._safe_json(factors or {})),
+                  json.dumps(self._safe_json(conditions or {})),
                   json.dumps(skills_used or [])))
         log.info(f"[MEMORY] Recorded entry: {symbol} {direction} #{ticket} conf={confidence:.0%}")
 
@@ -216,7 +193,7 @@ class TradeMemory:
                 (ts, symbol, direction, confidence, filter_reasons, factors_json)
                 VALUES (?, ?, ?, ?, ?, ?)
             """, (ts, symbol, direction, confidence,
-                  json.dumps(reasons), json.dumps(factors or {})))
+                  json.dumps(self._safe_json(reasons)), json.dumps(self._safe_json(factors or {}))))
 
     # ── Prefetch context for AI reasoning ────────────────────────────────────
 
@@ -224,11 +201,72 @@ class TradeMemory:
         """
         Returns memory context block for AI reasoning.
         Inspired by Hermes prefetch_all() pattern.
+        Includes: aggregate performance, per-direction WR, current streak,
+        recent trades, session stats, and learning insights.
         """
         parts = []
 
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
+
+            # ── AGGREGATE PERFORMANCE (NEW — AI sees its own track record) ──
+            stats = conn.execute("""
+                SELECT 
+                    COUNT(*) as total,
+                    SUM(CASE WHEN outcome='WIN' THEN 1 ELSE 0 END) as wins,
+                    SUM(CASE WHEN outcome='LOSS' THEN 1 ELSE 0 END) as losses,
+                    AVG(pips_result) as avg_pips
+                FROM trade_outcomes WHERE symbol=?
+            """, (symbol,)).fetchone()
+
+            if stats and stats['total'] and stats['total'] > 0:
+                total = stats['total']
+                wins = stats['wins'] or 0
+                losses = stats['losses'] or 0
+                wr = wins / total * 100
+                avg_pips = stats['avg_pips'] or 0
+                parts.append(f"⚠️ YOUR PERFORMANCE ON {symbol}:")
+                parts.append(f"  Total: {total} trades | Win Rate: {wr:.0f}%")
+                parts.append(f"  Avg P&L: {avg_pips:+.1f} pips per trade")
+                if wr < 35:
+                    parts.append(f"  ⛔ EDGE IS NEGATIVE — be EXTREMELY selective, prefer HOLD")
+
+            # ── WIN RATE BY DIRECTION (NEW — blocks weak directions) ──
+            dir_stats = conn.execute("""
+                SELECT direction,
+                    COUNT(*) as total,
+                    SUM(CASE WHEN outcome='WIN' THEN 1 ELSE 0 END) as wins
+                FROM trade_outcomes WHERE symbol=?
+                GROUP BY direction
+            """, (symbol,)).fetchall()
+
+            for ds in dir_stats:
+                ds_total = ds['total'] or 0
+                ds_wins = ds['wins'] or 0
+                if ds_total > 0:
+                    wr = ds_wins / ds_total * 100
+                    if wr < 30:
+                        parts.append(f"  ⛔ {ds['direction']} win rate: {wr:.0f}% ({ds_wins}/{ds_total}) — AVOID this direction")
+
+            # ── CURRENT STREAK (NEW — AI knows if edge is broken) ──
+            recent_outcomes = conn.execute("""
+                SELECT outcome FROM trade_outcomes
+                WHERE symbol=? ORDER BY id DESC LIMIT 10
+            """, (symbol,)).fetchall()
+
+            if recent_outcomes:
+                streak = 0
+                streak_type = recent_outcomes[0]['outcome']
+                for r in recent_outcomes:
+                    if r['outcome'] == streak_type:
+                        streak += 1
+                    else:
+                        break
+                if streak >= 3:
+                    icon = '🔴' if streak_type == 'LOSS' else '🟢'
+                    parts.append(f"  {icon} Current streak: {streak} consecutive {streak_type}s")
+                    if streak_type == 'LOSS' and streak >= 5:
+                        parts.append(f"  ⛔ EDGE IS BROKEN — strongly prefer HOLD until streak resets")
 
             # Last 5 trade outcomes for this symbol
             recent = conn.execute("""
@@ -239,7 +277,7 @@ class TradeMemory:
             """, (symbol,)).fetchall()
 
             if recent:
-                parts.append("Recent trades for this symbol:")
+                parts.append("\nRecent trades for this symbol:")
                 for r in recent:
                     parts.append(f"  {r['direction']} → {r['outcome']} "
                                  f"{r['pips_result']:+.1f}pips conf={r['confidence']:.0%} "
@@ -412,6 +450,30 @@ class TradeMemory:
         return {'hourly': hourly, 'daily': daily}
 
     # ── Helpers ──────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _safe_json(obj):
+        """Convert numpy/bool types to JSON-serializable Python types."""
+        import math
+        if isinstance(obj, dict):
+            return {k: TradeMemory._safe_json(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            return [TradeMemory._safe_json(i) for i in obj]
+        if type(obj).__name__ == 'bool':
+            return bool(obj)
+        try:
+            import numpy as np
+            if isinstance(obj, (np.integer,)):
+                return int(obj)
+            if isinstance(obj, (np.floating,)):
+                return float(obj)
+            if isinstance(obj, (np.bool_,)):
+                return bool(obj)
+        except ImportError:
+            pass
+        if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+            return None
+        return obj
 
     @staticmethod
     def _get_session_name(hour: int) -> str:

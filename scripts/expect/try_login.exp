@@ -1,0 +1,14 @@
+#!/usr/bin/expect -f
+set timeout 30
+spawn ssh -o StrictHostKeyChecking=no Administrator@206.72.198.54
+expect "password:"
+send "q3XtM9f%\r"
+expect ">"
+send "taskkill /IM terminal64.exe /F\r"
+expect ">"
+send "timeout /t 3 /nobreak\r"
+expect ">"
+send "\"C:\\Program Files\\XM MT5\\terminal64.exe\" /login:1301214537 /password:Apple@23824 /server:XMGlobal-MT5\r"
+expect ">"
+send "exit\r"
+expect eof

@@ -14,6 +14,9 @@ import re
 import requests
 import numpy as np
 import pandas as pd
+from typing import Dict, Optional
+from dataclasses import dataclass
+from core.regime_detector import RegimeDetector
 from datetime import datetime, timezone
 
 from core.ai_client import ask_gemini, ask_openrouter  # Gemini primary, OpenRouter fallback
@@ -21,34 +24,74 @@ from core.ai_client import ask_gemini, ask_openrouter  # Gemini primary, OpenRou
 log = logging.getLogger("analyzer")
 
 SYSTEM_PROMPT = """You are an expert precious metals trader specialising in XAUUSD (Gold) and XAGUSD (Silver).
-You have 20+ years of experience trading commodities and forex.
-You use multi-timeframe analysis: D1/H4 for trend direction, H1 for context, M15 for entry timing.
-You are disciplined — you only enter when multiple timeframes align AND ADX confirms trend strength.
+You have 20+ years of experience and you are PROTECTING REAL CAPITAL.
 
-CORE TRADING PHILOSOPHY (Trading in the Zone — Mark Douglas):
-- Think in PROBABILITIES, not certainties. You never know which trade wins — you only know your edge.
-- Every moment in the market is unique. Past wins do not guarantee this trade wins.
-- Your edge is a higher probability of one thing over another — expressed in confidence score.
-- A 0.70 confidence trade still loses 30% of the time. Accept this. Execute consistently.
+PYRAMID SCALING SYSTEM (IMPORTANT — this changes your risk calculus):
+- We use a 10-TRANCHE PYRAMID. Initial entry is only 0.01 lot (~$1-3 risk).
+- If the trade moves in our favour, the system adds more tranches automatically.
+- If the trade fails, we lose only $1-3, NOT $20-30 like before.
+- Because risk per entry is tiny, you should be MORE WILLING to give BUY/SELL signals.
+- A 0.45-0.55 confidence BUY/SELL is a "probe" — it lets the pyramid test the waters cheaply.
+- HOLD should be reserved for genuinely BAD setups (conflicting everything, dead market).
+
+CRITICAL SELF-AWARENESS:
+- You are making REAL trades with REAL money, but initial risk is ONLY $1-3 per entry.
+- Your TRADE MEMORY section shows your recent performance. USE IT for pattern awareness.
+- A loss streak does NOT mean stop trading — it means previous SIZING was wrong (now fixed).
+- After a loss streak, the PYRAMID system handles risk — your job is to find DIRECTION correctly.
+- Professional traders are IN position 30-50% of the time. Constant HOLD = missed opportunity.
+
+CORE PHILOSOPHY (Trading in the Zone — Mark Douglas):
+- Think in PROBABILITIES. Your edge is expressed over many trades, not each one.
+- The indicator score is CONTEXT — it tells you the prevailing bias, not what you MUST do.
+- You CAN trade against the score when you see strong reversal evidence at key levels.
 - NEVER over-trade to recover losses. Each trade stands alone on its own merit.
-- HOLD is a valid and profitable decision. Patience IS a position.
+- With micro-lot entries, it is BETTER to enter and be wrong ($1-3 loss) than to miss a trend ($30+ opportunity cost).
 
-FIBONACCI RULES (mandatory for entry decisions):
-- Price at 61.8% retracement (Golden Ratio) = highest probability reversal zone. Boost confidence.
-- Price at 38.2% or 50% retracement = strong support/resistance. Valid entry zone.
-- Price at 78.6% retracement = deep pullback, potential trend continuation or exhaustion.
-- Price ABOVE the 100% extension = trend exhausted. DO NOT chase. HOLD or wait for pullback.
-- Entry at Fibonacci confluence (Fib level + BB extreme + RSI extreme) = maximum edge.
-- If price is between Fibonacci levels with no confluence = wait. HOLD.
+WHEN TO HOLD (only in these situations):
+- ALL indicators conflict with NO confluence at all → HOLD
+- ADX < 10 AND no Fibonacci level nearby → HOLD (truly dead market)
+- Extreme spread/low liquidity conditions → HOLD
+- Score magnitude < 2 AND no Fib level nearby AND ADX < 15 → HOLD
+
+WHEN TO GIVE BUY/SELL (prefer this — the pyramid manages risk):
+- Score > +5 with ADX > 18 → BUY (trend confirmation)
+- Score < -5 with ADX > 18 → SELL (trend confirmation)
+- Price at key Fibonacci level with RSI extreme → BUY/SELL (reversal)
+- MACD cross with ADX > 20 → BUY/SELL (momentum)
+- Even on a loss streak, if 2+ indicators align → BUY/SELL with 0.45-0.55 confidence (probe)
+- M15 trend matches at least one higher timeframe → valid entry
+
+CONFIDENCE GUIDE (calibrated for pyramid entries):
+- 0.80-1.00: All timeframes agree, ADX strong, Fib confluence = maximum conviction
+- 0.65-0.80: Good setup, 2-3 timeframes agree = solid entry
+- 0.50-0.65: Decent setup, some conflict but trend visible = pyramid probe
+- 0.45-0.50: Marginal but tradeable = small probe, let pyramid decide
+- 0.00-0.40: Poor setup = HOLD (only return HOLD with confidence in this range)
+
+TREND-FOLLOWING TRADES (go WITH the score):
+- Score and direction agree with 2+ higher timeframes → good setup
+- ADX > 20 confirming trend strength AND DI alignment → add conviction
+- These are your bread-and-butter, higher probability trades
+
+COUNTER-TREND / REVERSAL TRADES (go AGAINST the score):
+- Price at Fibonacci 61.8% or 38.2% retracement with RSI extreme (<30 or >70) → VALID BUY/SELL
+- Price at Bollinger Band extreme with Stochastic cross → VALID entry
+- Engulfing or pin bar candlestick at support/resistance → VALID reversal
+- Gold reverses 200-400 pips intraday even in strong trends — catching reversals is profitable
+- Counter-trend trades should have LOWER confidence (0.45-0.55) than trend trades (0.55-0.80)
+
+FIBONACCI RULES:
+- 61.8% retracement = highest probability reversal. Boost confidence.
+- 38.2% / 50% = strong S/R zones. Valid entry.
+- Above 100% extension = trend exhausted. DO NOT chase.
+- Between levels with no confluence = consider HOLD (but check other indicators first).
 
 TECHNICAL RULES:
-- NEVER trade against the D1/H4 trend unless it is a strong counter-trend reversal setup.
-- ADX > 25 required for trend trades. ADX < 15 = ranging market, use RSI/Stoch/Fib reversals ONLY.
-- ADX 15-25 = developing trend — require 3+ confirming factors before entry.
-- In bearish trends: -DI > +DI confirms sell pressure. In bullish: +DI > -DI.
-- Gold is most volatile during London open (07:00 UTC) and NY open (13:00 UTC).
-- HOLD when signals are mixed, ADX < 10, or ATR < 5th percentile (dead market).
-- RANGING MARKET (ADX < 15): ONLY enter at Fibonacci retracement levels OR BB extremes with RSI confirmation.
+- ADX > 25 = strong trend. Prefer trend-following but watch for exhaustion (RSI extreme + extension).
+- ADX 15-25 = developing. Require 2+ confirming factors in either direction.
+- ADX < 15 = ranging. Use Fib/BB reversals ONLY, require confluence.
+- HOLD when ADX < 10 or ATR is extremely low (no movement).
 
 Respond with ONLY raw JSON: {"direction": "BUY"|"SELL"|"HOLD", "confidence": 0.0-1.0, "reason": "1-2 sentences"}"""
 
@@ -123,7 +166,8 @@ class MarketAnalyzer:
                                         base_signal, tf_data["M15"],
                                         memory_context=memory_context,
                                         research_context=research_ctx,
-                                        d1=ind_d1, d1_df=tf_data.get("D1"))
+                                        d1=ind_d1, d1_df=tf_data.get("D1"),
+                                        m1_df=tf_data.get("M1"))
         else:
             signal = base_signal
 
@@ -647,14 +691,16 @@ class MarketAnalyzer:
         if weights is None:
             weights = self._load_weights()
 
-        # F1: H4 EMA trend (±10) — unchanged, already signed
-        h4_map = {'BULLISH': 10, 'MILD_BULL': 5, 'MIXED': 0,
-                  'MILD_BEAR': -5, 'BEARISH': -10}
+        # F1: H4 EMA trend (±6) — reduced from ±10. Trend is CONTEXT, not a gatekeeper.
+        # Old ±10 made trend factors alone (H4+D1 = ±18) exceed buy_threshold (12),
+        # making it impossible for M15 entry signals to generate counter-trend trades.
+        h4_map = {'BULLISH': 6, 'MILD_BULL': 3, 'MIXED': 0,
+                  'MILD_BEAR': -3, 'BEARISH': -6}
         f1 = h4_map.get(h4['ema_trend'], 0)
 
-        # F2: H1 EMA trend (±10) — unchanged
-        h1_map = {'BULLISH': 10, 'MILD_BULL': 5, 'MIXED': 0,
-                  'MILD_BEAR': -5, 'BEARISH': -10}
+        # F2: H1 EMA trend (±8) — reduced from ±10. Still significant but not overwhelming.
+        h1_map = {'BULLISH': 8, 'MILD_BULL': 4, 'MIXED': 0,
+                  'MILD_BEAR': -4, 'BEARISH': -8}
         f2 = h1_map.get(h1['ema_trend'], 0)
 
         # F3: RSI zone — NOW DIRECTIONALLY SIGNED
@@ -736,14 +782,16 @@ class MarketAnalyzer:
         elif h1_macd == 'BEARISH':        f9 = -3
         else:                             f9 = 0
 
-        # F10: D1 daily trend — tiebreaker when H4/H1 conflict
-        d1_map = {'BULLISH': 8, 'MILD_BULL': 4, 'MIXED': 0, 'MILD_BEAR': -4, 'BEARISH': -8}
+        # F10: D1 daily trend — reduced from ±8 to ±4. Tiebreaker, not dictator.
+        # Old ±8 combined with H4 ±10 = ±18 from trend alone, exceeding threshold.
+        d1_map = {'BULLISH': 4, 'MILD_BULL': 2, 'MIXED': 0, 'MILD_BEAR': -2, 'BEARISH': -4}
         f10 = d1_map.get(d1.get('ema_trend', 'MIXED'), 0) if d1 else 0
 
         # F11: Candlestick pattern confirmation on M15
         f11 = m15.get('candle_pattern_score', 0)
 
-        regime = 'RANGING' if adx < 18 else 'TRENDING'
+        # Advanced regime detection
+        regime_data = RegimeDetector.detect(m15, h1, h4)
 
         return {
             'f1_h4_trend':          round(f1  * weights.get('f1_h4_trend', 1.0), 1),
@@ -757,7 +805,9 @@ class MarketAnalyzer:
             'f9_h1_macd':           round(f9  * weights.get('f9_h1_macd', 0.5), 1),
             'f10_d1_trend':         round(f10 * weights.get('f10_d1', 0.7), 1),
             'f11_candle_pattern':   round(f11 * weights.get('f11_candle', 0.8), 1),
-            'adx_regime':           regime,
+            'adx_regime':           regime_data['regime_label'],
+            'volatility_state':     regime_data['volatility'],
+            'recommended_strategy': regime_data['recommended_strategy'],
             'bb_squeeze':           m15.get('bb_squeeze', False),
         }
 
@@ -774,15 +824,10 @@ class MarketAnalyzer:
 
         weights: dict = {}
         try:
-            import os
-            # Try repo config/ first, then core/ (legacy location)
-            repo_root    = os.path.dirname(os.path.dirname(__file__))
-            config_path  = os.path.join(repo_root, "config", "scoring_weights.json")
-            legacy_path  = os.path.join(os.path.dirname(__file__), "scoring_weights.json")
-            path = config_path if os.path.exists(config_path) else legacy_path
-            if os.path.exists(path):
-                with open(path, 'r') as f:
-                    weights = json.load(f)
+            from core.paths import CONFIG_DIR
+            weights_path = CONFIG_DIR / "scoring_weights.json"
+            if weights_path.exists():
+                weights = json.loads(weights_path.read_text())
         except Exception:
             pass
 
@@ -837,7 +882,7 @@ class MarketAnalyzer:
         # ── ADX ranging penalty ──────────────────────────────────────────
         # Reduced from 0.6 to 0.8 — ranging market still has valid signals
         ranging_penalty = weights.get('ranging_penalty', 0.8)
-        if scores['adx_regime'] == 'RANGING':
+        if scores['adx_regime'].startswith('RANGING'):
             signed_score = signed_score * ranging_penalty
             regime_note  = f'RANGING ADX<18 — score ×{ranging_penalty}'
         else:
@@ -914,7 +959,8 @@ class MarketAnalyzer:
     def _ai_reasoning(self, symbol: str, tick, m15: dict, h1: dict, h4: dict,
                       base_signal: dict, candles: pd.DataFrame,
                       memory_context: str = "", research_context: str = "",
-                      d1: dict = None, d1_df: pd.DataFrame = None) -> dict:
+                      d1: dict = None, d1_df: pd.DataFrame = None,
+                      m1_df: pd.DataFrame = None) -> dict:
         last_candles = candles.tail(8)[["time", "o", "h", "l", "c", "vol"]].to_string(index=False)
 
         # Fibonacci levels — reuse cached result from analyze() to avoid duplicate computation
@@ -965,12 +1011,59 @@ Extensions:   127.2%={ext.get(127.2,'?')}  161.8%={ext.get(161.8,'?')}  200%={ex
         if research_context:
             research_block = f"\n=== NEMOTRON DEEP RESEARCH (macro/fundamental context) ===\n{research_context}\n"
 
+        # ── M1 micro-structure block (entry timing) ──────────────────────────
+        m1_block = ""
+        if m1_df is not None and len(m1_df) >= 15:
+            try:
+                m1_tail = m1_df.tail(15)
+                m1_candles_str = m1_tail[["time", "o", "h", "l", "c", "vol"]].to_string(index=False)
+                # Simple M1 momentum: price change over last 5 bars
+                m1_close = m1_tail["c"].values
+                m1_momentum = "UP" if m1_close[-1] > m1_close[-5] else "DOWN"
+                m1_range = float(m1_tail["h"].max() - m1_tail["l"].min())
+                # M1 RSI (simple)
+                m1_deltas = pd.Series(m1_close).diff().dropna()
+                m1_gains = m1_deltas.clip(lower=0).rolling(14, min_periods=5).mean()
+                m1_losses = (-m1_deltas.clip(upper=0)).rolling(14, min_periods=5).mean()
+                m1_rs = m1_gains.iloc[-1] / m1_losses.iloc[-1] if m1_losses.iloc[-1] > 0 else 100
+                m1_rsi_val = round(100 - (100 / (1 + m1_rs)), 1)
+                m1_block = f"""
+=== M1 MICRO-STRUCTURE (last 15 bars = 15 min of tick action) ===
+{m1_candles_str}
+M1 RSI: {m1_rsi_val}
+M1 Momentum (5-bar): {m1_momentum}
+M1 Range: {m1_range:.5f}
+"""
+            except Exception:
+                m1_block = ""
+
         # Pre-format D1 values to avoid invalid format specifier in f-string
         d1_ema = d1["ema_trend"] if d1 else "N/A"
         d1_adx = f"{d1['adx']:.0f}" if d1 else "N/A"
         d1_rsi = f"{d1['rsi']:.1f}" if d1 else "N/A"
 
+        # Build data quality summary for AI
+        _n_candles = len(candles) if candles is not None else 0
+        _indicators_list = [
+            f"ADX({m15.get('adx', 0):.0f})",
+            f"RSI({m15.get('rsi', 50):.0f})",
+            f"MACD({m15.get('macd_signal', '?')})",
+            f"Stoch(K={m15.get('stoch_k', 50):.0f})",
+            f"BB({m15.get('bb_position', '?')})",
+            f"EMA(20/50/200)",
+            f"ATR({m15.get('atr', 0):.5f})",
+            f"W%R({m15.get('williams_r', -50):.0f})",
+        ]
+
         prompt = f"""Analyze {symbol} market data and decide: BUY, SELL, or HOLD.
+
+=== DATA QUALITY & SOURCES ===
+Source: MetaTrader 5 broker candles (via MetaApi bridge)
+M15 candles: {_n_candles} bars | H1/H4/D1: multi-timeframe confirmed
+Indicators computed: {', '.join(_indicators_list)}
+ADX regime: {fs.get('adx_regime', 'UNKNOWN')} — ADX measures TREND STRENGTH (>25=trending, <18=ranging)
+  +DI vs -DI tells you WHICH side is dominant: +DI>{m15.get('plus_di', 0):.0f} vs -DI={m15.get('minus_di', 0):.0f}
+All values below are REAL-TIME computed from the latest available candle data.
 
 === MULTI-TIMEFRAME ANALYSIS ===
 D1 (daily bias): EMA={d1_ema} ADX={d1_adx} RSI={d1_rsi}
@@ -1015,30 +1108,35 @@ Reasons: {base_signal['reason']}
 {memory_block}{research_block}
 === RECENT M15 CANDLES ===
 {last_candles}
+{m1_block}
 
-DECISION RULES:
-- The signed score determines direction bias. Positive = bullish, negative = bearish.
-- Your job: CONFIRM the indicator signal using price action context — not override it.
-- BUY:  majority of factors positive AND price near support / bouncing EMA / oversold RSI
-- SELL: majority of factors negative AND price near resistance / below EMAs / overbought RSI
-- HOLD: factors genuinely split (within 2 factors of 50/50) AND no clear price action edge
+DECISION FRAMEWORK:
+- The indicator score shows the prevailing BIAS, not a mandate.
+- Score NEGATIVE = bearish environment. SELL is easier, BUY needs reversal evidence.
+- Score POSITIVE = bullish environment. BUY is easier, SELL needs reversal evidence.
+- HOLD is your DEFAULT when no clear setup exists.
 
-⚠️  STRONG SIGNAL OVERRIDE (MANDATORY):
-- If the signed score is ≥ +15 with 6+ bullish factors → you MUST output BUY, min confidence 0.65
-- If the signed score is ≤ −15 with 6+ bearish factors → you MUST output SELL, min confidence 0.65
-- A mildly-bearish H4 does NOT override a strongly-bullish D1+H1+M15 stack. H4 is already in the score.
-- DO NOT say HOLD when 7 or more factors agree on direction. That is not a split — it is a signal.
+TREND-FOLLOWING (go WITH the score):
+- Score strongly agrees with your direction → confidence 0.65-0.85
+- 6+ factors in same direction → strong signal, minimum confidence 0.65
 
-RANGING market rules (ADX < 18):
-- Use RSI extremes (<35 = BUY, >65 = SELL), BB extremes (below lower = BUY, above upper = SELL)
-- Stoch cross in oversold/overbought territory = valid entry trigger
-- Do NOT default to HOLD just because ADX is low — ranging markets have reversions.
+COUNTER-TREND (go AGAINST the score):
+- You MAY trade against the score when: RSI extreme + Fibonacci level + BB extreme
+- Gold regularly reverses 200-400 pips intraday — reversals at key levels are profitable
+- Counter-trend confidence should be LOWER: 0.55-0.65
+- Require at least 2 reversal confirmations (e.g., RSI<30 + Fib 61.8% support)
+
+RANGING market (ADX < 18):
+- Use RSI extremes at Fibonacci levels → mean-reversion entries
+- BB extremes with Stoch cross = valid trigger
+- Require 2+ confluent signals
 
 Confidence calibration:
-    0.55-0.65: marginal setup, 1-2 conflicting factors
-    0.65-0.75: solid directional setup, most factors agree
-    0.75-0.90: strong multi-factor confluence, clear price action
-- NEVER output confidence below 0.50 if you say BUY or SELL.
+    0.55-0.60: counter-trend reversal at key level
+    0.60-0.70: solid directional setup, most factors agree
+    0.70-0.85: strong multi-factor confluence + Fibonacci level
+- If you say BUY or SELL, minimum confidence is 0.55.
+- If uncertain, say HOLD.
 
 Respond with ONLY raw JSON (no markdown, no backticks):
 {{"direction": "BUY"|"SELL"|"HOLD", "confidence": 0.0-1.0, "reason": "1-2 sentences"}}"""
@@ -1083,18 +1181,20 @@ Williams%R={tv_ind.get('williams_r','?')} Stoch_K={tv_ind.get('stoch_k','?')} St
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user",   "content": prompt},
         ]
+        _prompt_chars = len(prompt)
+        log.info(
+            f"AI-REQ | {symbol} | chars {_prompt_chars:,} | chain NVIDIA->Gemini | "
+            f"ADX {m15.get('adx', 0):.0f} | RSI {m15.get('rsi', 50):.0f} | score {base_signal.get('score', 0):+.1f}"
+        )
         data = ask_gemini(ai_messages, label=symbol)
-        if not data:
-            log.warning(f"[ANALYZER] {symbol}: Gemini failed — trying OpenRouter")
-            data = ask_openrouter(ai_messages, label=symbol)
 
-        # ── Step 3: Hard indicator fallback (fires ONLY when both AI backends fail)
+        # ── Step 3: Hard indicator fallback (fires ONLY when ALL AI tiers fail)
         if not data:
             log.warning(
-                f"[ANALYZER] {symbol}: BOTH AI backends failed — falling back to "
+                f"[ANALYZER] {symbol}: ALL AI tiers exhausted — falling back to "
                 f"indicator signal (score={base_signal.get('score', 0):.1f}, "
                 f"dir={base_signal.get('direction', 'HOLD')}). "
-                f"Check Gemini/OpenRouter API keys and network."
+                f"Check NVIDIA_API_KEY / GEMINI_API_KEY in .env."
             )
             data = {
                 "direction":  base_signal.get("direction", "HOLD"),
@@ -1107,6 +1207,17 @@ Williams%R={tv_ind.get('williams_r','?')} Stoch_K={tv_ind.get('stoch_k','?')} St
         ind_direction = base_signal.get("direction", "HOLD")
         ai_direction  = data.get("direction", "HOLD")
 
+        # ── COUNTER-TREND ADVISORY: log warning but DO NOT block ──
+        # OLD: hard veto at ±15 forced HOLD, causing 100% SELL-only bias.
+        # NEW: log for awareness. The MTF disagreement penalty below handles
+        # risk reduction. Counter-trend trades at Fibonacci levels are profitable.
+        if ai_direction == "BUY" and ind_score <= -12:
+            log.info(f"AI-NOTE | {symbol} | counter-trend BUY vs score {ind_score:+.1f} | MTF penalty next")
+            data["reason"] = f"[Counter-trend: score={ind_score:+.1f}] " + data.get("reason", "")
+        elif ai_direction == "SELL" and ind_score >= 12:
+            log.info(f"AI-NOTE | {symbol} | counter-trend SELL vs score {ind_score:+.1f} | MTF penalty next")
+            data["reason"] = f"[Counter-trend: score={ind_score:+.1f}] " + data.get("reason", "")
+
         # Strong-score override: if indicators strongly agree but AI says HOLD,
         # trust the indicators.  Threshold = 12 (1.5× the ±8 entry threshold) —
         # below 12 the score is genuinely borderline; above 12 it's a real signal.
@@ -1114,7 +1225,9 @@ Williams%R={tv_ind.get('williams_r','?')} Stoch_K={tv_ind.get('stoch_k','?')} St
         # and confluence ratio.  Do NOT reset to a conservative formula.
         _score_override = False
         if ai_direction == "HOLD" and ind_direction in ("BUY", "SELL"):
-            if abs(ind_score) >= 12:
+            # Lower threshold during ranging markets — indicators are still valid
+            _override_thresh = 8 if m15.get("adx", 25) < 18 else 12
+            if abs(ind_score) >= _override_thresh:
                 ai_direction = ind_direction
                 ind_conf = float(base_signal.get("confidence", 0.62))
 
@@ -1137,21 +1250,52 @@ Williams%R={tv_ind.get('williams_r','?')} Stoch_K={tv_ind.get('stoch_k','?')} St
                                   + data.get("reason", ""))
                 _score_override = True
 
-        # Graduated H4 override: nudge confidence DOWN when H4 disagrees.
-        # KEY FIX: the score already numerically includes H4's contribution
-        # (f1 is negative when H4 is bearish), so we must NOT double-penalise.
-        # When a score override already fired, skip H4 penalty entirely — the
-        # override confidence came directly from the score which includes f1.
-        f1_score = base_signal.get("factor_scores", {}).get("f1_h4_trend", 0)
-        if ai_direction in ("BUY", "SELL") and f1_score != 0 and not _score_override:
-            h4_bullish = f1_score > 0
-            ai_agrees  = ((ai_direction == "BUY"  and h4_bullish) or
-                          (ai_direction == "SELL" and not h4_bullish))
-            if not ai_agrees:
-                h4_strength = abs(f1_score) / 10.0          # 0.5 for MILD, 1.0 for BEARISH
-                penalty     = 1.0 - (h4_strength * 0.20)   # 0.90 for MILD, 0.80 for BEARISH
-                data["confidence"] = max(float(data.get("confidence", 0.40)) * penalty, 0.25)
-                data["reason"] = f"[H4 disagrees ×{penalty:.2f}] {data.get('reason', '')}"
+        # ── MULTI-TIMEFRAME DISAGREEMENT PENALTY ──────────────────────────────
+        # Graduated penalty based on how many higher TFs disagree.
+        # Calibration (2026-04-24): old ×0.55 for 3-TF made it IMPOSSIBLE
+        # for any signal to pass the 55% gate (95% × 0.55 = 52% < 55%).
+        # New values allow high-conviction counter-trend trades through.
+        # Skip when score override already fired (score already includes TF info).
+        _fs = base_signal.get("factor_scores", {})
+        f1_score = _fs.get("f1_h4_trend", 0)
+        f2_score = _fs.get("f2_h1_trend", 0)
+        f10_score = _fs.get("f10_d1_trend", 0)
+
+        if ai_direction in ("BUY", "SELL") and not _score_override:
+            disagree_count = 0
+            if ai_direction == "BUY":
+                if f1_score < 0: disagree_count += 1   # H4 bearish
+                if f2_score < 0: disagree_count += 1   # H1 bearish
+                if f10_score < 0: disagree_count += 1  # D1 bearish
+            elif ai_direction == "SELL":
+                if f1_score > 0: disagree_count += 1   # H4 bullish
+                if f2_score > 0: disagree_count += 1   # H1 bullish
+                if f10_score > 0: disagree_count += 1  # D1 bullish
+
+            # ── GRADUATED PENALTY (not a kill switch) ──
+            # Calibration math at each tier (AI 65% is typical):
+            #   3 TFs: 65% × 0.80 = 52.0% — passes normal adaptive gates
+            #          55% × 0.80 = 44.0% — permits small Fib reversal probes
+            #          85% × 0.80 = 68.0% — comfortably passes all gates
+            #   2 TFs: 65% × 0.85 = 55.3% — passes normal gate (0.55)
+            #   1 TF:  65% × 0.92 = 59.8% — minimal reduction
+            # This allows high-conviction counter-trend trades at Fib levels
+            # while still penalizing weak signals against the trend.
+            if disagree_count >= 3:
+                penalty = 0.80
+                log.info(f"AI-NOTE | {symbol} | 3 higher TFs disagree with {ai_direction} | conf x{penalty}")
+            elif disagree_count == 2:
+                penalty = 0.85
+                log.info(f"AI-NOTE | {symbol} | 2 higher TFs disagree with {ai_direction} | conf x{penalty}")
+            elif disagree_count == 1:
+                penalty = 0.92
+            else:
+                penalty = 1.0
+
+            if penalty < 1.0:
+                old_conf = float(data.get("confidence", 0.40))
+                data["confidence"] = max(old_conf * penalty, 0.20)
+                data["reason"] = f"[MTF ×{penalty} ({disagree_count} TFs disagree)] {data.get('reason', '')}"
 
         # Build AI context summary for trace logging (Stage 3)
         bull = sum(1 for v in base_signal.get("factor_scores", {}).values()

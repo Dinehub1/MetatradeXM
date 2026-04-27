@@ -1,45 +1,66 @@
 """
-ai_client.py — Unified OpenRouter AI client for MetatradeXM.
+ai_client.py — Multi-tier AI client for MetatradeXM.
 
 Single source of truth for ALL AI calls in the system.
-- Two-tier fallback: T1 (primary fast model) → T2 (reliable backup)
-- Robust JSON extraction: handles truncated output, nested objects, thinking tags
-- Configurable via .env
 
-Timeout config (set in .env):
-    OPENROUTER_TIER1_TIMEOUT = 45   # seconds (thinking models need 30-40s)
-    OPENROUTER_TIER2_TIMEOUT = 45   # seconds (Llama 3.3 70B is fast but give headroom)
+Three-tier fallback chain:
+  T1 (NVIDIA Llama 3.3 70B) — primary, fast deep reasoning via NIM API
+  T2 (gemini-2.5-pro)       — secondary fallback if NVIDIA is down
+  T3 (gemini-2.5-flash)     — emergency fast fallback
 
-Model config (set in .env):
-    OPENROUTER_MODEL       = google/gemini-2.5-flash          ← T1 primary
-    OPENROUTER_FAST_MODEL  = meta-llama/llama-3.3-70b-instruct ← T2 fallback
+Config (set in .env at project root):
+    NVIDIA_API_KEY     = nvapi-...            ← NVIDIA NIM key (primary)
+    INVOKE_URL         = https://...          ← NVIDIA endpoint
+    MODEL_NAME         = meta/llama-3.3-...   ← NVIDIA model
+    GEMINI_API_KEY     = AIza...              ← Google AI Studio key (fallback)
+    GEMINI_PRO_MODEL   = gemini-2.5-pro       ← T2 fallback
+    GEMINI_FLASH_MODEL = gemini-2.5-flash     ← T3 fallback
+    GEMINI_TIMEOUT_S   = 60                   ← seconds
 """
 from __future__ import annotations
 
 import os
 import re
 import json
+import time
+import logging
 import requests
 
-# ── OpenRouter endpoint ───────────────────────────────────────────────────────
-_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-_HEADERS_BASE = {
-    "Content-Type":  "application/json",
-    "HTTP-Referer":  "https://metatradexm.bot",
-    "X-Title":       "MetatradeXM",
-}
+log = logging.getLogger("ai_client")
 
-# ── Tier config (read once at import time, respects .env loaded by caller) ────
-_T1_MODEL   = os.getenv("OPENROUTER_MODEL",      "google/gemini-2.5-flash")
-_T1_TIMEOUT = int(os.getenv("OPENROUTER_TIER1_TIMEOUT", "45"))
+# ── NVIDIA NIM API (T1 — Primary) ─────────────────────────────────────────────
+_NVIDIA_KEY   = os.getenv("NVIDIA_API_KEY", "")
+_NVIDIA_URL   = os.getenv("INVOKE_URL", "https://integrate.api.nvidia.com/v1/chat/completions")
+_NVIDIA_MODEL = os.getenv("MODEL_NAME", "meta/llama-3.3-70b-instruct")
+_NVIDIA_MAX_TOKENS = int(os.getenv("MAX_TOKENS", "1024"))  # capped for trading JSON
+_NVIDIA_TIMEOUT = 45  # seconds
 
-_T2_MODEL   = os.getenv("OPENROUTER_FAST_MODEL", "meta-llama/llama-3.3-70b-instruct")
-_T2_TIMEOUT = int(os.getenv("OPENROUTER_TIER2_TIMEOUT", "45"))
+# ── Google Gemini OpenAI-compatible endpoint (T2/T3 — Fallback) ────────────────
+_GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/openai"
+_GEMINI_URL  = f"{_GEMINI_BASE}/chat/completions"
+_GEMINI_KEY  = os.getenv("GEMINI_API_KEY", "")
+_T2_MODEL    = os.getenv("GEMINI_PRO_MODEL",   "gemini-2.5-pro")
+_T3_MODEL    = os.getenv("GEMINI_FLASH_MODEL", "gemini-2.5-flash")
+_GEMINI_TIMEOUT = int(os.getenv("GEMINI_TIMEOUT_S", "60"))
 
-_TIERS = [
-    (_T1_MODEL, _T1_TIMEOUT, "T1"),
-    (_T2_MODEL, _T2_TIMEOUT, "T2"),
-]
+# ── Tier definitions: (provider, url, api_key, model, timeout, label) ──────────
+_TIERS = []
+
+# T1: NVIDIA (only if key is set)
+if _NVIDIA_KEY:
+    _TIERS.append(("nvidia", _NVIDIA_URL, _NVIDIA_KEY, _NVIDIA_MODEL, _NVIDIA_TIMEOUT, "T1-NVIDIA"))
+
+# T2/T3: Gemini (only if key is set)
+if _GEMINI_KEY:
+    _TIERS.append(("gemini", _GEMINI_URL, _GEMINI_KEY, _T2_MODEL, _GEMINI_TIMEOUT, "T2-Gemini-Pro"))
+    _TIERS.append(("gemini", _GEMINI_URL, _GEMINI_KEY, _T3_MODEL, max(30, _GEMINI_TIMEOUT // 2), "T3-Gemini-Flash"))
+
+# Log active tiers at import time
+_tier_names = [t[5] for t in _TIERS]
+if _tier_names:
+    log.info(f"[AI] Active tiers: {' → '.join(_tier_names)}")
+else:
+    log.warning("[AI] WARNING — No AI API keys configured! Set NVIDIA_API_KEY or GEMINI_API_KEY in .env")
 
 
 # ── JSON extraction & repair helpers ─────────────────────────────────────────
@@ -50,19 +71,15 @@ def _strip_thinking(text: str) -> str:
     Handles: <think>...</think>, <thinking>...</thinking>, <thought>...</thought>,
     ◁think▷...◁/think▷, and leading prose before the first '{'.
     """
-    # Remove XML-style thinking tags (greedy to handle multiple blocks)
     text = re.sub(r"<(?:think|thinking|thought)>.*?</(?:think|thinking|thought)>",
                   "", text, flags=re.DOTALL)
-    # Remove ◁think▷ style tags (some models use these)
     text = re.sub(r"◁think▷.*?◁/think▷", "", text, flags=re.DOTALL)
-    # Remove leading prose before first '{' or '[' (common when model explains first)
     first_brace = -1
     for i, ch in enumerate(text):
         if ch in '{[':
             first_brace = i
             break
     if first_brace > 0:
-        # Only strip if there's clearly prose (no JSON structure) before the brace
         prefix = text[:first_brace].strip()
         if not any(k in prefix for k in ['"', ':', ',']):
             text = text[first_brace:]
@@ -72,7 +89,7 @@ def _strip_thinking(text: str) -> str:
 def _extract_balanced_json(text: str) -> str | None:
     """
     Extract the first balanced JSON object from text using brace counting.
-    Handles nested objects correctly (unlike the old [^{}]+ regex).
+    Handles nested objects correctly.
     """
     start = text.find('{')
     if start == -1:
@@ -100,21 +117,18 @@ def _extract_balanced_json(text: str) -> str | None:
             depth -= 1
             if depth == 0:
                 return text[start:i + 1]
-    # Unbalanced — return what we have (will try repair)
     return text[start:]
 
 
 def _repair_truncated_json(text: str) -> dict | None:
     """
     Attempt to repair a truncated JSON object by closing unclosed strings
-    and braces. This handles the common case where max_tokens cuts off the
-    response mid-string (e.g. "reason": "The trend is...).
+    and braces. Handles the common case where max_tokens cuts off mid-string.
     """
     text = text.strip()
     if not text:
         return None
 
-    # Try parsing as-is first
     try:
         result = json.loads(text)
         if isinstance(result, dict):
@@ -122,12 +136,10 @@ def _repair_truncated_json(text: str) -> dict | None:
     except json.JSONDecodeError:
         pass
 
-    # Strategy: find the last complete key-value pair and truncate there
-    # Look for the last "," or "{" that's outside a string, then close from there
     depth = 0
     in_string = False
     escape = False
-    last_safe_pos = 0  # position right after a comma or opening brace, outside strings
+    last_safe_pos = 0
 
     for i, ch in enumerate(text):
         if escape:
@@ -149,10 +161,8 @@ def _repair_truncated_json(text: str) -> dict | None:
         elif ch == '}':
             depth -= 1
 
-    # Build a repaired string: content up to last safe position + closing braces
     repaired = text[:last_safe_pos].rstrip(',').rstrip()
 
-    # Close any unclosed strings
     in_string = False
     escape = False
     for ch in repaired:
@@ -168,7 +178,6 @@ def _repair_truncated_json(text: str) -> dict | None:
     if in_string:
         repaired += '\"'
 
-    # Close remaining open braces
     depth = 0
     in_string = False
     escape = False
@@ -202,9 +211,8 @@ def _repair_truncated_json(text: str) -> dict | None:
 def _extract_json(text: str) -> dict:
     """
     Parse the first valid JSON object from a model response.
-    Handles: markdown fences, thinking tags, nested objects, and truncated output.
+    Handles: markdown fences, thinking tags, nested objects, truncated output.
     """
-    # Strip markdown fences
     if "```" in text:
         for part in text.split("```"):
             part = part.strip()
@@ -214,10 +222,8 @@ def _extract_json(text: str) -> dict:
                 text = part
                 break
 
-    # Strip thinking/reasoning blocks
     text = _strip_thinking(text)
 
-    # Try direct parse first
     try:
         result = json.loads(text)
         if isinstance(result, dict):
@@ -225,7 +231,6 @@ def _extract_json(text: str) -> dict:
     except json.JSONDecodeError:
         pass
 
-    # Extract balanced JSON object (handles nested {})
     balanced = _extract_balanced_json(text)
     if balanced:
         try:
@@ -233,12 +238,10 @@ def _extract_json(text: str) -> dict:
             if isinstance(result, dict):
                 return result
         except json.JSONDecodeError:
-            # Try to repair the truncated JSON
             repaired = _repair_truncated_json(balanced)
             if repaired is not None:
                 return repaired
 
-    # Last resort: try to repair whatever we have
     repaired = _repair_truncated_json(text)
     if repaired is not None:
         return repaired
@@ -248,83 +251,152 @@ def _extract_json(text: str) -> dict:
 
 def _log_line(data: dict, tier: str, model: str, label: str) -> str:
     """Build a concise log line for the result."""
-    tag = f"[{label}] " if label else ""
+    tag = f"{label} | " if label else ""
     direction = data.get("direction", data.get("exit", "?"))
     conf = data.get("confidence")
     summary = f"{direction} {float(conf):.0%}" if conf is not None else str(direction)
-    return f"  [AI] OpenRouter {tier} OK ({model}) — {tag}{summary}"
+    return f"AI-RESP | {tier} | {tag}{summary}"
+
+
+# HTTP status codes that are safe to retry (transient server-side issues)
+_RETRYABLE_HTTP = {429, 500, 502, 503, 504}
+
+
+def _call_nvidia(messages: list, model: str, api_key: str, url: str,
+                 max_tokens: int, timeout: int) -> dict:
+    """Call NVIDIA NIM API (OpenAI-compatible format, non-streaming)."""
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+    payload = {
+        "model": model,
+        "messages": messages,
+        "max_tokens": min(max_tokens, 1024),  # cap for trading JSON
+        "temperature": 0.3,
+        "top_p": 0.95,
+        "stream": False,  # non-streaming for reliable JSON extraction
+    }
+    resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _call_nvidia_with_retry(messages: list, model: str, api_key: str, url: str,
+                            max_tokens: int, timeout: int, retries: int = 1) -> dict:
+    """
+    Call NVIDIA with automatic retry on transient failures.
+    Retries once (2s delay) on: timeout, connection error, HTTP 429/5xx.
+    """
+    for attempt in range(retries + 1):
+        try:
+            return _call_nvidia(messages, model, api_key, url, max_tokens, timeout)
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+            if attempt < retries:
+                log.info(f"AI-RETRY | NVIDIA transient error | retry {attempt+1}/{retries} in 2s")
+                time.sleep(2)
+                continue
+            raise
+        except requests.exceptions.HTTPError as e:
+            status = e.response.status_code if e.response else 0
+            # Retry on known transient codes OR unknown errors (status=0 means no response)
+            if (status in _RETRYABLE_HTTP or status == 0) and attempt < retries:
+                log.info(f"AI-RETRY | NVIDIA HTTP {status} | retry {attempt+1}/{retries} in 2s")
+                time.sleep(2)
+                continue
+            raise
+
+
+def _call_gemini(messages: list, model: str, api_key: str, url: str,
+                 max_tokens: int, temperature: float, timeout: int) -> dict:
+    """Call Google Gemini via OpenAI-compatible endpoint."""
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+    payload = {
+        "model": model,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }
+    resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
+    resp.raise_for_status()
+    return resp.json()
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def ask_openrouter(
+def ask_gemini(
     messages: list,
     max_tokens: int = 400,
     temperature: float = 0.3,
     label: str = "",
 ) -> dict | None:
     """
-    Send a chat request to OpenRouter with T1 → T2 automatic fallback.
+    Send a chat request through the multi-tier AI chain:
+      T1: NVIDIA Llama 3.3 70B (primary)
+      T2: Gemini Pro (fallback)
+      T3: Gemini Flash (emergency)
+
+    Uses the OpenAI-compatible message format so callers don't need to change.
 
     Args:
-        messages:    OpenAI-format message list [{"role": ..., "content": ...}, ...]
-        max_tokens:  Max response tokens (default 400 — enough for JSON with long reasons)
-        temperature: Sampling temperature (default 0.3 — deterministic but not rigid)
+        messages:    OpenAI-format list [{"role": ..., "content": ...}, ...]
+        max_tokens:  Max response tokens (default 400)
+        temperature: Sampling temperature (default 0.3)
         label:       Short label for log lines (e.g. "XAUUSD" or "exit-check")
 
     Returns:
         Parsed dict on success (e.g. {"direction": "BUY", "confidence": 0.72, "reason": "..."})
-        None if both tiers fail.
+        None if all tiers fail.
     """
-    api_key = os.getenv("OPENROUTER_API_KEY", "")
-    if not api_key:
-        print("  [AI] ERROR — OPENROUTER_API_KEY not set in .env")
+    if not _TIERS:
+        log.error("[AI] ERROR — No AI API keys configured! Set NVIDIA_API_KEY or GEMINI_API_KEY in .env")
         return None
 
-    headers = {**_HEADERS_BASE, "Authorization": f"Bearer {api_key}"}
-
-    for model, timeout, tier in _TIERS:
+    for i, (provider, url, api_key, model, timeout, tier) in enumerate(_TIERS):
         try:
-            resp = requests.post(
-                _API_URL,
-                headers=headers,
-                json={
-                    "model":       model,
-                    "messages":    messages,
-                    "max_tokens":  max_tokens,
-                    "temperature": temperature,
-                },
-                timeout=timeout,
-            )
-            resp.raise_for_status()
+            log.info(f"AI-TRY | {tier} | model {model}")
 
-            raw  = resp.json()["choices"][0]["message"]["content"].strip()
+            if provider == "nvidia":
+                resp_json = _call_nvidia_with_retry(messages, model, api_key, url, max_tokens, timeout)
+            else:
+                resp_json = _call_gemini(messages, model, api_key, url, max_tokens, temperature, timeout)
+
+            msg = resp_json["choices"][0]["message"]
+            raw = (msg.get("content") or "").strip()
+            if not raw:
+                raise ValueError("Empty content — model may be in think/safety mode")
             data = _extract_json(raw)
 
-            # Sanity: result must be a non-empty dict
-            if not isinstance(data, dict) or not data:
-                raise ValueError(f"Parsed result is not a valid dict: {data!r}")
+            if not isinstance(data, dict):
+                raise ValueError(f"Parsed result is not a dict: {data!r}")
 
-            used = resp.json().get("model", model)
-            print(_log_line(data, tier, used, label))
+            used = resp_json.get("model", model)
+            log.info(_log_line(data, tier, used, label))
             return data
 
         except requests.exceptions.Timeout:
             msg = f"timed out after {timeout}s"
+        except requests.exceptions.ConnectionError as e:
+            msg = f"connection error: {str(e)[:60]}"
         except requests.exceptions.HTTPError as e:
-            msg = f"HTTP {e.response.status_code}" if e.response else str(e)
+            status = e.response.status_code if e.response else "?"
+            body = e.response.text[:200] if e.response else ""
+            msg = f"HTTP {status}: {body}"
         except (json.JSONDecodeError, ValueError) as e:
             msg = f"JSON parse error — {str(e)[:60]}"
         except Exception as e:
             msg = str(e)[:70]
 
-        suffix = " — trying T2..." if tier == "T1" else " — all tiers exhausted"
-        print(f"  [AI] OpenRouter {tier}/{model} failed ({msg}){suffix}")
+        is_last = (i == len(_TIERS) - 1)
+        suffix = " — all tiers exhausted" if is_last else f" — trying {_TIERS[i+1][5]}..."
+        log.warning(f"  [AI] {tier}/{model} failed ({msg}){suffix}")
 
     return None
 
 
-# ── Alias ─────────────────────────────────────────────────────────────────────
-# analyzer.py imports ask_gemini by name.  OpenRouter routes to Gemini 2.5 Flash
-# as T1, so this alias is semantically correct — Gemini IS the primary backend.
-ask_gemini = ask_openrouter
+# ── Alias for backward compat ─────────────────────────────────────────────────
+# analyzer.py imports both ask_gemini and ask_openrouter
+ask_openrouter = ask_gemini

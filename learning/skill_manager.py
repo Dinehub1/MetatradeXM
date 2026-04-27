@@ -40,6 +40,20 @@ def _parse_frontmatter(text: str) -> tuple:
     current_key = None
     current_dict = None
 
+    def _normalize_scalar(value: str):
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            value = value[1:-1]
+        if value.lower() == "null" or value == "":
+            return None
+        if value.replace(".", "").replace("-", "").isdigit() and value.count(".") <= 1:
+            return float(value) if "." in value else int(value)
+        if value.lower() in ("true", "false"):
+            return value.lower() == "true"
+        if value.startswith("[") and value.endswith("]"):
+            return [x.strip().strip("'\"") for x in value[1:-1].split(",") if x.strip()]
+        return value
+
     for line in yaml_text.split("\n"):
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
@@ -48,14 +62,7 @@ def _parse_frontmatter(text: str) -> tuple:
         # Nested dict
         if line.startswith("  ") and current_dict is not None and ":" in stripped:
             k, v = stripped.split(":", 1)
-            v = v.strip()
-            if v.lower() == "null" or v == "":
-                v = None
-            elif v.replace(".", "").replace("-", "").isdigit() and v.count(".") <= 1:
-                v = float(v) if "." in v else int(v)
-            elif v.startswith("[") and v.endswith("]"):
-                v = [x.strip().strip("'\"") for x in v[1:-1].split(",") if x.strip()]
-            current_dict[k.strip()] = v
+            current_dict[k.strip()] = _normalize_scalar(v)
             continue
 
         if ":" in stripped:
@@ -68,20 +75,8 @@ def _parse_frontmatter(text: str) -> tuple:
                 metadata[k] = {}
                 current_dict = metadata[k]
                 current_key = k
-            elif v.lower() == "null":
-                metadata[k] = None
-                current_dict = None
-            elif v.replace(".", "").replace("-", "").isdigit() and v.count(".") <= 1:
-                metadata[k] = float(v) if "." in v else int(v)
-                current_dict = None
-            elif v.startswith("[") and v.endswith("]"):
-                metadata[k] = [x.strip().strip("'\"") for x in v[1:-1].split(",") if x.strip()]
-                current_dict = None
-            elif v.lower() in ("true", "false"):
-                metadata[k] = v.lower() == "true"
-                current_dict = None
             else:
-                metadata[k] = v
+                metadata[k] = _normalize_scalar(v)
                 current_dict = None
 
     return metadata, body

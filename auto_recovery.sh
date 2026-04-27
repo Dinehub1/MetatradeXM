@@ -9,27 +9,25 @@ cd "$SCRIPT_DIR"
 DRY_FLAG=""
 [[ "$1" == "--dry" ]] && DRY_FLAG="--dry"
 
-TRADER_LOG="$SCRIPT_DIR/trading.log"
-DASH_LOG="/tmp/dashboard.log"
+MASTER_LOG="$SCRIPT_DIR/logs/system.log"
 RESTART_COUNT_TRADER=0
 RESTART_COUNT_DASH=0
 
-log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$TRADER_LOG"; }
+log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$MASTER_LOG"; }
 
 # ── Start functions ──────────────────────────────────────────────────────────
 start_dashboard() {
   log "🖥  Starting dashboard on port 8889..."
-  nohup python3 "$SCRIPT_DIR/dashboard.py" > "$DASH_LOG" 2>&1 &
+  nohup python3 -u "$SCRIPT_DIR/dashboard/dashboard.py" >> "$MASTER_LOG" 2>&1 &
   DASH_PID=$!
   echo $DASH_PID > /tmp/trading_dashboard.pid
   log "   Dashboard PID: $DASH_PID"
-  sleep 2
 }
 
 start_trader() {
   log "🚀 Starting continuous trader $DRY_FLAG..."
-  nohup python3 "$SCRIPT_DIR/continuous_trader.py" $DRY_FLAG \
-    >> "$TRADER_LOG" 2>&1 &
+  nohup python3 -u "$SCRIPT_DIR/continuous_trader.py" $DRY_FLAG \
+    >> "$MASTER_LOG" 2>&1 &
   TRADER_PID=$!
   echo $TRADER_PID > /tmp/trading_bot.pid
   log "   Trader PID: $TRADER_PID"
@@ -40,13 +38,14 @@ start_trader() {
 log "============================================================"
 log "  🛡  AUTO-RECOVERY WATCHDOG STARTED"
 log "  Mode: ${DRY_FLAG:---live}"
-log "  Trader log: $TRADER_LOG"
+log "  Trader log: $MASTER_LOG"
 log "============================================================"
 
 # Kill any existing instances first
-pkill -f "dashboard.py" 2>/dev/null
+pkill -f "dashboard/dashboard.py" 2>/dev/null
 pkill -f "continuous_trader.py" 2>/dev/null
 pkill -f "bot.py run" 2>/dev/null
+rm -f /tmp/trading_bot.pid /tmp/trading_dashboard.pid /tmp/trading_bot_main.lock /tmp/trading_bot_pid.txt
 sleep 2
 
 start_dashboard

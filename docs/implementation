@@ -1,0 +1,207 @@
+# MetatradeXM 100X Performance Overhaul
+
+> **Goal:** Transform MetatradeXM from a reactive, manually-tuned system into a self-optimizing, low-latency autonomous trading engine.
+
+## Current Setup
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  WINDOWS VM  (MT5 Terminal installed)                    │
+│                                                         │
+│  win_webhook_mt5.py  (Flask :5001)                      │
+│  ├─ GET  /status, /account, /positions, /tick, /candles │
+│  ├─ GET  /indicators/<symbol>  (RSI, MACD, ADX, BB...) │
+│  ├─ POST /webhook  (BUY/SELL/CLOSE)                     │
+│  └─ POST /modify   (SL/TP changes)                      │
+│                                                         │
+│  This server talks to MT5 via the MetaTrader5 Python    │
+│  package (Windows-only). Already running & working.     │
+└────────────────────┬────────────────────────────────────┘
+                     │  HTTP (current: polling every 15s)
+                     │  WebSocket (:5002) ← TO BE ADDED
+                     ▼
+┌─────────────────────────────────────────────────────────┐
+│  UBUNTU VPS  (Trading Bot — this codebase)              │
+│                                                         │
+│  continuous_trader.py                                   │
+│  ├─ bridges/webhook_bridge.py  (HTTP to Windows)        │
+│  ├─ bridges/ws_bridge.py       (NEW — WebSocket client) │
+│  ├─ core/analyzer.py           (signal analysis)        │
+│  ├─ risk/*                     (pyramid, exit, capital) │
+│  └─ learning/*                 (memory, skills, AI)     │
+│                                                         │
+│  MetaAPI code: COMMENTED OUT (kept as backup)           │
+│  ├─ bridges/metaapi_bridge.py  (imports disabled)       │
+│  └─ bridges/live_server.py     (imports disabled)       │
+└─────────────────────────────────────────────────────────┘
+```
+
+## Key Decision: MetaAPI = Commented Out (Not Deleted)
+
+- `bridges/metaapi_bridge.py` — **KEEP FILE**, comment out import in `make_bridge()`
+- `bridges/live_server.py` — **KEEP FILE**, comment out import in `continuous_trader.py`
+- `metaapi-cloud-sdk` in `requirements.txt` — **COMMENT OUT** with `# MetaAPI disabled`
+- `METAAPI_TOKEN` / `METAAPI_ACCOUNT_ID` in `.env` — **COMMENT OUT**
+- MetaAPI fallback in `make_bridge()` — **COMMENT OUT** the Priority 2 block
+
+---
+
+## 7 Pillars
+
+| # | Pillar | Multiplier | Effort | Phase |
+|---|--------|-----------|--------|-------|
+| 1 | Fix Phantom State Bug | **2X** | Low | 1 |
+| 2 | WebSocket from Windows VM | **2-3X** | Medium | 1 |
+| 3 | Adaptive Confidence Gating | **3-4X** | Medium | 2 |
+| 4 | Limit Order Execution | **1.5-2X** | Medium | 2 |
+| 5 | Self-Optimization Engine | **2-3X** | High | 3 |
+| 6 | Multi-Regime Strategies | **2-3X** | High | 3 |
+| 7 | Dynamic Risk:Reward | **2-3X** | Medium | 3 |
+
+---
+
+## Phase 1: Foundation (✅ COMPLETE)
+
+### 1.1 Fix Phantom State Desync
+
+**Problem:** `pyramid_manager.py` tracks tranches in `trader_state.json` but never validates against MT5. When MT5 closes a position (SL/TP hit), the phantom tranche blocks new entries.
+
+**[MODIFY] risk/pyramid_manager.py** — Add `hard_sync()`:
+
+```python
+def hard_sync(self, bridge, symbol: str):
+    """Sync local pyramid state against actual MT5 positions."""
+    mt5_positions = bridge.get_open_positions(symbol)
+    mt5_tickets = {str(p.ticket) for p in mt5_positions}
+    stale = []
+    for group_id, group in self.active_groups.items():
+        for tranche in group.get("tranches", []):
+            if str(tranche["ticket"]) not in mt5_tickets:
+                stale.append((group_id, tranche["ticket"]))
+    for group_id, ticket in stale:
+        log.warning(f"[PYRAMID] Removing phantom tranche #{ticket}")
+        self._remove_tranche(group_id, ticket)
+```
+
+**[MODIFY] continuous_trader.py** — Call `hard_sync()` at top of every monitor cycle.
+
+### 1.2 WebSocket Streaming from Windows VM
+
+**Problem:** `webhook_bridge.py` polls HTTP every 15s. Gold moves $2-5 in that window.
+
+**Solution:** Add WebSocket server to Windows VM, WebSocket client bridge on Ubuntu.
+
+#### [MODIFY] services/webhooks/win_webhook_mt5.py (on Windows VM)
+
+Add WebSocket server on port 5002 alongside existing Flask :5001:
+
+- Push tick prices every 500ms (throttled)
+- Push candle bar-close events (M15, H1, H4, D1)
+- Push position change notifications
+- Push account snapshots every 30s
+
+#### [NEW] bridges/ws_bridge.py (on Ubuntu)
+
+```python
+class WSBridge:
+    """
+    WebSocket client → Windows VM for real-time data.
+    HTTP webhook → Windows VM for trade execution.
+    Same public API as WebhookBridge (drop-in replacement).
+    """
+    def __init__(self, ws_url, http_url):
+        self.ws_url = ws_url        # ws://<WIN_IP>:5002
+        self._webhook = WebhookBridge(http_url)  # http://<WIN_IP>:5001
+        self._latest_ticks = {}     # symbol → {bid, ask, time}
+        self._buffers = {}          # symbol → tf → DataFrame
+        self.connected = False
+
+    # Data reads → from WebSocket cache (sub-second latency)
+    def get_tick(self, symbol): ...
+    def get_candles(self, symbol, tf, count): ...
+    def get_indicators(self, symbol, timeframes): ...
+
+    # Trade execution → delegate to HTTP webhook (same as before)
+    def place_order(self, params): return self._webhook.place_order(params)
+    def close_position(self, ticket): return self._webhook.close_position(ticket)
+    def modify_position(self, t, sl, tp): return self._webhook.modify_position(t, sl, tp)
+    def get_open_positions(self, sym=None): return self._webhook.get_open_positions(sym)
+    def get_account_info(self): return self._webhook.get_account_info()
+```
+
+#### [MODIFY] continuous_trader.py — Update `make_bridge()`
+
+```python
+def make_bridge():
+    ws_url = os.environ.get("WIN_WS_URL", "")
+    http_url = os.environ.get("WIN_WEBHOOK_URL", "")
+
+    # Priority 1: WebSocket + HTTP (real-time data + execution)
+    if ws_url and http_url:
+        from bridges.ws_bridge import WSBridge
+        return WSBridge(ws_url, http_url)
+
+    # Priority 2: HTTP-only Webhook (fallback — polling)
+    if http_url:
+        from bridges.webhook_bridge import WebhookBridge
+        return WebhookBridge(http_url)
+
+    # # Priority 3: MetaApi Cloud (COMMENTED OUT)
+    # token = os.environ.get("METAAPI_TOKEN", "")
+    # account_id = os.environ.get("METAAPI_ACCOUNT_ID", "")
+    # if token and account_id:
+    #     from bridges.metaapi_bridge import MetaApiBridge
+    #     return MetaApiBridge(token, account_id)
+
+    # Priority 4: Direct MT5 (Windows-only)
+    from bridges.mt5_bridge import MT5Bridge
+    return MT5Bridge()
+```
+
+#### Environment Variables
+
+```env
+# Windows VM connection
+WIN_WS_URL=ws://<WINDOWS_VM_IP>:5002      # NEW — real-time data
+WIN_WEBHOOK_URL=http://<WINDOWS_VM_IP>:5001  # existing — execution
+
+# MetaAPI (commented out — kept as backup)
+# METAAPI_TOKEN=xxx
+# METAAPI_ACCOUNT_ID=yyy
+```
+
+---
+
+## Phase 2: Signal Quality (✅ COMPLETE)
+
+### 2.1 Adaptive Confidence Gating
+
+**[MODIFY] continuous_trader.py** — Replace static `min_conf` with dynamic function based on session, ADX, and loss streak.
+
+### 2.2 Limit Order Execution
+
+**[MODIFY] webhook_bridge.py** — Add `place_limit_order()`.
+**[MODIFY] win_webhook_mt5.py** — Add `LIMIT_BUY`/`LIMIT_SELL` handlers.
+
+---
+
+## Phase 3: Intelligence (✅ COMPLETE)
+
+### 3.1 Self-Optimization — Enable with guardrails
+### 3.2 Multi-Regime Strategy — New `core/regime_detector.py`
+### 3.3 Dynamic Risk:Reward — ATR-based SL/TP + Kelly sizing
+
+---
+
+## Implementation Order (What to Code Now)
+
+```
+Step 1: pyramid_manager.py    → add hard_sync()
+Step 2: continuous_trader.py   → call hard_sync(), comment out MetaAPI
+Step 3: win_webhook_mt5.py     → add WebSocket server (:5002)
+Step 4: bridges/ws_bridge.py   → new WebSocket client bridge
+Step 5: continuous_trader.py   → update make_bridge() for WSBridge
+Step 6: .env                   → add WIN_WS_URL, comment METAAPI vars
+Step 7: requirements.txt       → comment metaapi-cloud-sdk
+Step 8: Test & deploy to Ubuntu
+```

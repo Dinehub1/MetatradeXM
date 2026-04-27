@@ -1,0 +1,17 @@
+#!/usr/bin/expect -f
+set timeout 120
+set cmd [lindex $argv 0]
+spawn ssh -o StrictHostKeyChecking=no Administrator@206.72.198.54 "cmd.exe /c $cmd"
+expect {
+    "password:" {
+        send "q3XtM9f%\r"
+        exp_continue
+    }
+    eof {
+        exit 0
+    }
+    timeout {
+        puts "\nTIMEOUT"
+        exit 1
+    }
+}

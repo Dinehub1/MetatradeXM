@@ -42,3 +42,5 @@ Thumbs.db
 
 # ── Cloudflare Tunnel ────────────────────────────────────────────────────────
 tunnel_url.sh
+# Added by code-review-graph
+.code-review-graph/

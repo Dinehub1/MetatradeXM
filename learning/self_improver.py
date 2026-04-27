@@ -8,6 +8,7 @@ Runs daily reviews, adjusts scoring weights, improves/generates skills.
 import json
 import logging
 import os
+import time
 import requests
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,10 +29,9 @@ OLLAMA_MODEL = "minimax-m2.7:cloud"
 WEIGHT_FLOOR = 0.85
 WEIGHT_CEIL  = 1.20
 
-# SAFETY: Disable automatic weight adjustments to prevent death spiral.
-# Weight decay: 1.0 -> 0.95 -> 0.941 -> 0.886 compounds fast.
-# All weight changes must be MANUAL. Set True only for deliberate adjustment.
-WEIGHT_ADJUSTMENT_ENABLED = False
+# SAFETY: Weight adjustments are enabled, guarded by minimum sample sizes
+# and bounded floor/ceiling values to prevent score collapse.
+WEIGHT_ADJUSTMENT_ENABLED = True
 
 # Explicit mapping from factor stat keys (analyzer) to weight keys (scoring_weights.json)
 FACTOR_TO_WEIGHT = {
@@ -116,9 +116,16 @@ class PerformanceAnalyzer:
 
         # 4. Improve existing skills
         all_outcomes = self.memory.get_all_outcomes(limit=50)
+        _backoff = 2  # seconds between API calls to avoid rate-limiting
         for skill_info in self.skill_mgr.list_skills():
             if skill_info["total_trades"] >= 10:
-                self.skill_mgr.improve_skill(skill_info["name"], all_outcomes)
+                try:
+                    self.skill_mgr.improve_skill(skill_info["name"], all_outcomes)
+                    _backoff = 2  # reset on success
+                except Exception as e:
+                    log.warning(f"[SELF-IMPROVE] Skill '{skill_info['name']}' improve failed: {e}")
+                    _backoff = min(_backoff * 2, 30)  # exponential backoff, cap 30s
+                time.sleep(_backoff)  # throttle API bursts
 
         # 5. Auto-generate skills from strong patterns
         for pattern in patterns:
@@ -232,16 +239,23 @@ class PerformanceAnalyzer:
             return {}
         adjustments = {}
 
-        for factor_name, stats in factor_stats.items():
-            if stats['sample_size'] < 5:
-                continue  # need minimum data
+        # 1. Calculate baseline win rate to contextualize factor performance
+        total_wins = sum(1 for o in outcomes if o.get("profit", 0) > 0)
+        baseline_wr = total_wins / len(outcomes) if outcomes else 0.5
 
-            # If a factor has high win rate, slightly increase its weight
-            if stats['win_rate'] >= 0.65:
-                adjustments[factor_name] = 1.05  # +5%
-            elif stats['win_rate'] <= 0.35:
-                adjustments[factor_name] = 0.95  # -5%
-            # Otherwise no change
+        for factor_name, stats in factor_stats.items():
+            # GUARDRAIL: Require statistically significant sample size
+            if stats['sample_size'] < 15:
+                continue
+
+            # 2. Dynamic thresholding based on baseline
+            factor_wr = stats['win_rate']
+            
+            # GUARDRAIL: Only adjust if the factor meaningfully deviates from baseline
+            if factor_wr >= max(0.60, baseline_wr + 0.10):
+                adjustments[factor_name] = 1.05  # Reward overperformance
+            elif factor_wr <= min(0.40, baseline_wr - 0.10):
+                adjustments[factor_name] = 0.95  # Penalize underperformance
 
         return adjustments
 

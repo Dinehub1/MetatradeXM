@@ -3,14 +3,22 @@
 Port: 8889 | Chart.js | Multi-symbol | Real-time | Glassmorphism | Threaded
 """
 import http.server, json, sqlite3, base64, os
+from datetime import datetime, timezone
 from socketserver import ThreadingMixIn
 from pathlib import Path
 
 PORT         = 8889
-BASE_DIR     = Path(__file__).parent
-DB_FILE      = BASE_DIR / "trades.db"
-STATUS_FILE  = BASE_DIR / "bot_status.json"
-CANDLES_FILE = BASE_DIR / "candles_cache.json"
+BASE_DIR     = Path(__file__).resolve().parent.parent
+DB_FILE      = BASE_DIR / "data" / "trades.db"
+STATUS_FILE  = BASE_DIR / "state" / "bot_status.json"
+CANDLES_FILE = BASE_DIR / "state" / "candles_cache.json"
+
+def _current_session() -> str:
+    h = datetime.now(timezone.utc).hour
+    if  8 <= h < 13: return "LONDON"
+    if 13 <= h < 17: return "LONDON_NY_OVERLAP"
+    if 17 <= h < 22: return "NEW_YORK"
+    return "ASIAN"
 
 # ── Simple HTTP Basic Auth (set DASH_USER / DASH_PASS env vars, or use defaults) ─
 DASH_USER = os.environ.get("DASH_USER", "admin")
@@ -959,6 +967,244 @@ document.addEventListener('DOMContentLoaded', () => {
 </html>"""
 
 
+# ── Live Data Viewer (/live) ───────────────────────────────────────────────────
+LIVE_HTML = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Live Stream — MetatradeXM</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#06090f;--bg1:#0b1017;--bg2:rgba(255,255,255,.04);--bg3:rgba(255,255,255,.07);
+  --border:rgba(255,255,255,.08);--border2:rgba(255,255,255,.14);
+  --cyan:#00e5ff;--purple:#a855f7;--green:#00ff88;--red:#ff3b5c;--amber:#fbbf24;
+  --text:#e2e8f0;--muted:#64748b;
+  --font:'Inter',system-ui,sans-serif;--mono:'JetBrains Mono','Fira Code',monospace;
+}
+body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:13px;line-height:1.5;min-height:100vh;
+  background-image:radial-gradient(ellipse 90% 55% at 50% -10%,rgba(0,229,255,.05) 0%,transparent 100%),
+    radial-gradient(ellipse 55% 45% at 85% 85%,rgba(168,85,247,.04) 0%,transparent 100%);}
+header{position:sticky;top:0;z-index:100;background:rgba(6,9,15,.9);backdrop-filter:blur(14px);
+  border-bottom:1px solid var(--border);padding:0 24px;height:52px;display:flex;align-items:center;gap:14px;}
+.logo{font-size:15px;font-weight:700;color:var(--cyan);letter-spacing:-.3px}
+.logo span{color:var(--text);opacity:.7}
+.pill{display:flex;align-items:center;gap:6px;padding:4px 12px;border-radius:99px;font-size:11px;font-weight:600;border:1px solid;transition:all .3s;}
+.pill.ok{border-color:var(--green);color:var(--green);background:rgba(0,255,136,.1)}
+.pill.bad{border-color:var(--red);color:var(--red);background:rgba(255,59,92,.1)}
+.pill.wait{border-color:var(--amber);color:var(--amber);background:rgba(251,191,36,.1)}
+.dot{width:7px;height:7px;border-radius:50%;background:currentColor;animation:pulse 1.4s infinite}
+.pill.ok .dot{animation:pulse 1.4s infinite}
+.pill.bad .dot,.pill.wait .dot{animation:none;opacity:.8}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.ml{margin-left:auto}.mono{font-family:var(--mono)}
+.btn{padding:4px 10px;border-radius:6px;border:1px solid var(--border2);background:var(--bg2);
+  color:var(--text);font-size:11px;cursor:pointer;transition:background .2s;}
+.btn:hover{background:var(--bg3)}
+a.back{font-size:12px;color:var(--muted);text-decoration:none;padding:4px 10px;border-radius:6px;
+  border:1px solid var(--border);transition:all .2s;}
+a.back:hover{color:var(--text);background:var(--bg2)}
+main{padding:20px 24px;display:flex;flex-direction:column;gap:18px}
+#banner{padding:12px 16px;border-radius:10px;border:1px solid;display:flex;align-items:center;gap:10px;font-size:13px;transition:all .4s;}
+#banner.ok{border-color:rgba(0,255,136,.25);background:rgba(0,255,136,.06);color:var(--green)}
+#banner.bad{border-color:rgba(255,59,92,.25);background:rgba(255,59,92,.06);color:var(--red)}
+#banner.wait{border-color:rgba(251,191,36,.25);background:rgba(251,191,36,.06);color:var(--amber)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:820px){.grid2{grid-template-columns:1fr}}
+.card{background:var(--bg1);border:1px solid var(--border);border-radius:14px;overflow:hidden}
+.card-hdr{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
+.sym{font-size:16px;font-weight:700;color:var(--cyan)}
+.price{font-family:var(--mono);font-size:20px;font-weight:500;margin-left:auto}
+.chg{font-family:var(--mono);font-size:11px;padding:2px 7px;border-radius:5px}
+.chg.up{background:rgba(0,255,136,.12);color:var(--green)}
+.chg.dn{background:rgba(255,59,92,.12);color:var(--red)}
+.age{font-size:10px;color:var(--muted);font-family:var(--mono)}
+.tabs{display:flex;gap:6px;padding:10px 16px 0;border-bottom:1px solid var(--border)}
+.tab{padding:5px 14px;border-radius:7px 7px 0 0;font-size:11px;font-weight:600;cursor:pointer;
+  border:1px solid transparent;border-bottom:none;color:var(--muted);transition:all .2s;}
+.tab:hover{color:var(--text);background:var(--bg2)}
+.tab.active{background:var(--bg2);border-color:var(--border);border-bottom:1px solid var(--bg1);color:var(--cyan);margin-bottom:-1px;}
+.tab.disabled{opacity:.3;cursor:not-allowed}
+.inds{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:8px;padding:14px 16px}
+.ind{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:8px 10px}
+.il{font-size:10px;color:var(--muted);font-weight:500;text-transform:uppercase;letter-spacing:.4px}
+.iv{font-family:var(--mono);font-size:14px;font-weight:500;margin-top:3px;word-break:break-all}
+.iv.g{color:var(--green)}.iv.r{color:var(--red)}.iv.a{color:var(--amber)}.iv.m{color:var(--muted)}
+.sbar{display:flex;flex-wrap:wrap;gap:12px;padding:12px 16px;background:var(--bg2);border-top:1px solid var(--border)}
+.sc{display:flex;flex-direction:column;gap:2px}
+.sl{font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
+.sv{font-family:var(--mono);font-size:13px;font-weight:600}
+.raw-card{background:var(--bg1);border:1px solid var(--border);border-radius:14px;overflow:hidden}
+.raw-hdr{padding:10px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:var(--muted)}
+.raw-body{font-family:var(--mono);font-size:11px;line-height:1.6;max-height:280px;overflow-y:auto;padding:12px 16px;color:rgba(255,255,255,.5)}
+.re{border-bottom:1px solid var(--border);padding:5px 0}.re:last-child{border-bottom:none}
+.rt{color:var(--cyan);margin-right:8px}.rtype{color:var(--purple);margin-right:6px}
+::-webkit-scrollbar{width:4px;height:4px}::-webkit-scrollbar-track{background:var(--bg1)}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:2px}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">MetatradeXM <span>/ Live Stream</span></div>
+  <div id="pill" class="pill wait"><span class="dot"></span><span id="pillTxt">Connecting…</span></div>
+  <span class="mono" style="font-size:11px;color:var(--muted)">ws://92.4.71.177:8887</span>
+  <div class="ml" style="display:flex;gap:8px;align-items:center">
+    <span style="font-size:11px;color:var(--muted)">Msgs: <b id="mc" style="color:var(--text)">0</b></span>
+    <span style="font-size:11px;color:var(--muted)">Last: <b id="lt" class="mono" style="color:var(--cyan)">—</b></span>
+    <button class="btn" onclick="reconnect()">↺ Reconnect</button>
+    <a href="/" class="back">← Dashboard</a>
+  </div>
+</header>
+<main>
+  <div id="banner" class="wait"><span id="bi">⏳</span><span id="bm">Connecting to live indicator stream…</span></div>
+  <div class="grid2" id="grid"></div>
+  <div class="raw-card">
+    <div class="raw-hdr">📡 Raw WebSocket Messages
+      <span style="margin-left:auto;font-size:10px;cursor:pointer;color:var(--cyan)" onclick="clrLog()">clear</span>
+    </div>
+    <div class="raw-body" id="log"><div style="color:var(--muted);padding:6px 0">Waiting…</div></div>
+  </div>
+</main>
+<script>
+const WS='ws://92.4.71.177:8887', POLL='/api/live-snapshot';
+let ws=null,mc=0,log=[],latest={},atf={},rt=null,usePoll=false;
+
+function connect(){
+  setState('wait');
+  try{
+    ws=new WebSocket(WS);
+    ws.onopen=()=>{setState('ok');addLog('system','WebSocket connected to '+WS);usePoll=false};
+    ws.onmessage=(e)=>{mc++;document.getElementById('mc').textContent=mc;
+      document.getElementById('lt').textContent=new Date().toLocaleTimeString();
+      let m;try{m=JSON.parse(e.data)}catch(err){return}
+      addLog(m.type||'msg',e.data.length+'B');handle(m)};
+    ws.onerror=()=>addLog('error','WebSocket error');
+    ws.onclose=(e)=>{setState('bad');addLog('system','Closed ('+e.code+') — retrying in 5s…');
+      rt=setTimeout(()=>{if(!usePoll)connect()},5000)};
+    // Fallback to polling if WS not established in 6s
+    setTimeout(()=>{if(ws.readyState!==1){addLog('system','WS timeout — switching to HTTP polling');
+      usePoll=true;ws.close();startPoll()}},6000);
+  }catch(e){addLog('error','Cannot create WebSocket: '+e);startPoll()}
+}
+
+function startPoll(){
+  setState('wait');addLog('system','HTTP poll mode — /api/live-snapshot every 15s');
+  fetchPoll();setInterval(fetchPoll,15000);}
+function fetchPoll(){
+  fetch(POLL).then(r=>r.json()).then(d=>{mc++;
+    document.getElementById('mc').textContent=mc;
+    document.getElementById('lt').textContent=new Date().toLocaleTimeString();
+    addLog('poll','HTTP snapshot — '+Object.keys(d.symbols||{}).join(', '));
+    handle({type:'snapshot',data:d});setState('ok')})
+  .catch(e=>addLog('error','Poll failed: '+e));}
+function reconnect(){if(rt)clearTimeout(rt);usePoll=false;if(ws)ws.close();connect()}
+
+function handle(m){
+  if(m.type==='snapshot'){const s=m.data?.symbols||{};Object.assign(latest,s);renderAll()}
+  else if(m.type==='indicator_update'&&m.symbol){
+    if(!latest[m.symbol])latest[m.symbol]={};
+    if(m.indicators)latest[m.symbol].indicators=m.indicators;
+    if(m.timeframes)latest[m.symbol].timeframes=m.timeframes;
+    render(m.symbol)}}
+
+function renderAll(){Object.keys(latest).sort().forEach(render)}
+function render(sym){
+  const d=latest[sym];if(!d)return;
+  const g=document.getElementById('grid');
+  let c=document.getElementById('c-'+sym);
+  if(!c){c=document.createElement('div');c.className='card';c.id='c-'+sym;g.appendChild(c);atf[sym]='M15'}
+  const tfs=d.timeframes||{};const tf=atf[sym]||'M15';
+  const ind=(tfs[tf]||d.indicators)||{};
+  const age=d._last_update?Math.round(Date.now()/1000-d._last_update):null;
+  const p=ind.price||0,ch=ind.price_change||0;
+  const tabs=['M15','H1','H4','D1'].map(t=>`<div class="tab${t===tf?' active':''}${tfs[t]?'':' disabled'}" onclick="setTf('${sym}','${t}')">${t}</div>`).join('');
+  c.innerHTML=`
+    <div class="card-hdr">
+      <span class="sym">${sym}</span>
+      <span class="price">${p>0?p.toFixed(sym.includes('XAU')?2:3):'—'}</span>
+      ${ch!==0?`<span class="chg ${ch>0?'up':'dn'}">${ch>0?'+':''}${ch.toFixed(3)}%</span>`:''}
+      <span class="age ml">${age!==null?age+'s ago':'waiting…'}</span>
+    </div>
+    <div class="tabs">${tabs}</div>
+    <div class="inds">${buildInds(ind,sym)}</div>
+    <div class="sbar">
+      ${sc('TFs',Object.keys(tfs).join(' · ')||'—')}
+      ${sc('Score',ind.score!==undefined?(ind.score>0?'+':'')+Number(ind.score).toFixed(1):'—')}
+      ${sc('Trend Strong',ind.trend_strong?'YES':ind.trend_strong===false?'NO':'—')}
+      ${sc('BB Squeeze',ind.bb_squeeze?'🔴 YES':ind.bb_squeeze===false?'NO':'—')}
+    </div>`;}
+
+function setTf(sym,tf){atf[sym]=tf;render(sym)}
+
+function buildInds(i,sym){
+  if(!i||!Object.keys(i).length)return`<div style="grid-column:1/-1;color:var(--muted);padding:12px 0">No data yet</div>`;
+  const rows=[
+    ['ADX',      f(i.adx,1),      adxC(i.adx)],
+    ['+DI',      f(i.plus_di,1),  'g'],
+    ['-DI',      f(i.minus_di,1), 'r'],
+    ['RSI',      f(i.rsi,1),      rsiC(i.rsi)],
+    ['EMA Trend',i.ema_trend||'—',tC(i.ema_trend)],
+    ['MACD',     i.macd_signal||'—',mC(i.macd_signal)],
+    ['MACD Hist',f(i.macd_hist,5),i.macd_hist>0?'g':i.macd_hist<0?'r':'a'],
+    ['BB Pos',   i.bb_position||'—',bbC(i.bb_position)],
+    ['Stoch K',  f(i.stoch_k,1),  rsiC(i.stoch_k)],
+    ['Stoch D',  f(i.stoch_d,1),  rsiC(i.stoch_d)],
+    ['Stoch X',  i.stoch_cross||'—',mC(i.stoch_cross)],
+    ['Williams%R',f(i.williams_r,1),wrC(i.williams_r)],
+    ['ATR',      f(i.atr,4),      'a'],
+    ['EMA 20',   f(i.ema20,2),    'm'],
+    ['EMA 50',   f(i.ema50,2),    'm'],
+    ['EMA 200',  f(i.ema200,2),   'm'],
+    ['Vol Ratio',f(i.vol_ratio,2),i.vol_ratio>1.2?'g':i.vol_ratio<0.8?'r':'a'],
+    ['Candle',   fs(i.candle_pattern_score),i.candle_pattern_score>0?'g':i.candle_pattern_score<0?'r':'m'],
+  ];
+  return rows.map(([l,v,c])=>`<div class="ind"><div class="il">${l}</div><div class="iv ${c}">${v}</div></div>`).join('')}
+
+function f(v,d=2){if(v==null||v==='')return'—';const n=parseFloat(v);return isNaN(n)?String(v):n.toFixed(d)}
+function fs(v){if(v==null)return'—';const n=parseFloat(v);return isNaN(n)?'—':(n>0?'+':'')+n.toFixed(1)}
+function adxC(v){const n=parseFloat(v);return n>25?'g':n>15?'a':'r'}
+function rsiC(v){const n=parseFloat(v);return n>60?'g':n<40?'r':'a'}
+function tC(v){return!v?'m':v.includes('BULL')?'g':v.includes('BEAR')?'r':'a'}
+function mC(v){return!v?'m':v.includes('BULL')?'g':v.includes('BEAR')?'r':'a'}
+function bbC(v){return!v?'m':v.includes('ABOVE')?'g':v.includes('BELOW')?'r':'a'}
+function wrC(v){const n=parseFloat(v);return n>-20?'r':n<-80?'g':'a'}
+function sc(l,v){return`<div class="sc"><div class="sl">${l}</div><div class="sv">${v}</div></div>`}
+
+function setState(s){
+  const p=document.getElementById('pill'),t=document.getElementById('pillTxt');
+  const ban=document.getElementById('banner');
+  const labels={ok:'Live',bad:'Disconnected',wait:'Connecting…'};
+  const icons={ok:'🟢',bad:'🔴',wait:'⏳'};
+  const msgs={
+    ok:'✅ Connected — streaming live indicators from ws://92.4.71.177:8887',
+    bad:'⚡ Connection lost — will retry in 5s (or using HTTP poll fallback)',
+    wait:'⏳ Connecting to ws://92.4.71.177:8887…'};
+  p.className='pill '+s;t.textContent=labels[s];
+  ban.className=s;document.getElementById('bi').textContent=icons[s];
+  document.getElementById('bm').textContent=msgs[s]}
+
+function addLog(type,detail){
+  const ts=new Date().toLocaleTimeString('en-GB',{hour12:false});
+  log.unshift({ts,type,detail:String(detail).substring(0,180)});
+  if(log.length>50)log=log.slice(0,50);
+  const el=document.getElementById('log');
+  el.innerHTML=log.map(e=>`<div class="re"><span class="rt">${e.ts}</span><span class="rtype">[${e.type}]</span>${esc(e.detail)}</div>`).join('')}
+function clrLog(){log=[];document.getElementById('log').innerHTML='<div style="color:var(--muted)">Cleared.</div>'}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+
+connect();
+// Refresh "Xs ago" counters every second
+setInterval(()=>{Object.keys(latest).forEach(sym=>{
+  const el=document.querySelector(`#c-${sym} .age`);
+  const d=latest[sym];
+  if(el&&d?._last_update)el.textContent=Math.round(Date.now()/1000-d._last_update)+'s ago'})},1000);
+</script>
+</body>
+</html>"""
+
+
 # ── HTTP Handler ───────────────────────────────────────────────────────────────
 class DashHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
@@ -1039,6 +1285,28 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
                 except Exception:
                     data = {}
             self._json(data)
+
+        elif path in ('/live', '/live.html'):
+            # ── Live indicator stream viewer ──────────────────────────────────
+            # Connects to ws://92.4.71.177:8887 and displays all indicators live
+            body = LIVE_HTML.encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.send_header('Content-Length', len(body))
+            self.end_headers()
+            self.wfile.write(body)
+
+        elif path == '/api/live-snapshot':
+            # ── HTTP snapshot of latest indicators (polling fallback) ─────────
+            # tv_server writes state/live_snapshot.json every 30s
+            snap = {'session': _current_session(), 'symbols': {}}
+            snap_file = BASE_DIR / 'state' / 'live_snapshot.json'
+            if snap_file.exists():
+                try:
+                    snap = json.loads(snap_file.read_text())
+                except Exception:
+                    pass
+            self._json(snap)
 
         else:
             self.send_response(404)

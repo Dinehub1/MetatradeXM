@@ -23,46 +23,38 @@ import signal
 import concurrent.futures
 from datetime import datetime, timezone
 from pathlib import Path
-from core.paths import ROOT_DIR, CONFIG_DIR
-# ── Environment loading — load .env then bot_config.env (latter wins on conflicts) ──
-for _env_name in [".env", "bot_config.env"]:
-    _env_file = CONFIG_DIR / _env_name
-    if _env_file.exists():
-        for _line in _env_file.read_text().splitlines():
-            _line = _line.strip()
-            if _line and not _line.startswith("#") and "=" in _line:
-                k, v = _line.split("=", 1)
-                os.environ.setdefault(k.strip(), v.strip())
+from core.paths import ROOT_DIR, CONFIG_DIR, STATE_DIR, LOG_DIR, DATA_DIR
+# ── Environment loading — load .env (single source of truth) ──
+_env_path = ROOT_DIR / ".env"
+if _env_path.exists():
+    for _line in _env_path.read_text().splitlines():
+        _line = _line.strip()
+        if _line and not _line.startswith("#") and "=" in _line:
+            k, v = _line.split("=", 1)
+            os.environ[k.strip()] = v.strip()
 
 # ── Paths ────────────────────────────────────────────────────────────────────
-STATUS_FILE = ROOT_DIR / "bot_status.json"
-CANDLES_FILE = ROOT_DIR / "candles_cache.json"
-STATE_FILE    = ROOT_DIR / "trader_state.json"    # persists cycle count + trade IDs
-COOLDOWN_FILE = ROOT_DIR / "cooldown_state.json"  # persists per-symbol loss cooldowns
-STREAKS_FILE  = ROOT_DIR / "loss_streaks.json"    # persists consecutive loss counts
-LOG_FILE = ROOT_DIR / "trading.log"
+STATUS_FILE = STATE_DIR / "bot_status.json"
+CANDLES_FILE = STATE_DIR / "candles_cache.json"
+STATE_FILE    = STATE_DIR / "trader_state.json"
+COOLDOWN_FILE = STATE_DIR / "cooldown_state.json"
+STREAKS_FILE  = STATE_DIR / "loss_streaks.json"
+LOG_FILE = LOG_DIR / "trading.log"
 
 # ── Config integrity guard ────────────────────────────────────────────────────
 # Protect buy_threshold / sell_threshold from being silently reset by any
 # external process (Hermes, MCP, self_improver). Check every cycle.
-# Threshold calibration (from 992 historical samples):
-#   |score| >= 10 → 62% signal rate (too aggressive)
-#   |score| >= 12 → 38% signal rate (calibrated sweet spot)
-#   |score| >= 18 → <5% signal rate (too restrictive — was the bug)
-_PROTECTED_WEIGHTS = {"buy_threshold": 12, "sell_threshold": -12}
-
+# Threshold calibration (Senior Trader Overhaul 2026-04-23):
+#   H4/D1 weights reduced → max trend-only score ~14 (was ~28)
+#   |score| >= 8 allows M15 entry signals to fire in both directions
+#   Combined with graduated MTF penalty (not veto), enables counter-trend trades
 def _check_config_integrity():
-    """Warn and auto-restore if critical weights were changed externally."""
+    """Warn if thresholds fall outside valid range. Hard-clamp is in analyzer._load_weights()."""
     try:
-        w = json.loads((ROOT_DIR / "scoring_weights.json").read_text())
-        for field, expected in _PROTECTED_WEIGHTS.items():
-            actual = w.get(field)
-            if actual != expected:
-                log.warning(
-                    f"🚨 CONFIG TAMPERED: {field} changed {actual} → restoring {expected}"
-                )
-                w[field] = expected
-                (ROOT_DIR / "scoring_weights.json").write_text(json.dumps(w, indent=2))
+        w = json.loads((CONFIG_DIR / "scoring_weights.json").read_text())
+        bt = w.get("buy_threshold", 12)
+        if bt < 8 or bt > 20:
+            log.warning(f"CONFIG: buy_threshold={bt} outside valid 8-20 range — analyzer will clamp on next read")
     except Exception:
         pass
 
@@ -81,11 +73,14 @@ for _noisy in (
     "urllib3",
     "requests",
     "websockets",
+    "websocket",
     "aiohttp",
     "httpx",
     "httpcore",
 ):
     logging.getLogger(_noisy).setLevel(logging.WARNING)
+# websocket-client logs [Errno 61] at ERROR level internally — suppress completely
+logging.getLogger("websocket").setLevel(logging.CRITICAL)
 
 # ── Config ───────────────────────────────────────────────────────────────────
 SYMBOLS = [
@@ -94,31 +89,41 @@ SYMBOLS = [
         "display": "XAUUSD",
         "pip": 0.10,
         "contract_size": 100,   # 100 oz/lot → pip_value = pip * contract_size = $10/pip/lot
-        "sl_pips": 30,
-        "tp_pips": 50,
+        "sl_pips": 80,          # was 50 — institutional standard for Gold M15 (ATR ~10-15 pips, whips 30-40)
+        "tp_pips": 160,         # was 80 — enforces minimum 1:2 R:R at the broker level
         "lot": 0.01,
     },
     {
         "broker": "SILVER.i#",
         "display": "XAGUSD",
         "pip": 0.01,
-        "contract_size": 5000,  # 5000 oz/lot → pip_value = pip * contract_size = $50/pip/lot
-        "sl_pips": 15,
-        "tp_pips": 25,
+        "contract_size": 5000,
+        "sl_pips": 30,
+        "tp_pips": 60,
         "lot": 0.01,
     },
 ]
 
+# ── Session-Aware Risk Configuration ─────────────────────────────────────────
+# Gold behaves differently in each session. Asian = range, London = breakout,
+# NY overlap = the kill zone. Adjust lot and confidence gates accordingly.
+SESSION_CONFIG = {
+    "ASIAN":             {"lot_mult": 0.5,  "min_conf": 0.85},
+    "LONDON":            {"lot_mult": 0.7,  "min_conf": 0.82},
+    "LONDON_NY_OVERLAP": {"lot_mult": 1.0,  "min_conf": 0.80},
+    "NEW_YORK":          {"lot_mult": 0.7,  "min_conf": 0.82},
+}
+
 CONFIG = {
-    "monitor_interval_s": 15,  # check positions every 15s (scalping speed)
-    "analysis_interval_s": int(os.getenv("ANALYSIS_INTERVAL_S", "60")),  # full AI analysis every 60s (env: ANALYSIS_INTERVAL_S)
-    "profit_close_pct": 0.8,  # close trade at +0.8% account profit (take small profits fast)
-    "loss_close_pct": 0.15,  # close trade at -0.3% account loss (tight loss control)
-    "min_confidence": 0.70,  # minimum confidence — backtest shows 65-70 bucket has 43% WR (near break-even)
-    "max_trades_per_sym": 3,  # up to 3 positions per symbol (pyramiding on strong moves)
-    "max_total_positions": 10,  # hard cap: no more than 10 open positions across all symbols
-    "dry_run": False,  # live trading
-    "use_ai": True,  # use NVIDIA NIM API (MiniMax)
+    "monitor_interval_s": 15,
+    "analysis_interval_s": int(os.getenv("ANALYSIS_INTERVAL_S", "60")),
+    "profit_close_pct": 3.0,   # let broker TP at 160 pips be primary exit
+    "loss_close_pct": 1.0,     # align with wider 80-pip SL
+    "min_confidence": 0.85,    # pyramid system: high-conviction entries only
+    "max_trades_per_sym": 10,  # 10 tranches per pyramid
+    "max_total_positions": 12,
+    "dry_run": False,
+    "use_ai": True,
     "max_reconnect_attempts": 5,
     "reconnect_backoff_s": 10,
 }
@@ -191,7 +196,7 @@ def _log_signal(
     """Write signal to trades.db for dashboard display."""
     import sqlite3
 
-    DB_FILE = ROOT_DIR / "trades.db"
+    DB_FILE = ROOT_DIR / "data" / "trades.db"
     try:
         with sqlite3.connect(str(DB_FILE)) as conn:
             conn.execute("""
@@ -297,20 +302,72 @@ def fmt_profit(p: float) -> str:
     return f"{color}{arrow} ${p:+.2f}{reset}"
 
 
+def _compact_text(text: str, limit: int = 88) -> str:
+    """Normalize whitespace and trim long log text for fast scanning."""
+    text = " ".join(str(text or "").replace("\n", " ").split())
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3].rstrip() + "..."
+
+
+def _adx_regime(adx: float) -> str:
+    if adx > 25:
+        return "TRENDING"
+    if adx < 18:
+        return "RANGING"
+    return "DEVELOPING"
+
+
+def _format_factor_summary(factor_scores: dict) -> str:
+    parts = []
+    for key, label in [
+        ("f1_h4_trend", "H4"),
+        ("f2_h1_trend", "H1"),
+        ("f3_rsi_zone", "RSI"),
+        ("f4_macd_momentum", "MACD"),
+        ("f5_adx_strength", "ADX"),
+        ("f6_stoch_confirm", "Stoch"),
+        ("f7_bb_action", "BB"),
+        ("f10_d1_trend", "D1"),
+        ("f12_fibonacci", "Fib"),
+    ]:
+        value = factor_scores.get(key, 0)
+        if value != 0:
+            parts.append(f"{label}={value:+.1f}")
+    return " ".join(parts) if parts else "all neutral"
+
+
 # ── Bridge factory with auto-reconnect ──────────────────────────────────────
 
 
 def make_bridge():
-    token = os.environ.get("METAAPI_TOKEN", "")
-    account_id = os.environ.get("METAAPI_ACCOUNT_ID", "")
-    if token and account_id:
-        from bridges.metaapi_bridge import MetaApiBridge
+    ws_url = os.environ.get("WIN_WS_URL", "")
+    webhook_url = os.environ.get("WIN_WEBHOOK_URL", "")
 
-        return MetaApiBridge(token, account_id)
-    else:
-        from bridges.mt5_bridge import MT5Bridge
+    # Priority 1: WebSocket Bridge (real-time data + HTTP execution)
+    if ws_url and webhook_url:
+        from bridges.ws_bridge import WSBridge
+        log.info(f"[BRIDGE] Using WebSocket Bridge → {ws_url}")
+        return WSBridge(ws_url, webhook_url)
 
-        return MT5Bridge()
+    # Priority 2: HTTP-only Webhook Bridge (polling fallback)
+    if webhook_url:
+        from bridges.webhook_bridge import WebhookBridge
+        log.info(f"[BRIDGE] Using Windows MT5 Webhook → {webhook_url}")
+        return WebhookBridge(webhook_url)
+
+    # # Priority 3: MetaApi Cloud Bridge (DISABLED — kept as backup)
+    # token = os.environ.get("METAAPI_TOKEN", "")
+    # account_id = os.environ.get("METAAPI_ACCOUNT_ID", "")
+    # if token and account_id:
+    #     from bridges.metaapi_bridge import MetaApiBridge
+    #     log.info("[BRIDGE] Using MetaApi Cloud Bridge")
+    #     return MetaApiBridge(token, account_id)
+
+    # Priority 4: Direct MT5 (Windows-only)
+    from bridges.mt5_bridge import MT5Bridge
+    log.info("[BRIDGE] Using Direct MT5 Bridge (Windows-only)")
+    return MT5Bridge()
 
 
 def connect_with_retry(bridge, max_attempts: int = 5) -> bool:
@@ -392,8 +449,8 @@ def check_and_close_positions(
     closed = []
     profit_target = account_balance * (CONFIG["profit_close_pct"] / 100)
     loss_limit = account_balance * (CONFIG["loss_close_pct"] / 100)
-    trail_trigger = account_balance * 0.2 / 100  # start trailing at +0.2% (scalping)
-    trail_lock_pct = 0.70  # lock 70% of peak profit (never give back >30%)
+    trail_trigger = account_balance * 1.0 / 100  # was 0.5% → start trailing at +1% (don't strangle small winners)
+    trail_lock_pct = 0.40  # was 0.50 → lock 40% of peak (keep more upside potential)
 
     for sym_cfg in SYMBOLS:
         broker_sym = sym_cfg["broker"]
@@ -514,20 +571,42 @@ def build_order_params(
     confidence: float = 0.55,
     atr: float = 0,
     lot_reduction: float = 1.0,
+    regime_data: dict = None,
 ) -> dict:
     pip = sym_cfg["pip"]
     price = tick.ask if direction == "BUY" else tick.bid
     digits = 2 if pip >= 0.01 else 5
 
+    # ── Regime-aware ATR multipliers ──────────────────────────────────────
+    sl_mult = 2.5
+    tp_mult = 3.5
+    
+    if regime_data:
+        vol_state = regime_data.get('volatility_state', 'NORMAL')
+        strat = regime_data.get('recommended_strategy', '')
+        
+        # In highly volatile markets, widen SL to avoid getting whipped out
+        if vol_state == "EXPANDING" or vol_state == "HIGH":
+            sl_mult = 3.0
+            tp_mult = 5.0  # Let runners run in high vol
+        elif vol_state == "COMPRESSED":
+            sl_mult = 1.5  # Tight stops for breakouts
+            tp_mult = 3.0
+
     # ── ATR-based dynamic SL/TP (capped for scalping) ─────────────────────
     if atr > 0:
-        sl_pips = min(int(atr * 1.5 / pip), sym_cfg["sl_pips"])
-        tp_pips = min(int(atr * 2.0 / pip), sym_cfg["tp_pips"])
-        # Floor: minimum viable SL/TP
-        sl_floor = 10 if pip >= 0.10 else 5
-        tp_floor = 15 if pip >= 0.10 else 8
+        sl_pips = min(int(atr * sl_mult / pip), sym_cfg["sl_pips"])
+        tp_pips = min(int(atr * tp_mult / pip), sym_cfg["tp_pips"])
+        # Floor: minimum viable SL/TP — raised for Gold (institutional standard)
+        sl_floor = 40 if pip >= 0.10 else 8
+        tp_floor = 80 if pip >= 0.10 else 16
         sl_pips = max(sl_pips, sl_floor)
         tp_pips = max(tp_pips, tp_floor)
+        
+        # Regime-based R:R Enforcement
+        min_rr = 1.5 if (regime_data and "MEAN_REVERSION" in regime_data.get('recommended_strategy', '')) else 2.0
+        if tp_pips < sl_pips * min_rr:
+            tp_pips = int(sl_pips * min_rr)
     else:
         sl_pips = sym_cfg["sl_pips"]
         tp_pips = sym_cfg["tp_pips"]
@@ -539,17 +618,16 @@ def build_order_params(
         sl = round(price + sl_pips * pip, digits)
         tp = round(price - tp_pips * pip, digits)
 
-    # ── Confidence-scaled position sizing ─────────────────────────────────
-    # Gate is now 0.70; bucket below 0.70 never reaches here.
-    # 0.90+ = max size (highest-conviction trades deserve full sizing)
-    # 0.80–0.89 = 85% (solid signal)
-    # 0.70–0.79 = 70% (minimum gate — real edge but with uncertainty)
-    if confidence >= 0.90:
-        conf_mult = 1.0
-    elif confidence >= 0.80:
-        conf_mult = 0.85
-    else:
-        conf_mult = 0.70   # floor: min_confidence = 0.70
+    # ── Kelly Criterion Position Sizing ───────────────────────────────────
+    # f* = p - (1-p)/b  (half-Kelly for risk management)
+    p = min(confidence, 0.85)
+    b = tp_pips / sl_pips if sl_pips > 0 else 2.0
+    kelly_f = max(0.0, p - ((1 - p) / b))
+    half_kelly = kelly_f / 2.0
+    conf_mult = min(half_kelly / 0.35, 1.0)
+    if confidence >= 0.55:
+        conf_mult = max(conf_mult, 0.3)
+    log.info(f"   [KELLY] p={p:.2f} b={b:.2f} | Half-Kelly={half_kelly:.3f} | Mult={conf_mult:.2f}")
 
     lot = round(max(sym_cfg["lot"] * conf_mult * lot_reduction, 0.01), 2)
 
@@ -626,6 +704,15 @@ class ContinuousTrader:
             self.scaler = None
 
         try:
+            from risk.pyramid_manager import PyramidManager
+
+            self.pyramid = PyramidManager()
+            log.info(f"  [PYRAMID] 🔺 Smart 10-tranche pyramid system initialized")
+        except Exception as e:
+            log.warning(f"  [PYRAMID] Failed to init: {e}")
+            self.pyramid = None
+
+        try:
             from risk.smart_exit import SmartExitManager
 
             self.smart_exit = SmartExitManager()
@@ -643,8 +730,18 @@ class ContinuousTrader:
             log.warning(f"  [CAPITAL] Failed to init: {e}")
             self.capital = None
 
-        # ── TradingView live data client (REMOVED) ───────────────────────────
+        # ── TradingView live data client (optional — quiet if unavailable) ──
         self.tv = None
+        try:
+            from bridges.tv_client import get_tv_client
+            self.tv = get_tv_client()
+            if self.tv.wait_for_data("XAUUSD", timeout=5):
+                log.info("  [TV] ✅ Live TradingView indicators connected")
+            else:
+                log.info("  [TV] TradingView not available — using broker candles")
+        except Exception:
+            log.info("  [TV] TradingView not available — using broker candles")
+            self.tv = None
 
         # Cache for cross-symbol correlation
         self._symbol_signals = {}
@@ -658,6 +755,11 @@ class ContinuousTrader:
         # Cycle number at which the per-symbol circuit breaker pause expires.
         # Not persisted — a clean restart resets the marker while streak counts survive.
         self._circuit_break_until: dict = {}  # display_symbol -> cycle number
+
+        # Post-trade cooldown: prevents churn re-entries within 5 min of ANY exit.
+        # Analysis showed 463 churn trades (re-entered <2 min) = -$1,756.
+        self._last_trade_time: dict = {}  # broker_symbol -> epoch time of last trade
+        self._TRADE_COOLDOWN_SECS = 300  # 5 minutes between trades on same symbol
 
         # Set up signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._handle_stop)
@@ -704,9 +806,38 @@ class ContinuousTrader:
                 except Exception as e:
                     log.warning(f"Memory prefetch error: {e}")
 
+            # ── Fetch External Indicators (MT5 Webhook + TradingView) ───────────
+            external_indicators = {}
+            
+            # 1. MT5 Webhook Indicators (computed directly on Windows MT5 terminal)
+            try:
+                webhook_inds = self.bridge.get_indicators(sym_cfg["broker"])
+                if webhook_inds:
+                    external_indicators.update(webhook_inds)
+                    log.info(f"DATA | {sym_cfg['display']} | MT5 native indicators ready")
+            except Exception as e:
+                log.debug(f"Webhook indicator fetch failed: {e}")
+
+            # 2. TradingView Live Indicators (highest quality, takes precedence if available)
+            if self.tv and self.tv.is_connected():
+                display = sym_cfg["display"]
+                snap = self.tv.snapshot()
+                sym_data = snap.get("symbols", {}).get(display)
+                if sym_data:
+                    tfs = sym_data.get("timeframes", {})
+                    if tfs:
+                        for tf, data in tfs.items():
+                            external_indicators.setdefault(tf, {}).update(data)
+                        log.info(f"DATA | {display} | TradingView indicators merged")
+                    elif sym_data.get("indicators"):
+                        # Flat structure (single timeframe)
+                        external_indicators.setdefault("M15", {}).update(sym_data["indicators"])
+                        log.info(f"DATA | {display} | TradingView M15 indicators merged")
+
             signal_data = analyzer.analyze(
                 tf_data, tick, sym_cfg["display"],
                 memory_context=memory_context,
+                tv_indicators=external_indicators if external_indicators else None,
             )
             return signal_data
         except Exception as e:
@@ -722,8 +853,8 @@ class ContinuousTrader:
     def _fetch_candles(self, sym_cfg: dict) -> dict:
         broker_sym = sym_cfg["broker"]
         tf_data = {}
-        for tf in ["M15", "H1", "H4", "D1"]:
-            count = 500 if tf == "M15" else 200 if tf in ("H1", "H4") else 100
+        for tf in ["M1", "M15", "H1", "H4", "D1"]:
+            count = 60 if tf == "M1" else 500 if tf == "M15" else 200 if tf in ("H1", "H4") else 100
             try:
                 with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
                     fut = ex.submit(self.bridge.get_candles, broker_sym, tf, count)
@@ -749,8 +880,11 @@ class ContinuousTrader:
         log.info("=" * 60)
 
         if not self._ensure_connected():
-            log.error("Cannot start — MetaTrader connection failed")
-            return
+            log.error("Cannot connect to MetaTrader — will keep retrying every 60s")
+            while not self._stop and not self._ensure_connected():
+                time.sleep(60)
+            if self._stop:
+                return
 
         # Print initial account info
         acct = self._get_account()
@@ -771,9 +905,6 @@ class ContinuousTrader:
             cycle += 1
             self.state["cycle"] = cycle
             ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-            print(f"\n{'─' * 60}")
-            log.info(f"🔄 Cycle #{cycle}  [{ts}]")
 
             # ── Config integrity guard (detects external tampering) ──────────
             _check_config_integrity()
@@ -826,14 +957,16 @@ class ContinuousTrader:
                 "currency": getattr(acct, "currency", "USD"),
             }
             pnl = equity - balance
-            log.info(
-                f"💰 Balance: ${balance:.2f} | Equity: ${equity:.2f} | P&L: {fmt_profit(pnl)}"
-            )
 
             # ── Fetch ALL open positions (one RPC call) ──────────────────────
             positions_by_sym = get_positions_by_symbol(self.bridge)
             total_open = sum(len(v) for v in positions_by_sym.values())
-            log.info(f"📊 Open positions: {total_open}")
+            log.info(f"STATUS | Cycle #{cycle} | {session} | {ts}")
+            log.info(
+                f"ACCOUNT | Balance ${balance:.2f} | Equity ${equity:.2f} | Net {fmt_profit(pnl)} | Open positions {total_open}"
+            )
+            if total_open == 0:
+                log.info("POSITIONS | none")
 
             # Build current ticket set and detect externally-closed positions
             _cur_tickets: dict[str, dict] = {}
@@ -846,8 +979,19 @@ class ContinuousTrader:
                     pr = getattr(p, "profit", 0)
                     op = getattr(p, "price_open", 0)
                     tk = str(getattr(p, "ticket", ""))
-                    log.info(f"   {disp} {d} @{op:.2f} {fmt_profit(pr)}")
-                    _cur_tickets[tk] = {"profit": pr, "direction": d, "sym_cfg": sym_cfg}
+                    vol = getattr(p, "volume", 0.05)
+                    log.info(
+                        f"POSITION | {disp} {d} | entry @{op:.2f} | pnl {fmt_profit(pr)} | lot {vol:.2f}"
+                    )
+                    _cur_tickets[tk] = {"profit": pr, "direction": d, "sym_cfg": sym_cfg, "volume": getattr(p, "volume", 0.05)}
+
+            # ── Pyramid hard sync: purge phantom tranches every cycle ────────
+            # Queries MT5 directly via bridge to ensure pyramid state reflects
+            # reality. Replaces the old force_reconcile approach.
+            if self.pyramid:
+                self.pyramid.hard_sync(
+                    self.bridge, {s["display"]: s for s in SYMBOLS}
+                )
 
             # Detect tickets that vanished since last cycle (closed by broker SL/TP)
             if _prev_tickets:
@@ -867,7 +1011,7 @@ class ContinuousTrader:
                                 _mem = TradeMemory()
                             _pip = _sc["pip"]
                             _cs = _sc.get("contract_size", 100)
-                            _vol = 0.01
+                            _vol = info.get("volume", 0.05)
                             _pv = _pip * _cs * _vol
                             _pips = pr / _pv if _pv > 0 else 0
                             # Pass symbol/direction so memory never records UNKNOWN
@@ -876,6 +1020,10 @@ class ContinuousTrader:
                                 symbol=_sc["display"],
                                 direction=info["direction"],
                             )
+                            # Notify pyramid manager
+                            if self.pyramid:
+                                self.pyramid.on_position_closed(_sc["display"], tk)
+                            
                             self.state["total_trades"] += 1
                             if outcome == "WIN":
                                 self.state["wins"] += 1
@@ -886,12 +1034,6 @@ class ContinuousTrader:
                                 self._consec_losses[_sc["display"]] = (
                                     self._consec_losses.get(_sc["display"], 0) + 1
                                 )
-                                n = self._consec_losses[_sc["display"]]
-                                if n >= 3:
-                                    log.warning(
-                                        f"   ⚠️  ZONE ALERT: {_sc['display']} — "
-                                        f"{n} consecutive losses. Edge may be broken."
-                                    )
                             _save_streaks(self._consec_losses)
                             _save_state(self.state)
                         except Exception as _e:
@@ -956,14 +1098,36 @@ class ContinuousTrader:
                     f"   W:{self.state['wins']} L:{self.state['losses']} "
                     f"({self.state['total_trades']} total trades)"
                 )
+                # Notify pyramid manager of closed positions (reconciliation will handle the details)
+                if self.pyramid:
+                    for _csym in closed_syms:
+                        _disp = next((s["display"] for s in SYMBOLS if s["broker"] == _csym), _csym)
+                        self.pyramid.on_position_closed(_disp, "")
                 # Refresh positions after closes
                 time.sleep(1)
                 positions_by_sym = get_positions_by_symbol(self.bridge)
 
+            # ── Pyramid tranche checks (every cycle, not just analysis) ────────
+            if self.pyramid and self.pyramid.active_pyramid_count() > 0:
+                try:
+                    _sym_lookup = {s["display"]: s for s in SYMBOLS}
+                    pyramid_actions = self.pyramid.check_pyramids(self.bridge, _sym_lookup, positions_by_sym)
+                    if pyramid_actions:
+                        for pa in pyramid_actions:
+                            log.info(
+                                f"   🔺 PYRAMID {pa['symbol']} tranche {pa['tranche']}/10 "
+                                f"@ {pa['price']:.2f} (+{pa['pips']:.1f}p) "
+                                f"total={pa['total_lot']:.2f}"
+                            )
+                        time.sleep(0.5)
+                        positions_by_sym = get_positions_by_symbol(self.bridge)
+                except Exception as e:
+                    log.warning(f"   [PYRAMID] Check error: {e}")
+
             # ── Analysis & new signals ───────────────────────────────────────
             run_analysis = now >= next_analysis
             if run_analysis:
-                log.info(f"📊 Running market analysis  ({session})")
+                log.info(f"ANALYSIS | Starting market scan | session {session}")
                 next_analysis = now + CONFIG["analysis_interval_s"]
 
                 total_open = sum(len(v) for v in positions_by_sym.values())
@@ -979,7 +1143,7 @@ class ContinuousTrader:
 
                     if not can_open_new and not self.scaler:
                         log.info(
-                            f"   ⏸  {disp}: max trades reached ({len(current_pos)})"
+                            f"ACTION | {disp} | skip entry | max trades reached ({len(current_pos)})"
                         )
                         if disp in symbols_status:
                             symbols_status[disp]["positions"] = len(current_pos)
@@ -987,28 +1151,46 @@ class ContinuousTrader:
 
                     if not can_open_new:
                         log.info(
-                            f"   ⏸  {disp}: max trades reached — checking scale only"
+                            f"ACTION | {disp} | entry full | checking scale only"
                         )
 
-                    log.info(f"   🔍 Analyzing {disp}...")
+                    log.info(f"ANALYSIS | {disp} | fetching candles + live indicators")
                     tick = self.bridge.get_tick(broker_sym)
-                    log.info(f"   [LOCAL] {disp}: fetching broker candles")
                     tf_data = self._fetch_candles(sym_cfg)
                     if not tf_data:
-                        log.warning(f"   ⚠️  {disp}: no candle data")
+                        log.warning(f"ACTION | {disp} | skip analysis | no candle data")
                         continue
                     primary = tf_data.get("M15", list(tf_data.values())[0])
                     signal_data = self._run_analysis(sym_cfg, tf_data, tick)
                     direction = signal_data.get("direction", "HOLD")
                     confidence = float(signal_data.get("confidence", 0.0))
                     reason = signal_data.get("reason", "")
-                    # Stash latest ADX in sym_cfg so SmartExitManager can read it
-                    # for adaptive trailing distance without an extra bridge call.
-                    sym_cfg["_last_adx"] = signal_data.get("indicators", {}).get("adx", 0.0)
+                    _ind = signal_data.get("indicators", {})
+                    _fs  = signal_data.get("factor_scores", {})
+                    _fib = signal_data.get("fibonacci_data", {})
+                    _score = signal_data.get("score", 0)
+                    # Stash ADX so SmartExitManager can use adaptive trailing without a bridge call
+                    sym_cfg["_last_adx"] = _ind.get("adx", 0.0)
 
                     log.info(
-                        f"   {disp}: {direction:4s} conf={confidence:.0%} | {reason[:55]}"
+                        f"SIGNAL | {disp} | {direction} {confidence:.0%} | score {_score:+.1f} | {_compact_text(reason)}"
                     )
+                    log.info(
+                        f"DETAIL | {disp} | trend D1={signal_data.get('d1_trend', '?')} H4={signal_data.get('h4_trend', '?')} "
+                        f"H1={signal_data.get('h1_trend', '?')} M15={_ind.get('ema_trend', '?')}"
+                    )
+                    log.info(
+                        f"DETAIL | {disp} | ADX {_ind.get('adx', 0):.1f} {_adx_regime(_ind.get('adx', 0))} | "
+                        f"RSI {_ind.get('rsi', 50):.1f} | MACD {_ind.get('macd_signal', 'N/A')} | "
+                        f"BB {_ind.get('bb_position', 'N/A')} | ATR {_ind.get('atr', 0):.5f}"
+                    )
+                    log.info(
+                        f"DETAIL | {disp} | Price {_ind.get('price', 0):.5f} | Change {_ind.get('price_change', 0):+.3f}% | "
+                        f"Stoch {_ind.get('stoch_k', 50):.0f}/{_ind.get('stoch_d', 50):.0f} {_ind.get('stoch_cross', '')} | "
+                        f"Score {_score:+.1f} | Factors {_format_factor_summary(_fs)}"
+                    )
+                    if _fib and _fib.get('zone_label'):
+                        log.info(f"DETAIL | {disp} | Fib {_compact_text(_fib['zone_label'], 96)}")
 
                     # Write 4-stage decision trace
                     try:
@@ -1062,17 +1244,24 @@ class ContinuousTrader:
                     if can_open_new and direction in ("BUY", "SELL") and adx_val >= 20:
                         # Check for exhaustion reversal conditions
                         if direction == "SELL" and adx_val > 40 and rsi_val < 30 and bb_pos in ("BELOW_MID", "BELOW_LOW"):
-                            log.info(f"   FADE BLOCK: {disp} SELL blocked — ADX={adx_val} + RSI={rsi_val} + BB={bb_pos} = exhausted downtrend, reversal likely")
+                            log.info(f"ACTION | {disp} | fade block | SELL vs exhausted downtrend (ADX={adx_val:.1f} RSI={rsi_val:.1f} BB={bb_pos})")
                             fade_blocked = True
                         elif direction == "BUY" and adx_val > 40 and rsi_val > 70 and bb_pos in ("ABOVE_MID", "ABOVE_HIGH"):
-                            log.info(f"   FADE BLOCK: {disp} BUY blocked — ADX={adx_val} + RSI={rsi_val} + BB={bb_pos} = exhausted uptrend, reversal likely")
+                            log.info(f"ACTION | {disp} | fade block | BUY vs exhausted uptrend (ADX={adx_val:.1f} RSI={rsi_val:.1f} BB={bb_pos})")
                             fade_blocked = True
 
-                    # Brief cooldown after loss: 3 min (was 15 — too aggressive, blocked recovery)
-                    _LOSS_COOLDOWN_SECS = 180  # 3 minutes
+                    # Loss cooldown: 10 min rest after a loss (was 3 min — too short, caused churn)
+                    _LOSS_COOLDOWN_SECS = 600  # 10 minutes — prevents revenge trading
                     _cooldown_remaining = _LOSS_COOLDOWN_SECS - (time.time() - self._loss_cooldown.get(broker_sym, 0))
                     if can_open_new and _cooldown_remaining > 0:
-                        log.info(f"   [COOLDOWN] {disp}: {int(_cooldown_remaining)}s cooldown after loss")
+                        log.info(f"ACTION | {disp} | cooldown after loss | wait {int(_cooldown_remaining)}s")
+                        can_open_new = False
+
+                    # Post-trade cooldown: no re-entry within 5 min of ANY trade (win or loss)
+                    # This alone would have prevented 400+ of the 463 churn trades = saved $1,756
+                    _trade_cd_remaining = self._TRADE_COOLDOWN_SECS - (time.time() - self._last_trade_time.get(broker_sym, 0))
+                    if can_open_new and _trade_cd_remaining > 0:
+                        log.info(f"ACTION | {disp} | post-trade cooldown | wait {int(_trade_cd_remaining)}s")
                         can_open_new = False
 
                     # ── ADX: advisory not exclusionary ───────────────────────
@@ -1088,7 +1277,7 @@ class ContinuousTrader:
                     # Only block if ADX is truly dead (< 5) AND signal is weak (< 8)
                     _adx_ok = not (_adx_val < 5 and _sig_score < 8)
                     if not _adx_ok:
-                        log.info(f"   [DEAD MARKET] {disp}: ADX={_adx_val:.1f} + score={_sig_score:.0f} — no momentum")
+                        log.info(f"ACTION | {disp} | dead market | ADX {_adx_val:.1f} and score {_sig_score:.0f}")
 
                     # ── Circuit breaker: 4 consecutive losses → 1-cycle pause ─
                     _sym_consec = self._consec_losses.get(disp, 0)
@@ -1100,26 +1289,47 @@ class ContinuousTrader:
                         _save_streaks(self._consec_losses)
                         _sym_consec = 0
                         _cb_until   = 0
-                        log.info(f"   ✅ {disp}: circuit breaker reset — resuming")
+                        log.info(f"ACTION | {disp} | circuit breaker reset | trading resumed")
 
                     if can_open_new and _sym_consec >= 4:
                         if _cb_until == 0:
                             self._circuit_break_until[disp] = cycle + 1
                             _cb_until = cycle + 1
-                        log.info(f"   🛑 {disp}: {_sym_consec} losses — 1-cycle pause")
+                        log.info(f"ACTION | {disp} | circuit breaker | {_sym_consec} losses, pausing 1 cycle")
                         can_open_new = False
 
-                    # Confidence gate — tiered by signal type:
-                    #   Normal AI signal      → 0.55 (full gate)
-                    #   Score override signal → 0.48 (indicators overrode AI; H4 not double-penalised)
-                    #   Indicator fallback    → 0.45 (no AI at all)
+                    # ── Phase 2.1: Adaptive Confidence Gating ──────────────────────
                     _sig_reason = signal_data.get("reason", "")
+                    _is_ranging = signal_data.get("factor_scores", {}).get("adx_regime", "").startswith("RANGING")
+                    _sess_cfg = SESSION_CONFIG.get(session, {"lot_mult": 1.0, "min_conf": 0.48})
+                    
+                    # 1. Base session/signal confidence
+                    _base_conf = _sess_cfg["min_conf"]
                     if "[Score override" in _sig_reason:
-                        _conf_gate = 0.48
+                        _base_conf = 0.45 if _is_ranging else 0.48
                     elif "[Indicator fallback]" in _sig_reason:
-                        _conf_gate = 0.45
+                        _base_conf = 0.45
                     else:
-                        _conf_gate = CONFIG["min_confidence"]  # 0.55
+                        _base_conf = 0.45 if _is_ranging else _sess_cfg["min_conf"]
+                    
+                    # 2. ADX Modifier (Trend Strength)
+                    _adx_mod = 0.0
+                    if _adx_val > 25:
+                        _adx_mod = -0.05  # Strong trend: lower barrier
+                    elif _adx_val < 15:
+                        _adx_mod = +0.05  # Chop: raise barrier
+                        
+                    # 3. Loss streak tracking remains for the circuit breaker, but it
+                    # should not raise the entry gate. That blocked valid reversal BUYs
+                    # after three losses even when the market produced a fresh setup.
+                    _streak_mod = 0.0
+                    
+                    # Calculate final adaptive gate
+                    _conf_gate = round(_base_conf + _adx_mod + _streak_mod, 3)
+                    _conf_gate = max(0.35, min(0.75, _conf_gate))  # Keep within safe bounds
+                    log.info(
+                        f"RISK | {disp} | gate {_conf_gate:.0%} | base {_base_conf:.0%} | adx adj {_adx_mod:+.0%} | streak adj {_streak_mod:+.0%}"
+                    )
 
                     if (
                         can_open_new
@@ -1157,7 +1367,7 @@ class ContinuousTrader:
 
                             if not allowed:
                                 log.info(
-                                    f"   🚫 {disp}: FILTERED — {'; '.join(veto_reasons)}"
+                                    f"ACTION | {disp} | filtered | {'; '.join(veto_reasons)}"
                                 )
                                 _log_signal(
                                     broker_sym,
@@ -1189,7 +1399,7 @@ class ContinuousTrader:
                             )
                             if not skill_result["allowed"]:
                                 log.info(
-                                    f"   🚫 {disp}: SKILL BLOCKED — "
+                                    f"ACTION | {disp} | skill blocked | "
                                     f"{'; '.join(skill_result['reasons'])}"
                                 )
                                 _log_signal(
@@ -1214,66 +1424,65 @@ class ContinuousTrader:
                             confidence=confidence,
                             atr=atr,
                             lot_reduction=lot_reduction,
+                            regime_data=signal_data.get("factor_scores"),
                         )
 
-                        # ── Dynamic lot sizing (capital manager) ──────────
-                        if self.capital:
-                            # Compute rolling 20-bar ATR average from primary M15 data
-                            _atr_avg = atr
-                            try:
-                                if primary is not None and len(primary) >= 20:
-                                    _tr = (
-                                        primary[["h", "l", "c"]]
-                                        .assign(
-                                            hl=primary["h"] - primary["l"],
-                                            hc=abs(primary["h"] - primary["c"].shift()),
-                                            lc=abs(primary["l"] - primary["c"].shift()),
-                                        )
-                                        .eval("tr = max(hl, hc, lc)", engine="python")
-                                    )
-                                    _atr_avg = float(primary["h"].sub(primary["l"]).rolling(20).mean().iloc[-1])
-                            except Exception:
-                                pass
-                            smart_lot = self.capital.compute_lot(
-                                balance=balance,
-                                atr=atr,
-                                atr_avg=_atr_avg,
-                                session=session,
-                                sl_pips=order.get("sl_pips", sym_cfg["sl_pips"]),
-                                symbol=broker_sym,
+                        # ── PYRAMID SYSTEM: Force 0.01 lot for tranche 1 ──
+                        # Pyramid manager controls all lot sizing across tranches
+                        order["lot"] = 0.01
+
+                        # Cache indicators for pyramid tranche checks
+                        if self.pyramid:
+                            self.pyramid.update_cached_indicators(
+                                disp,
+                                {
+                                    "indicators": _ind,
+                                    "score": _score,
+                                    "confidence": confidence,
+                                    "signal_direction": direction,
+                                    "factor_scores": _fs,
+                                },
                             )
-                            if smart_lot == 0:
-                                log.info(f"   ⏭  {disp}: Capital mgr says skip")
-                                continue
-                            if smart_lot > 0:
-                                order["lot"] = smart_lot
 
                         if self.dry_run:
                             log.info(
-                                f"   📝 DRY RUN {disp} {direction} "
-                                f"lot={order['lot']} sl={order['sl']} "
-                                f"tp={order['tp']} conf={confidence:.0%}"
+                                f"ACTION | {disp} | dry run {direction} | lot {order['lot']} | sl {order['sl']} | tp {order['tp']} | conf {confidence:.0%}"
                             )
                             _log_signal(
                                 broker_sym, direction, confidence, reason, "DRY_TRADE"
                             )
                         else:
+                            # Skip if pyramid already active for this symbol
+                            if self.pyramid and self.pyramid.has_active_pyramid(disp):
+                                log.info(f"ACTION | {disp} | skip entry | pyramid already active")
+                                continue
+
                             result = self.bridge.place_order(order)
                             if result and hasattr(result, "order"):
                                 log.info(
-                                    f"   💰 ORDER #{result.order} — "
-                                    f"{disp} {direction} @{order['price']:.2f} "
-                                    f"SL={order['sl']} TP={order['tp']} "
-                                    f"lot={order['lot']} conf={confidence:.0%}"
+                                    f"ACTION | {disp} | opened tranche 1/10 #{result.order} | {direction} @{order['price']:.2f} | "
+                                    f"sl {order['sl']} | tp {order['tp']} | lot 0.01 | conf {confidence:.0%}"
                                 )
                                 _log_signal(
                                     broker_sym,
                                     direction,
                                     confidence,
                                     reason,
-                                    "TRADE",
+                                    "PYRAMID_START",
                                     ticket=result.order,
                                 )
+
+                                # ── Start pyramid session ────────────────────
+                                if self.pyramid:
+                                    self.pyramid.start_pyramid(
+                                        symbol=disp,
+                                        direction=direction,
+                                        entry_price=order["price"],
+                                        ticket=str(result.order),
+                                        pip_size=sym_cfg["pip"],
+                                        sl=order["sl"],
+                                        tp=order["tp"],
+                                    )
 
                                 # ── Record in trade memory ───────────────────
                                 if self.memory:
@@ -1300,68 +1509,41 @@ class ContinuousTrader:
 
                                 self.state["total_trades"] += 1
                                 _save_state(self.state)
+                                # Record trade time for post-trade cooldown
+                                self._last_trade_time[broker_sym] = time.time()
                                 time.sleep(0.5)
                                 positions_by_sym = get_positions_by_symbol(self.bridge)
                             else:
-                                log.warning(f"   ❌ {disp} order failed")
+                                log.warning(f"ACTION | {disp} | order failed")
                     else:
                         if not can_open_new:
                             pass  # already logged above; don't spam DB for max-trades cases
                         elif direction == "HOLD":
-                            log.info(f"   ⏭  {disp}: HOLD — no trade")
+                            log.info(f"ACTION | {disp} | HOLD | no trade setup")
                             _log_signal(
                                 broker_sym, direction, confidence, reason, "HOLD"
                             )
                         elif fade_blocked:
-                            log.info(f"   ⏭  {disp}: fade blocked (ADX={_adx_val:.1f} RSI={_rsi_v:.1f})")
+                            log.info(f"ACTION | {disp} | skip entry | fade blocked (ADX={_adx_val:.1f} RSI={_rsi_v:.1f})")
                             _log_signal(broker_sym, direction, confidence, "fade_blocked", "LOW_CONF")
                         elif not _adx_ok:
-                            log.info(f"   ⏭  {disp}: ADX too low ({_adx_val:.1f}) — no trend or ranging setup")
+                            log.info(f"ACTION | {disp} | skip entry | ADX too low ({_adx_val:.1f})")
                             _log_signal(broker_sym, direction, confidence, f"adx_low_{_adx_val:.1f}", "LOW_CONF")
                         else:
                             log.info(
-                                f"   ⏭  {disp}: confidence too low ({confidence:.0%} < {_conf_gate:.0%})"
+                                f"ACTION | {disp} | skip entry | confidence {confidence:.0%} below gate {_conf_gate:.0%}"
                             )
                             _log_signal(
                                 broker_sym, direction, confidence, reason, "LOW_CONF"
                             )
 
-                    # ── Position scaling (pyramiding) ────────────────────────
-                    if self.scaler and current_pos:
-                        try:
-                            scales = self.scaler.evaluate(
-                                positions=current_pos,
-                                account=acct,
-                                signal_data=signal_data,
-                                sym_cfg=sym_cfg,
-                                session=session,
-                                bridge=self.bridge,
+                    # ── Pyramid status logging (replaced old scaler) ──────────
+                    if self.pyramid and self.pyramid.has_active_pyramid(disp):
+                        _psess = self.pyramid.get_session(disp)
+                        if _psess:
+                            log.info(
+                                f"PYRAMID | {disp} | {_psess.tranche_count}/10 tranches | total lot {_psess.total_lot:.2f} | avg entry {_psess.avg_entry_price:.2f}"
                             )
-                            if scales:
-                                for sc in scales:
-                                    log.info(
-                                        f"   📈 SCALED {disp} #{sc['scale_ticket']} "
-                                        f"{sc['direction']} +{sc['lot']}lot — {sc['reason']}"
-                                    )
-                                    _log_signal(
-                                        broker_sym,
-                                        sc["direction"],
-                                        confidence,
-                                        sc["reason"],
-                                        "SCALED",
-                                        ticket=sc["scale_ticket"],
-                                    )
-                                    symbols_status.setdefault(disp, {})[
-                                        "last_scale"
-                                    ] = {
-                                        "ticket": sc["scale_ticket"],
-                                        "lot": sc["lot"],
-                                        "ts": ts,
-                                    }
-                                time.sleep(0.5)
-                                positions_by_sym = get_positions_by_symbol(self.bridge)
-                        except Exception as e:
-                            log.warning(f"   [SCALER] Error for {disp}: {e}")
 
             # ── Write dashboard status ────────────────────────────────────────
             # Build open-positions list for dashboard
@@ -1435,10 +1617,10 @@ class ContinuousTrader:
             _save_state(self.state)
 
             # ── Rapid skill learning (every 5 cycles ≈ every 100s) ───────
-            if self.memory and self.skill_mgr and cycle % 5 == 0:
+            if self.memory and self.skill_mgr and cycle % 200 == 0:
                 try:
-                    outcomes = self.memory.get_recent_outcomes(hours=2)
-                    if outcomes:
+                    outcomes = self.memory.get_recent_outcomes(hours=24)
+                    if len(outcomes) >= 5:  # need meaningful data to improve
                         for skill_info in self.skill_mgr.list_skills():
                             self.skill_mgr.improve_skill(
                                 skill_info["name"], outcomes[:5]
@@ -1462,9 +1644,7 @@ class ContinuousTrader:
 
             secs = CONFIG["monitor_interval_s"]
             log.info(
-                f"   💤 Next check in {secs}s  "
-                f"(analysis in {next_analysis_in}s)  "
-                f"Cycle #{cycle}"
+                f"NEXT | sleep {secs}s | analysis in {next_analysis_in}s | next cycle #{cycle + 1}"
             )
             time.sleep(secs)
 

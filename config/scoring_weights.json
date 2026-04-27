@@ -1,8 +1,8 @@
 {
-  "_note": "buy_threshold is HARD-CAPPED at 20 by analyzer._load_weights(). Setting above 20 halts trading. Valid range: 8–20.",
-  "buy_threshold": 15,
-  "sell_threshold": -15,
-  "ranging_penalty": 0.75,
+  "_note": "buy_threshold HARD-CAPPED at 20 by analyzer._load_weights(). Valid range 8-20. Setting >20 halts all trading.",
+  "buy_threshold": 12,
+  "sell_threshold": -12,
+  "ranging_penalty": 0.70,
   "f1_h4_trend": 1.0,
   "f2_h1_trend": 1.0,
   "f3_rsi": 1.0,
@@ -23,11 +23,19 @@
     },
     {
       "date": "2026-04-18",
-      "change": "buy_threshold 18->12. Max score ~23, threshold=18 = 0 signals."
+      "change": "FINAL CALIBRATION: buy_threshold=12. Max score ~23, threshold=18 = 0 signals."
+    },
+    {
+      "date": "2026-04-23",
+      "change": "SENIOR TRADER OVERHAUL: Thresholds 12->8, ranging_penalty 0.75->0.80."
+    },
+    {
+      "date": "2026-04-27",
+      "change": "NOISE REDUCTION: Thresholds 8->12. Sub-60% confidence trades causing churn."
     },
     {
       "date": "2026-04-28",
-      "change": "buy_threshold 12->15 / sell_threshold -12->-15. Backtest (2.4yr H1): score 15-18 bucket has 49% WR; 18-22 has 54%; 22+ has 57-60%. Threshold=15 filters the worst marginal trades while keeping high-quality flow."
+      "change": "Added hard cap in analyzer._load_weights() (8-20). Added NYLateSessionFilter, SilverADXFilter, adaptive trailing stop (ADX-based), CapitalManager atr_avg fix."
     }
   ]
 }

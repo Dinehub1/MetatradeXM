@@ -44,14 +44,20 @@ CAPITAL_CFG = {
     "drawdown_reduce_threshold": 3,  # 3 consecutive losses → reduce risk
     "drawdown_reduce_pct":    0.3,   # reduce to 0.3% risk on losing streak (was 0.5%)
 
-    # Profit Booking — earlier and more aggressive for scalping
+    # Profit Booking — calibrated to 160-pip TP (Senior Trader Overhaul 2026-04-23)
+    # OLD milestones: 3/6/10 pips (scalping) — fired immediately and killed the whole trade.
+    # On 0.01 lot (minimum) partial closes fail because you can't close a fraction.
+    # NEW milestones: let the trade breathe and book at 25%/50%/75% of the way to TP.
+    # At 160-pip TP: milestone 1 = 40 pips (25%), 2 = 80 pips (50%), 3 = 120 pips (75%)
     "partial_book_enabled":   True,
     "book_levels": [
-        {"pips": 3,  "close_pct": 0.40},   # at +3 pips, close 40% (was 5/30%)
-        {"pips": 6,  "close_pct": 0.30},   # at +6 pips, close another 30% (was 10/30%)
-        {"pips": 10, "close_pct": 0.20},   # at +10 pips, close another 20% (was 20/20%)
-        # remaining 10% runs to TP or SL (free ride)
+        {"pips": 40,  "close_pct": 0.40},  # at +40 pips (25% of TP): book 40%
+        {"pips": 80,  "close_pct": 0.30},  # at +80 pips (50% of TP): book another 30%
+        {"pips": 120, "close_pct": 0.20},  # at +120 pips (75% of TP): book another 20%
+        # remaining 10% rides free to TP or SL — pure profit
     ],
+    # Minimum lot required to attempt partial close — below this, skip (can't split)
+    "min_lot_for_partial":    0.02,   # 0.01 lot = can't close fraction, skip all levels
 
     # Volatility scaling
     "atr_scale_enabled":     True,
@@ -260,6 +266,13 @@ class CapitalManager:
                     # Skip if not yet at this level
                     if profit_pips < level_pips:
                         continue
+
+                    # GUARD: skip partial closes if volume is at minimum (can't split)
+                    if volume < CAPITAL_CFG["min_lot_for_partial"]:
+                        # Log once only (when first level would have triggered)
+                        if level_pips == CAPITAL_CFG["book_levels"][0]["pips"] and profit_pips >= level_pips:
+                            log.info(f"[CAPITAL] {display_name} #{ticket}: lot={volume} too small for partial close — riding to TP")
+                        break
 
                     # Calculate volume to close
                     close_vol = round(volume * close_pct, 2)

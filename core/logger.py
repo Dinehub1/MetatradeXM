@@ -10,10 +10,9 @@ import logging.handlers
 import sys
 from datetime import datetime
 from pathlib import Path
-from core.paths import LOG_DIR
+from core.paths import LOG_DIR, DATA_DIR
 
-
-DB_FILE = "trades.db"
+DB_FILE = DATA_DIR / "trades.db"
 LOG_FILE = LOG_DIR / "bot.log"
 
 _FMT = logging.Formatter(
@@ -23,25 +22,36 @@ _FMT = logging.Formatter(
 
 
 def setup_logging(level: str = "INFO") -> None:
-    """Configure root logger → bot.log (all modules) + console at WARNING+.
+    """Configure root logger → bot.log (rotating file) + console at INFO+.
 
     Call once at process startup before any loggers are created.
+    Outputs:
+      - Console (stdout): INFO+ for IDE/terminal visibility
+      - File (logs/bot.log): INFO+ with 10 MB × 3 rotation for SSH/PM2
     """
     root = logging.getLogger()
     if root.handlers:
         return  # already configured
     root.setLevel(getattr(logging, level.upper(), logging.INFO))
 
-    fh = logging.handlers.RotatingFileHandler(
-        LOG_FILE, maxBytes=10 * 1024 * 1024, backupCount=3, encoding="utf-8"
-    )
-    fh.setFormatter(_FMT)
-    root.addHandler(fh)
-
+    # ── Console handler (stdout) — full visibility ────────────────────────
     ch = logging.StreamHandler(sys.stdout)
-    ch.setLevel(logging.WARNING)
+    ch.setLevel(getattr(logging, level.upper(), logging.INFO))
     ch.setFormatter(_FMT)
     root.addHandler(ch)
+
+    # ── File handler (logs/bot.log) — persistent for SSH/PM2 ─────────────
+    try:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        fh = logging.handlers.RotatingFileHandler(
+            LOG_FILE, maxBytes=10_000_000, backupCount=3, encoding="utf-8"
+        )
+        fh.setLevel(logging.INFO)
+        fh.setFormatter(_FMT)
+        root.addHandler(fh)
+    except Exception as e:
+        # Don't crash if log dir is not writable (e.g. first run)
+        print(f"[WARN] Could not create file logger: {e}", file=sys.stderr)
 
 
 # ── Backwards-compatible alias so existing imports still work ─────────────────
