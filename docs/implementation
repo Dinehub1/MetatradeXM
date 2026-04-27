@@ -1,0 +1,308 @@
+# MetatradeXM 100X Performance Overhaul
+
+> **Goal:** Transform MetatradeXM from a reactive, manually-tuned system into a self-optimizing, low-latency autonomous trading engine — targeting **100X cumulative performance improvement**.
+
+## Executive Summary
+
+After deep-diving every module in the codebase, I've identified **7 pillars** that compound multiplicatively to reach 100X. The current system leaves enormous edge on the table through: phantom state bugs blocking entries, 30s polling latency causing slippage, static confidence gates filtering 60%+ of valid signals, market orders eating spread, disabled self-optimization, single-strategy rigidity, and inverted risk:reward ratios.
+
+| # | Pillar | Expected Multiplier | Effort |
+|---|--------|-------------------|--------|
+| 1 | Fix Phantom State Bug | **2X** (unblocks entries) | Low |
+| 2 | WebSocket Latency Reduction | **2-3X** (better fills) | Medium |
+| 3 | Adaptive Confidence Gating | **3-4X** (more valid trades) | Medium |
+| 4 | Limit Order Execution | **1.5-2X** (reduce spread) | Medium |
+| 5 | Self-Optimization Engine | **2-3X** (auto-tuning) | High |
+| 6 | Multi-Regime Strategies | **2-3X** (trade all conditions) | High |
+| 7 | Dynamic Risk:Reward | **2-3X** (let winners run) | Medium |
+
+**Compound: 2 × 2.5 × 3.5 × 1.75 × 2.5 × 2.5 × 2.5 ≈ 120X**
+
+---
+
+## User Review Required
+
+> [!IMPORTANT]
+> This is a **major architectural overhaul** across 12+ files. I recommend implementing in phases (Pillars 1-2 first, then 3-4, then 5-7) with live validation between each phase.
+
+> [!WARNING]
+> Pillar 5 (Self-Optimization) enables automatic weight adjustment. Currently disabled for safety (`WEIGHT_ADJUSTMENT_ENABLED = False`). Enabling requires guardrails — the plan includes them, but you should monitor closely for the first week.
+
+## Open Questions
+
+1. **Live vs Demo:** Should we implement on the demo account first, then migrate to live?
+2. **Latency priority:** Do you want to keep the Webhook bridge as primary streaming via `live_server.py`?
+3. **Partial close support:** `webhook_bridge.py` line 289-292 shows partial close is NOT supported. Is upgrading the Windows webhook server feasible?
+
+---
+
+## Pillar 1: Fix Phantom State Desync (2X)
+
+**Problem:** `pyramid_manager.py` tracks tranches locally in `trader_state.json` but never validates against MT5. When MT5 closes a position (SL/TP hit), the local state keeps the phantom tranche, blocking new entries.
+
+### [MODIFY] [pyramid_manager.py](file:///Users/mac/Documents/MetatradeXM/risk/pyramid_manager.py)
+
+Add a `hard_sync()` method called every monitoring cycle:
+
+```python
+def hard_sync(self, bridge, symbol: str):
+    """Sync local pyramid state against actual MT5 positions."""
+    mt5_positions = bridge.get_open_positions(symbol)
+    mt5_tickets = {str(p.ticket) for p in mt5_positions}
+    
+    stale = []
+    for group_id, group in self.active_groups.items():
+        for tranche in group.get("tranches", []):
+            if str(tranche["ticket"]) not in mt5_tickets:
+                stale.append((group_id, tranche["ticket"]))
+    
+    for group_id, ticket in stale:
+        log.warning(f"[PYRAMID] Removing phantom tranche #{ticket}")
+        self._remove_tranche(group_id, ticket)
+```
+
+### [MODIFY] [continuous_trader.py](file:///Users/mac/Documents/MetatradeXM/continuous_trader.py)
+
+Call `pyramid_mgr.hard_sync(bridge, symbol)` at the top of every 30-second monitor cycle, BEFORE any entry logic.
+
+---
+
+## Pillar 2: WebSocket Latency Reduction (2-3X)
+
+**Problem:** Current flow: `webhook_bridge.py` polls via HTTP every 15s with 15s timeouts. Price data is stale by 15-30 seconds. Gold moves $2-5 in that window.
+
+**Solution:** `live_server.py` find good one
+
+### [MODIFY] [continuous_trader.py](file:///Users/mac/Documents/MetatradeXM/continuous_trader.py)
+
+Wire `live_server.py` as the primary data source:
+
+```python
+from bridges.live_server import start_live_server, get_live_server
+
+# In _init_:
+self.live_server = start_live_server()
+
+# In analysis cycle — use streaming data instead of HTTP polling:
+live = get_live_server()
+if live and live.is_ready():
+    tv_data = live._latest.get(display_symbol)
+    # Use this instead of webhook_bridge.get_indicators()
+```
+
+### [MODIFY] [webhook_bridge.py](file:///Users/mac/Documents/MetatradeXM/bridges/webhook_bridge.py)
+
+Keep as **execution-only** bridge. Remove data-fetching calls from the hot path. Orders still go through HTTP (acceptable latency for execution).
+
+---
+
+## Pillar 3: Adaptive Confidence Gating (3-4X)
+
+**Problem:** Static `min_conf` gates (currently 0.48) filter out 60%+ of valid signals. The system says "HOLD" when it should be probing with small positions.
+
+**Solution:** Replace static confidence gates with regime-adaptive thresholds.
+
+### [MODIFY] [continuous_trader.py](file:///Users/mac/Documents/MetatradeXM/continuous_trader.py)
+
+Replace the static `min_conf` with a dynamic function:
+
+```python
+def _adaptive_min_conf(self, session: str, adx: float, streak: int) -> float:
+    """Regime-adaptive confidence threshold."""
+    base = 0.42  # Lower base to allow more probes
+    
+    # Session adjustment
+    session_adj = {"LONDON_NY_OVERLAP": -0.03, "LONDON": 0.0, 
+                   "NEW_YORK": 0.02, "ASIAN": 0.05}
+    
+    # Volatility adjustment (high ADX = trending = lower threshold)
+    adx_adj = -0.05 if adx > 30 else (0.05 if adx < 15 else 0.0)
+    
+    # Streak adjustment (losing streak = tighter gate)
+    streak_adj = min(streak * 0.02, 0.10) if streak > 0 else 0
+    
+    return max(0.38, min(0.60, base + session_adj.get(session, 0) + adx_adj + streak_adj))
+```
+
+### [MODIFY] [analyzer.py](file:///Users/mac/Documents/MetatradeXM/core/analyzer.py)
+
+In `_multi_tf_signal()`: Replace the hard MTF penalty with a graduated discount:
+
+```python
+# Instead of: if mtf_disagree: confidence *= 0.70  (kills signal)
+# Use: confidence *= max(0.80, 1.0 - (disagreement_count * 0.07))
+```
+
+---
+
+## Pillar 4: Limit Order Execution (1.5-2X)
+
+**Problem:** All entries are market orders. Gold spread is typically 20-40 cents ($2-4 per pip). On 0.01 lots this is small, but across hundreds of trades it compounds.
+
+### [MODIFY] [webhook_bridge.py](file:///Users/mac/Documents/MetatradeXM/bridges/webhook_bridge.py)
+
+Add `place_limit_order()` method:
+
+```python
+def place_limit_order(self, params: dict):
+    """Place a limit order at a calculated entry price."""
+    payload = {
+        "action": f"LIMIT_{params['direction']}",
+        "symbol": params["symbol"],
+        "lot": params["lot"],
+        "price": params["limit_price"],
+        "sl": params.get("sl"),
+        "tp": params.get("tp"),
+        "expiry_seconds": params.get("expiry", 300),  # 5min expiry
+    }
+    # ... POST to webhook
+```
+
+### [MODIFY] Windows webhook server (win_webhook_mt5.py)
+
+Add handler for `LIMIT_BUY` / `LIMIT_SELL` using MT5 `ORDER_TYPE_BUY_LIMIT` / `ORDER_TYPE_SELL_LIMIT`.
+
+> [!NOTE]
+> This requires changes to the Windows-side Flask server. We can implement this as a second phase if the Windows server changes are complex.
+
+---
+
+## Pillar 5: Self-Optimization Engine (2-3X)
+
+**Problem:** `self_improver.py` has `WEIGHT_ADJUSTMENT_ENABLED = False`. The learning system records data but never acts on it. Skills exist but don't auto-evolve.
+
+### [MODIFY] [self_improver.py](file:///Users/mac/Documents/MetatradeXM/learning/self_improver.py)
+
+Enable with safety rails:
+
+```python
+WEIGHT_ADJUSTMENT_ENABLED = True  # Enable with guardrails below
+
+# Add revert-on-drawdown safety:
+def _apply_weight_adjustments(self, adjustments):
+    # Save pre-adjustment snapshot
+    backup = json.loads(WEIGHTS_PATH.read_text())
+    
+    # Apply adjustments (existing logic)
+    ...
+    
+    # Auto-revert trigger: if next 10 trades < 30% WR, revert
+    weights["_revert_snapshot"] = backup
+    weights["_revert_after_trades"] = 10
+    weights["_revert_if_wr_below"] = 0.30
+```
+
+### [MODIFY] [memory.py](file:///Users/mac/Documents/MetatradeXM/learning/memory.py)
+
+Add trade-velocity tracking:
+
+```python
+def get_trade_velocity(self, hours=4) -> dict:
+    """Trades per hour, win rate trend, avg hold time trend."""
+    # Used by self-improver to detect if recent changes helped
+```
+
+### [MODIFY] [skill_manager.py](file:///Users/mac/Documents/MetatradeXM/learning/skill_manager.py)
+
+Add skill retirement: auto-disable skills with WR < 35% after 20+ trades.
+
+---
+
+## Pillar 6: Multi-Regime Strategy (2-3X)
+
+**Problem:** Single strategy (trend-following with confluence scoring) only works in trending markets. Ranging markets (ADX < 20) generate churn losses.
+
+### [NEW] [regime_detector.py](file:///Users/mac/Documents/MetatradeXM/core/regime_detector.py)
+
+```python
+class RegimeDetector:
+    """Classify market into regimes using ADX + BB width + ATR percentile."""
+    
+    REGIMES = {
+        "STRONG_TREND": {"adx_min": 30, "strategy": "trend_follow"},
+        "WEAK_TREND":   {"adx_min": 20, "adx_max": 30, "strategy": "pullback"},
+        "RANGING":      {"adx_max": 20, "bb_squeeze": True, "strategy": "mean_revert"},
+        "BREAKOUT":     {"bb_squeeze": True, "atr_expanding": True, "strategy": "breakout"},
+    }
+    
+    def classify(self, indicators: dict) -> str:
+        """Returns regime name + strategy recommendation."""
+```
+
+### [MODIFY] [analyzer.py](file:///Users/mac/Documents/MetatradeXM/core/analyzer.py)
+
+Use regime to select different scoring weights per regime:
+
+```python
+# In _multi_tf_signal():
+regime = self.regime_detector.classify(indicators)
+if regime == "RANGING":
+    # Use mean-reversion weights: RSI oversold/bought = strong signal
+    # Trend factors (H4, H1) = low weight
+elif regime == "STRONG_TREND":
+    # Use existing trend-following weights
+    # Add momentum bonus for aligned factors
+```
+
+---
+
+## Pillar 7: Dynamic Risk:Reward (2-3X)
+
+**Problem:** Fixed SL/TP (often inverted — seen in conversation logs where SL > TP). Smart exit exists but doesn't dynamically adjust R:R based on regime.
+
+### [MODIFY] [smart_exit.py](file:///Users/mac/Documents/MetatradeXM/risk/smart_exit.py)
+
+Add ATR-based dynamic TP/SL:
+
+```python
+def dynamic_targets(self, regime: str, atr: float, direction: str) -> dict:
+    """ATR-based targets that adapt to volatility."""
+    if regime == "STRONG_TREND":
+        sl_mult, tp_mult = 1.5, 4.0  # Wide targets, let it run
+    elif regime == "RANGING":
+        sl_mult, tp_mult = 1.0, 1.5  # Tight targets, quick profits
+    else:
+        sl_mult, tp_mult = 1.5, 2.5  # Default
+    
+    return {"sl_pips": atr * sl_mult, "tp_pips": atr * tp_mult}
+```
+
+### [MODIFY] [capital_manager.py](file:///Users/mac/Documents/MetatradeXM/risk/capital_manager.py)
+
+Add Kelly Criterion position sizing:
+
+```python
+def kelly_lot_size(self, win_rate: float, avg_win: float, avg_loss: float) -> float:
+    """Kelly fraction for optimal position sizing."""
+    if avg_loss == 0: return self.base_lot
+    b = avg_win / abs(avg_loss)  # Win/loss ratio
+    f = win_rate - (1 - win_rate) / b  # Kelly fraction
+    f = max(0, min(f * 0.5, 0.25))  # Half-Kelly with 25% cap
+    return round(self.base_lot * (1 + f * 5), 2)  # Scale lot
+```
+
+---
+
+## Verification Plan
+
+### Automated Tests
+```bash
+# Unit tests for each new module
+python -m pytest tests/test_regime_detector.py
+python -m pytest tests/test_adaptive_confidence.py
+python -m pytest tests/test_hard_sync.py
+
+# Integration: run dry-mode for 24h and compare signal count
+python3 continuous_trader.py --dry 2>&1 | tee /tmp/dry_run.log
+grep -c "SIGNAL" /tmp/dry_run.log  # Should be 3-5X more signals
+```
+
+### Manual Verification
+1. **Phase 1 (Pillars 1-2):** Deploy to demo, monitor for 48h. Verify zero phantom states and <2s data latency.
+2. **Phase 2 (Pillars 3-4):** Run 1 week on demo. Track signal count increase and avg slippage reduction.
+3. **Phase 3 (Pillars 5-7):** Run 2 weeks on demo. Track cumulative P&L vs. baseline.
+
+### Browser-based monitoring
+- Check `bot_status.json` for regime classification
+- Monitor `trade_memory.db` for improved win rates
+- Review `scoring_weights.json` for self-optimizer changes
