@@ -114,7 +114,7 @@ CONFIG = {
     "analysis_interval_s": int(os.getenv("ANALYSIS_INTERVAL_S", "60")),  # full AI analysis every 60s (env: ANALYSIS_INTERVAL_S)
     "profit_close_pct": 0.8,  # close trade at +0.8% account profit (take small profits fast)
     "loss_close_pct": 0.15,  # close trade at -0.3% account loss (tight loss control)
-    "min_confidence": 0.55,  # minimum confidence to trade; AI signals target 0.65+, indicator fallback 0.55+
+    "min_confidence": 0.70,  # minimum confidence — backtest shows 65-70 bucket has 43% WR (near break-even)
     "max_trades_per_sym": 3,  # up to 3 positions per symbol (pyramiding on strong moves)
     "max_total_positions": 10,  # hard cap: no more than 10 open positions across all symbols
     "dry_run": False,  # live trading
@@ -540,14 +540,16 @@ def build_order_params(
         tp = round(price - tp_pips * pip, digits)
 
     # ── Confidence-scaled position sizing ─────────────────────────────────
-    if confidence >= 0.80:
+    # Gate is now 0.70; bucket below 0.70 never reaches here.
+    # 0.90+ = max size (highest-conviction trades deserve full sizing)
+    # 0.80–0.89 = 85% (solid signal)
+    # 0.70–0.79 = 70% (minimum gate — real edge but with uncertainty)
+    if confidence >= 0.90:
         conf_mult = 1.0
-    elif confidence >= 0.65:
-        conf_mult = 0.7
-    elif confidence >= 0.55:
-        conf_mult = 0.5
+    elif confidence >= 0.80:
+        conf_mult = 0.85
     else:
-        conf_mult = 0.3
+        conf_mult = 0.70   # floor: min_confidence = 0.70
 
     lot = round(max(sym_cfg["lot"] * conf_mult * lot_reduction, 0.01), 2)
 
@@ -1000,6 +1002,9 @@ class ContinuousTrader:
                     direction = signal_data.get("direction", "HOLD")
                     confidence = float(signal_data.get("confidence", 0.0))
                     reason = signal_data.get("reason", "")
+                    # Stash latest ADX in sym_cfg so SmartExitManager can read it
+                    # for adaptive trailing distance without an extra bridge call.
+                    sym_cfg["_last_adx"] = signal_data.get("indicators", {}).get("adx", 0.0)
 
                     log.info(
                         f"   {disp}: {direction:4s} conf={confidence:.0%} | {reason[:55]}"
@@ -1213,11 +1218,29 @@ class ContinuousTrader:
 
                         # ── Dynamic lot sizing (capital manager) ──────────
                         if self.capital:
+                            # Compute rolling 20-bar ATR average from primary M15 data
+                            _atr_avg = atr
+                            try:
+                                if primary is not None and len(primary) >= 20:
+                                    _tr = (
+                                        primary[["h", "l", "c"]]
+                                        .assign(
+                                            hl=primary["h"] - primary["l"],
+                                            hc=abs(primary["h"] - primary["c"].shift()),
+                                            lc=abs(primary["l"] - primary["c"].shift()),
+                                        )
+                                        .eval("tr = max(hl, hc, lc)", engine="python")
+                                    )
+                                    _atr_avg = float(primary["h"].sub(primary["l"]).rolling(20).mean().iloc[-1])
+                            except Exception:
+                                pass
                             smart_lot = self.capital.compute_lot(
                                 balance=balance,
                                 atr=atr,
-                                atr_avg=atr,  # will improve once ATR history cached
+                                atr_avg=_atr_avg,
                                 session=session,
+                                sl_pips=order.get("sl_pips", sym_cfg["sl_pips"]),
+                                symbol=broker_sym,
                             )
                             if smart_lot == 0:
                                 log.info(f"   ⏭  {disp}: Capital mgr says skip")

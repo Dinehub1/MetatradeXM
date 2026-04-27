@@ -121,6 +121,73 @@ class VolatilityFilter(StrategyFilter):
         return True, ""
 
 
+class NYLateSessionFilter(StrategyFilter):
+    """
+    New York late session (17:00–21:59 UTC) is the weakest trading window.
+    Backtest over 2.4 years shows this period has only 47% win rate vs
+    56% overall — well below break-even at current R:R.
+
+    Rules:
+      - In NY-late, require confidence ≥ 0.75 (vs normal 0.70 gate)
+      - Allow trades only when ADX ≥ 22 (trending market confirmed)
+      - Reduce position size 30% via lot_reduction if signal is marginal
+    """
+    name = "ny_late_session"
+
+    NY_LATE_START = 17   # UTC
+    NY_LATE_END   = 22   # UTC (exclusive)
+
+    def should_trade(self, symbol, direction, context):
+        h = datetime.now(timezone.utc).hour
+        if not (self.NY_LATE_START <= h < self.NY_LATE_END):
+            return True, ""
+
+        indicators = context.get("indicators", {})
+        adx        = indicators.get("adx", 0)
+        confidence = context.get("confidence", 1.0)
+
+        # Require trend confirmation during this weaker session
+        if adx < 22:
+            return False, (
+                f"NY-late filter: ADX={adx:.1f} < 22 (ranging market in weak session "
+                f"{h:02d}:00 UTC — wait for London/NY_Overlap)"
+            )
+
+        # Allow but reduce size if confidence is marginal for this session
+        if confidence < 0.75:
+            context["_lot_reduction"] = min(context.get("_lot_reduction", 1.0), 0.7)
+            return True, f"NY-late: lot reduced 30% (conf={confidence:.0%} in off-peak session)"
+
+        return True, ""
+
+
+class SilverADXFilter(StrategyFilter):
+    """
+    Silver (XAGUSD) is significantly choppier than Gold.
+    Backtest showed 33% win rate for silver vs 56% for gold in the same period.
+    Silver needs a stronger trend signal (ADX ≥ 22 vs gold's 18) to trade.
+    Only applies to XAGUSD / SILVER symbols.
+    """
+    name = "silver_adx"
+
+    SILVER_ADX_MIN = 22   # gold threshold is 18 (in ADX_regime in analyzer)
+
+    def should_trade(self, symbol, direction, context):
+        sym_upper = symbol.upper()
+        if "SILVER" not in sym_upper and "XAG" not in sym_upper:
+            return True, ""
+
+        indicators = context.get("indicators", {})
+        adx        = indicators.get("adx", 0)
+
+        if adx < self.SILVER_ADX_MIN:
+            return False, (
+                f"Silver ADX filter: ADX={adx:.1f} < {self.SILVER_ADX_MIN} "
+                "(Silver requires stronger trend than Gold — too choppy to trade)"
+            )
+        return True, ""
+
+
 class CorrelationFilter(StrategyFilter):
     """Block trades when XAU/XAG signals diverge in high correlation."""
     name = "correlation"
@@ -154,6 +221,8 @@ class FilterChain:
             TimeOfDayFilter(),
             DayOfWeekFilter(),
             VolatilityFilter(),
+            NYLateSessionFilter(),
+            SilverADXFilter(),
             CorrelationFilter(),
         ]
 

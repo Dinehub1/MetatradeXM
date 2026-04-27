@@ -762,16 +762,54 @@ class MarketAnalyzer:
         }
 
     def _load_weights(self) -> dict:
-        """Load adaptive scoring weights from JSON file if available."""
+        """Load adaptive scoring weights from JSON file if available.
+
+        Guardrails: buy/sell thresholds are capped at ±20 (max practical score
+        ≈ 25-30). A threshold above 20 makes it impossible to generate signals
+        and effectively halts the bot — so we cap and warn instead of silently
+        breaking trading.
+        """
+        _THRESHOLD_MIN = 8    # below 8 → too permissive, low-quality signals
+        _THRESHOLD_MAX = 20   # above 20 → impossible to achieve, stops trading
+
+        weights: dict = {}
         try:
             import os
-            weights_path = os.path.join(os.path.dirname(__file__), "scoring_weights.json")
-            if os.path.exists(weights_path):
-                with open(weights_path, 'r') as f:
-                    return json.load(f)
+            # Try repo config/ first, then core/ (legacy location)
+            repo_root    = os.path.dirname(os.path.dirname(__file__))
+            config_path  = os.path.join(repo_root, "config", "scoring_weights.json")
+            legacy_path  = os.path.join(os.path.dirname(__file__), "scoring_weights.json")
+            path = config_path if os.path.exists(config_path) else legacy_path
+            if os.path.exists(path):
+                with open(path, 'r') as f:
+                    weights = json.load(f)
         except Exception:
             pass
-        return {}  # defaults handled by .get() calls
+
+        # Guard: clamp thresholds so the bot never stops trading due to
+        # an over-aggressive self-improvement adjustment.
+        raw_buy  = weights.get("buy_threshold",  12)
+        raw_sell = weights.get("sell_threshold", -12)
+
+        clamped_buy  = max(_THRESHOLD_MIN, min(_THRESHOLD_MAX, raw_buy))
+        clamped_sell = min(-_THRESHOLD_MIN, max(-_THRESHOLD_MAX, raw_sell))
+
+        if clamped_buy != raw_buy:
+            log.warning(
+                f"[WEIGHTS] buy_threshold {raw_buy} → clamped to {clamped_buy} "
+                f"(valid range {_THRESHOLD_MIN}–{_THRESHOLD_MAX}). "
+                "Threshold above 20 makes signals impossible."
+            )
+            weights["buy_threshold"] = clamped_buy
+
+        if clamped_sell != raw_sell:
+            log.warning(
+                f"[WEIGHTS] sell_threshold {raw_sell} → clamped to {clamped_sell} "
+                f"(valid range -{_THRESHOLD_MAX} – -{_THRESHOLD_MIN})."
+            )
+            weights["sell_threshold"] = clamped_sell
+
+        return weights
 
     # ── Multi-timeframe confluence signal ─────────────────────────────────────
 

@@ -227,10 +227,12 @@ class SmartExitManager:
                         actions.append(rev_action)
                         continue
 
-                # 4. TRAILING STOP — tighten SL as profit grows
+                # 4. TRAILING STOP — tighten SL as profit grows (ADX-adaptive distance)
+                _adx_for_trail = sym_cfg.get("_last_adx", 0.0)
                 trail_action = self._check_trailing_stop(
                     bridge, ticket, display_name, direction,
-                    open_price, current_sl, profit_pips, pip, sym_cfg, dry_run
+                    open_price, current_sl, profit_pips, pip, sym_cfg, dry_run,
+                    adx=_adx_for_trail,
                 )
                 if trail_action:
                     actions.append(trail_action)
@@ -394,12 +396,27 @@ class SmartExitManager:
 
     def _check_trailing_stop(self, bridge, ticket, symbol, direction,
                               open_price, current_sl, profit_pips, pip,
-                              sym_cfg, dry_run):
-        """Tighten SL as profit grows — lock in gains progressively."""
+                              sym_cfg, dry_run, adx: float = 0.0):
+        """Tighten SL as profit grows — lock in gains progressively.
+
+        Adaptive trail distance:
+          - ADX ≥ 30 (strong trend): trail 20 pips → let winners run further
+          - ADX ≥ 22 (normal trend): trail 12 pips
+          - ADX < 22 (ranging):      trail 8 pips → tighten fast in chop
+        Backtest shows TRAIL is the #1 P&L driver — widening in strong trends
+        captures the tail of large moves without giving back more than needed.
+        """
         if profit_pips < EXIT_CFG["trailing_start_pips"]:
             return None
 
-        trail_distance = EXIT_CFG["trailing_distance_pips"] * pip
+        if adx >= 30:
+            trail_pips = 20   # strong trend — give room to breathe
+        elif adx >= 22:
+            trail_pips = 12   # normal trend
+        else:
+            trail_pips = EXIT_CFG["trailing_distance_pips"]   # default (ranging)
+
+        trail_distance = trail_pips * pip
         digits = 2 if pip >= 0.01 else 5
 
         try:
