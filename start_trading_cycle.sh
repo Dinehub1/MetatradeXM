@@ -28,6 +28,7 @@ EOF
 stop_all() {
   echo -e "${YLW}🛑  Stopping all trading processes...${RST}"
   pkill -f "continuous_trader.py" 2>/dev/null && echo "   ✓ Trader stopped"
+  pkill -f "scripts/glm51_cron.py" 2>/dev/null && echo "   ✓ GLM analyzer stopped"
   pkill -f "auto_recovery.sh"     2>/dev/null && echo "   ✓ Watchdog stopped"
   pkill -f "dashboard.py"         2>/dev/null && echo "   ✓ Dashboard stopped"
   pkill -f "bot.py run"           2>/dev/null && echo "   ✓ Old bot stopped"
@@ -49,6 +50,11 @@ show_status() {
     echo -e "  ${GRN}🟢 Dashboard: RUNNING${RST} (PID $(pgrep -f dashboard.py))"
   else
     echo -e "  ${RED}🔴 Dashboard: STOPPED${RST}"
+  fi
+  if pgrep -f "scripts/glm51_cron.py --loop" > /dev/null 2>&1; then
+    echo -e "  ${GRN}🟢 GLM 5.1:   RUNNING${RST} (PID $(pgrep -f 'scripts/glm51_cron.py --loop'))"
+  else
+    echo -e "  ${RED}🔴 GLM 5.1:   STOPPED${RST}"
   fi
   if pgrep -f "auto_recovery.sh" > /dev/null 2>&1; then
     echo -e "  ${GRN}🟢 Watchdog:  RUNNING${RST} (PID $(pgrep -f auto_recovery.sh))"
@@ -82,6 +88,29 @@ for p in pos:
   echo -e "\n${BLD}═══ Recent Log ═══${RST}"
   if [ -f "$SCRIPT_DIR/logs/system.log" ]; then
     tail -8 "$SCRIPT_DIR/logs/system.log"
+  fi
+  echo -e "\n${BLD}═══ GLM Analysis ═══${RST}"
+  if [ -f "$SCRIPT_DIR/state/glm51_status.json" ]; then
+    python3 -c "
+import json
+from pathlib import Path
+p = Path('$SCRIPT_DIR/state/glm51_status.json')
+d = json.loads(p.read_text())
+print(f\"  State:      {d.get('state', '—')}\")
+print(f\"  Last run:   {d.get('last_run_at', d.get('started_at', '—'))}\")
+print(f\"  Last report:{d.get('last_report', '—')}\")
+ts = d.get('trade_summary', {})
+if ts:
+    print(f\"  Trades:     {ts.get('total_closed',0)} closed | WR {ts.get('win_rate',0)}% | Pips {ts.get('total_pips',0)}\")
+mr = d.get('market_readiness', {})
+if mr:
+    print(f\"  Bias:       {mr.get('bias', '—')}\")
+err = d.get('last_error')
+if err:
+    print(f\"  Last error: {err}\")
+" 2>/dev/null
+  else
+    echo "  No GLM status file yet — wait for the first analysis cycle."
   fi
   echo ""
 }
@@ -144,6 +173,19 @@ else
   echo -e "   ${RED}❌ Trader failed to start — check trading.log${RST}"
 fi
 
+# ── Start GLM 5.1 deep market analyzer ──────────────────────────────────────
+echo -e "${CYN}🧠 Starting GLM 5.1 market analyzer (every 10 min)...${RST}"
+nohup python3 -u "$SCRIPT_DIR/scripts/glm51_cron.py" --loop --interval 10 \
+  >> "$SCRIPT_DIR/logs/glm51_analysis.log" 2>&1 &
+GLM_PID=$!
+sleep 3
+
+if kill -0 "$GLM_PID" 2>/dev/null; then
+  echo -e "   ${GRN}✅ GLM 5.1 analyzer running (PID $GLM_PID)${RST}"
+else
+  echo -e "   ${YLW}⚠️  GLM 5.1 analyzer did not stay up — check logs/glm51_analysis.log${RST}"
+fi
+
 # ── Start watchdog in background ─────────────────────────────────────────────
 echo -e "${CYN}🛡  Starting watchdog...${RST}"
 nohup bash "$SCRIPT_DIR/auto_recovery.sh" $DRY_FLAG > /tmp/watchdog.log 2>&1 &
@@ -156,11 +198,12 @@ echo -e "${GRN}${BLD}  ✅ TRADING SYSTEM STARTED${RST}"
 echo -e "${GRN}${BLD}═══════════════════════════════════════════${RST}"
 echo -e "  📊 Dashboard:  http://$SERVER_IP:$PORT"
 echo -e "  📝 Trade log:  tail -f $SCRIPT_DIR/logs/system.log"
+echo -e "  🧠 GLM log:    tail -f $SCRIPT_DIR/logs/glm51_analysis.log"
 echo -e "  🔍 Status:     bash start_trading_cycle.sh --status"
 echo -e "  🛑 Stop all:   bash start_trading_cycle.sh --stop"
 echo -e "  🎯 Close pos:  bash start_trading_cycle.sh --close"
 echo ""
-echo -e "Monitoring: every 30s | Analysis: every 2min"
+echo -e "Monitoring: every 30s | Trader analysis: every 2min | GLM deep analysis: every 10min"
 echo -e "Profit target: +2% | Loss limit: -1%"
 echo ""
 

@@ -1454,7 +1454,14 @@ class ContinuousTrader:
                         # Cache indicators for pyramid tranche checks
                         if self.pyramid:
                             self.pyramid.update_cached_indicators(
-                                disp, signal_data.get("indicators", {})
+                                disp,
+                                {
+                                    "indicators": signal_data.get("indicators", {}),
+                                    "score": signal_data.get("score", 0),
+                                    "confidence": confidence,
+                                    "signal_direction": direction,
+                                    "factor_scores": signal_data.get("factor_scores", {}),
+                                },
                             )
 
                         if self.dry_run:

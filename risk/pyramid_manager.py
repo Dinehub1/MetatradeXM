@@ -44,9 +44,9 @@ PYRAMID_CFG = {
 
     # SL Management
     "initial_sl_pips": 30,      # tight SL on first tranche (0.01 × 30 pips = ~$3 risk)
-    "breakeven_at_tranche": 3,  # move all SLs to breakeven after 3rd add
-    "trail_after_tranche": 5,   # start trailing after 5th add
-    "trail_distance_pips": 15,  # trail 15 pips behind current price
+    "breakeven_at_tranche": 4,  # wait for more confirmation before lifting the whole basket
+    "trail_after_tranche": 6,   # start trailing later so shallow pullbacks do not clip the stack
+    "trail_distance_pips": 20,  # wider trail to reduce premature basket stop-outs
 
     # TP — let broker TP handle the final target
     "tp_pips": 160,             # same as current SYMBOLS config
@@ -146,7 +146,7 @@ class PyramidSession:
             diff = -diff
         return diff / self.pip_size
 
-    def should_add_tranche(self, current_price: float, indicators: dict = None) -> tuple:
+    def should_add_tranche(self, current_price: float, market_state: dict = None) -> tuple:
         """
         Check if next tranche should be added.
         Returns (should_add: bool, reason: str)
@@ -186,17 +186,60 @@ class PyramidSession:
 
         # Indicator confirmation for tranches 3+
         if next_tranche_idx >= cfg["confirm_from_tranche"] - 1:
-            if indicators is None:
+            if market_state is None:
                 return False, "no indicators for confirmation"
 
-            confirmed, reason = self._check_confirmation(indicators)
+            confirmed, reason = self._check_confirmation(market_state)
             if not confirmed:
                 return False, f"confirmation failed: {reason}"
 
         return True, f"ladder +{pips:.1f} pips (need {required_pips})"
 
-    def _check_confirmation(self, indicators: dict) -> tuple:
+    def _check_confirmation(self, market_state: dict) -> tuple:
         """Check if indicators confirm continued momentum."""
+        indicators = market_state.get("indicators", market_state)
+        score = float(market_state.get("score", 0.0))
+        confidence = float(market_state.get("confidence", 0.0))
+        signal_direction = market_state.get("signal_direction", "")
+        factor_scores = market_state.get("factor_scores", {}) or {}
+        directional_score = score if self.direction == "BUY" else -score
+        tranche_num = self.tranche_count + 1
+
+        # Don't keep layering if the newest analyzed signal is still fighting the pyramid.
+        if signal_direction and signal_direction != self.direction:
+            return False, f"signal flipped to {signal_direction}"
+
+        # Late tranches need real conviction, not just price drift.
+        min_conf = 0.50 if tranche_num <= 4 else 0.58
+        if confidence and confidence < min_conf:
+            return False, f"confidence too low ({confidence:.0%} < {min_conf:.0%})"
+
+        min_score = 1.5 if tranche_num <= 4 else 6.0
+        if directional_score < min_score:
+            return False, f"directional score too weak ({directional_score:+.1f} < {min_score:+.1f})"
+
+        disagree_count = 0
+        f1 = factor_scores.get("f1_h4_trend", 0)
+        f2 = factor_scores.get("f2_h1_trend", 0)
+        f10 = factor_scores.get("f10_d1_trend", 0)
+        if self.direction == "BUY":
+            if f1 < 0:
+                disagree_count += 1
+            if f2 < 0:
+                disagree_count += 1
+            if f10 < 0:
+                disagree_count += 1
+        else:
+            if f1 > 0:
+                disagree_count += 1
+            if f2 > 0:
+                disagree_count += 1
+            if f10 > 0:
+                disagree_count += 1
+
+        if tranche_num >= 4 and disagree_count >= 2:
+            return False, f"too much higher-TF disagreement ({disagree_count})"
+
         checks_passed = 0
         checks_total = 0
         reasons = []
@@ -241,8 +284,9 @@ class PyramidSession:
         else:
             reasons.append(f"ADX weak ({adx:.1f})")
 
-        # Need 3/4 checks to pass
-        ok = checks_passed >= 3
+        # Need 3/4 checks to pass for tranche 3-4, then all 4 for later adds.
+        required_checks = 3 if tranche_num <= 4 else 4
+        ok = checks_passed >= required_checks
         if not ok:
             return False, "; ".join(reasons)
         return True, f"{checks_passed}/{checks_total} confirmed"
@@ -395,10 +439,10 @@ class PyramidManager:
                 continue
 
             # Get current indicators (cached from last analysis)
-            indicators = self._get_cached_indicators(session.symbol)
+            market_state = self._get_cached_indicators(session.symbol)
 
             # Check if we should add a tranche
-            should_add, reason = session.should_add_tranche(current_price, indicators)
+            should_add, reason = session.should_add_tranche(current_price, market_state)
 
             if not should_add:
                 # Log at debug level to avoid spam

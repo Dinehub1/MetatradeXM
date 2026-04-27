@@ -21,6 +21,7 @@ import logging
 import logging.handlers
 import argparse
 import signal
+import sqlite3
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
@@ -62,6 +63,8 @@ GLM_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 GLM_MODEL = "z-ai/glm-5.1"
 REPORTS_DIR = ROOT / "data" / "glm51_reports"
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+TRADE_MEMORY_DB = DATA_DIR / "trade_memory.db"
+STATUS_FILE = STATE_DIR / "glm51_status.json"
 
 # ── Graceful shutdown ──
 _stop = False
@@ -150,7 +153,12 @@ def collect_market_data() -> dict:
         raise ConnectionError("Cannot connect to broker")
 
     analyzer = MarketAnalyzer(use_claude=False)  # no AI call — just indicators
-    data = {"timestamp": datetime.now(timezone.utc).isoformat(), "symbols": {}}
+    data = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "symbols": {},
+        "trade_analysis": {},
+        "market_readiness": {},
+    }
 
     # Account info
     try:
@@ -270,7 +278,221 @@ def collect_market_data() -> dict:
     except Exception:
         pass
 
+    data["trade_analysis"] = collect_trade_analysis()
+    data["market_readiness"] = build_market_readiness(data)
+
     return data
+
+
+def _rows_to_dicts(cursor, rows):
+    cols = [c[0] for c in cursor.description] if cursor.description else []
+    return [dict(zip(cols, row)) for row in rows]
+
+
+def collect_trade_analysis(limit: int = 200) -> dict:
+    """Pull all available trade memory and summarize it for GLM."""
+    result = {
+        "closed_trades": [],
+        "open_entries": [],
+        "filtered_trades": [],
+        "summary": {
+            "total_closed": 0,
+            "wins": 0,
+            "losses": 0,
+            "win_rate": 0.0,
+            "total_pips": 0.0,
+            "avg_pips": 0.0,
+        },
+        "by_symbol": {},
+        "by_session": {},
+        "by_direction": {},
+        "current_streak": {"outcome": None, "count": 0},
+    }
+
+    if not TRADE_MEMORY_DB.exists():
+        result["error"] = f"Trade memory DB not found: {TRADE_MEMORY_DB}"
+        return result
+
+    try:
+        with sqlite3.connect(TRADE_MEMORY_DB) as conn:
+            conn.row_factory = sqlite3.Row
+
+            cur = conn.execute("""
+                SELECT ts, ticket, symbol, direction, entry_price, exit_price,
+                       pips_result, confidence, duration_min, outcome, skills_used
+                FROM trade_outcomes
+                ORDER BY id DESC
+                LIMIT ?
+            """, (limit,))
+            closed_trades = [dict(r) for r in cur.fetchall()]
+
+            cur = conn.execute("""
+                SELECT ts, ticket, symbol, direction, entry_price, confidence, skills_used, closed
+                FROM trade_entries
+                WHERE closed=0
+                ORDER BY id DESC
+                LIMIT 50
+            """)
+            open_entries = [dict(r) for r in cur.fetchall()]
+
+            cur = conn.execute("""
+                SELECT ts, symbol, direction, confidence, filter_reasons
+                FROM filtered_trades
+                ORDER BY id DESC
+                LIMIT 50
+            """)
+            filtered = [dict(r) for r in cur.fetchall()]
+
+            result["closed_trades"] = closed_trades
+            result["open_entries"] = open_entries
+            result["filtered_trades"] = filtered
+
+            total = len(closed_trades)
+            wins = sum(1 for t in closed_trades if t.get("outcome") == "WIN")
+            losses = sum(1 for t in closed_trades if t.get("outcome") == "LOSS")
+            total_pips = sum(float(t.get("pips_result") or 0) for t in closed_trades)
+            result["summary"] = {
+                "total_closed": total,
+                "wins": wins,
+                "losses": losses,
+                "win_rate": round((wins / total) * 100, 1) if total else 0.0,
+                "total_pips": round(total_pips, 2),
+                "avg_pips": round(total_pips / total, 2) if total else 0.0,
+            }
+
+            for trade in closed_trades:
+                symbol = trade.get("symbol") or "UNKNOWN"
+                direction = trade.get("direction") or "UNKNOWN"
+                session = _infer_session_from_ts(trade.get("ts"))
+                pips = float(trade.get("pips_result") or 0)
+                outcome = trade.get("outcome") or "UNKNOWN"
+
+                sym = result["by_symbol"].setdefault(symbol, {
+                    "total": 0, "wins": 0, "losses": 0, "pips": 0.0,
+                })
+                sym["total"] += 1
+                sym["pips"] += pips
+                if outcome == "WIN":
+                    sym["wins"] += 1
+                elif outcome == "LOSS":
+                    sym["losses"] += 1
+
+                dir_bucket = result["by_direction"].setdefault(direction, {
+                    "total": 0, "wins": 0, "losses": 0, "pips": 0.0,
+                })
+                dir_bucket["total"] += 1
+                dir_bucket["pips"] += pips
+                if outcome == "WIN":
+                    dir_bucket["wins"] += 1
+                elif outcome == "LOSS":
+                    dir_bucket["losses"] += 1
+
+                ses = result["by_session"].setdefault(session, {
+                    "total": 0, "wins": 0, "losses": 0, "pips": 0.0,
+                })
+                ses["total"] += 1
+                ses["pips"] += pips
+                if outcome == "WIN":
+                    ses["wins"] += 1
+                elif outcome == "LOSS":
+                    ses["losses"] += 1
+
+            for bucket in (result["by_symbol"], result["by_direction"], result["by_session"]):
+                for stats in bucket.values():
+                    stats["win_rate"] = round((stats["wins"] / stats["total"]) * 100, 1) if stats["total"] else 0.0
+                    stats["avg_pips"] = round(stats["pips"] / stats["total"], 2) if stats["total"] else 0.0
+                    stats["pips"] = round(stats["pips"], 2)
+
+            streak_outcome = None
+            streak_count = 0
+            for trade in closed_trades:
+                outcome = trade.get("outcome")
+                if outcome not in {"WIN", "LOSS"}:
+                    continue
+                if streak_outcome is None:
+                    streak_outcome = outcome
+                    streak_count = 1
+                elif outcome == streak_outcome:
+                    streak_count += 1
+                else:
+                    break
+            result["current_streak"] = {"outcome": streak_outcome, "count": streak_count}
+    except Exception as e:
+        result["error"] = str(e)
+
+    return result
+
+
+def _infer_session_from_ts(ts: str) -> str:
+    try:
+        dt = datetime.fromisoformat((ts or "").replace("Z", "+00:00"))
+        hour = dt.astimezone(timezone.utc).hour
+    except Exception:
+        return "UNKNOWN"
+
+    if 0 <= hour < 7:
+        return "ASIAN"
+    if 7 <= hour < 13:
+        return "LONDON"
+    if 13 <= hour < 22:
+        return "NEW_YORK"
+    return "CLOSED"
+
+
+def build_market_readiness(market_data: dict) -> dict:
+    """Create a concise readiness snapshot for the next market phase."""
+    readiness = {
+        "bias": "NEUTRAL",
+        "priority_symbols": [],
+        "warnings": [],
+        "strengths": [],
+    }
+
+    trade_summary = market_data.get("trade_analysis", {}).get("summary", {})
+    open_positions = market_data.get("open_positions", [])
+    total_profit = sum(float(p.get("profit") or 0) for p in open_positions)
+
+    if trade_summary.get("win_rate", 0) >= 55:
+        readiness["strengths"].append("Recent trade memory is supportive")
+    elif trade_summary.get("win_rate", 0) and trade_summary.get("win_rate", 0) < 40:
+        readiness["warnings"].append("Recent trade win rate is weak — reduce aggression")
+
+    if total_profit < 0:
+        readiness["warnings"].append("Open positions are underwater — protect capital first")
+    elif total_profit > 0:
+        readiness["strengths"].append("Open positions are in profit — avoid giving back gains")
+
+    symbol_scores = []
+    for symbol, sym_data in market_data.get("symbols", {}).items():
+        mtf = sym_data.get("mtf_signal") or {}
+        direction = mtf.get("direction", "HOLD")
+        confidence = float(mtf.get("confidence") or 0)
+        score = float(mtf.get("score") or 0)
+        if direction in {"BUY", "SELL"}:
+            symbol_scores.append({
+                "symbol": symbol,
+                "direction": direction,
+                "confidence": round(confidence * 100, 1),
+                "score": round(score, 2),
+            })
+
+    symbol_scores.sort(key=lambda item: (item["confidence"], abs(item["score"])), reverse=True)
+    readiness["priority_symbols"] = symbol_scores[:3]
+
+    if symbol_scores:
+        top = symbol_scores[0]
+        readiness["bias"] = f"{top['direction']} {top['symbol']}"
+    else:
+        readiness["warnings"].append("No strong multi-timeframe setup right now")
+
+    return readiness
+
+
+def write_status(status: dict):
+    try:
+        STATUS_FILE.write_text(json.dumps(status, indent=2))
+    except Exception as e:
+        log.warning(f"Could not write GLM status file: {e}")
 
 
 def build_analysis_prompt(market_data: dict) -> str:
@@ -295,6 +517,100 @@ def build_analysis_prompt(market_data: dict) -> str:
                         f"P&L=${p['profit']:.2f} SL={p['sl']} TP={p['tp']}")
     else:
         lines.append("\nNO OPEN POSITIONS")
+
+    trade_analysis = market_data.get("trade_analysis", {})
+    trade_summary = trade_analysis.get("summary", {})
+    if trade_summary.get("total_closed") or trade_analysis.get("open_entries") or trade_analysis.get("filtered_trades"):
+        lines.append(f"\n{'='*60}")
+        lines.append("=== FULL TRADE ANALYSIS ===")
+        lines.append(
+            "Closed Trades: "
+            f"{trade_summary.get('total_closed', 0)} | "
+            f"Wins: {trade_summary.get('wins', 0)} | "
+            f"Losses: {trade_summary.get('losses', 0)} | "
+            f"Win Rate: {trade_summary.get('win_rate', 0):.1f}% | "
+            f"Total Pips: {trade_summary.get('total_pips', 0):+.1f} | "
+            f"Avg Pips: {trade_summary.get('avg_pips', 0):+.1f}"
+        )
+
+        streak = trade_analysis.get("current_streak", {})
+        if streak.get("count"):
+            lines.append(f"Current streak: {streak.get('count')} {streak.get('outcome')} in a row")
+
+        by_symbol = trade_analysis.get("by_symbol", {})
+        if by_symbol:
+            lines.append("\n--- Performance by Symbol ---")
+            for symbol, stats in sorted(by_symbol.items()):
+                lines.append(
+                    f"  {symbol}: {stats.get('total', 0)} trades | "
+                    f"WR {stats.get('win_rate', 0):.1f}% | "
+                    f"Pips {stats.get('pips', 0):+.1f} | "
+                    f"Avg {stats.get('avg_pips', 0):+.1f}"
+                )
+
+        by_session = trade_analysis.get("by_session", {})
+        if by_session:
+            lines.append("\n--- Performance by Session ---")
+            for session, stats in sorted(by_session.items()):
+                lines.append(
+                    f"  {session}: {stats.get('total', 0)} trades | "
+                    f"WR {stats.get('win_rate', 0):.1f}% | "
+                    f"Pips {stats.get('pips', 0):+.1f}"
+                )
+
+        by_direction = trade_analysis.get("by_direction", {})
+        if by_direction:
+            lines.append("\n--- Performance by Direction ---")
+            for direction, stats in sorted(by_direction.items()):
+                lines.append(
+                    f"  {direction}: {stats.get('total', 0)} trades | "
+                    f"WR {stats.get('win_rate', 0):.1f}% | "
+                    f"Pips {stats.get('pips', 0):+.1f}"
+                )
+
+        recent_closed = trade_analysis.get("closed_trades", [])[:20]
+        if recent_closed:
+            lines.append("\n--- Recent Closed Trades (latest 20) ---")
+            for trade in recent_closed:
+                lines.append(
+                    f"  {trade.get('ts')} | {trade.get('symbol')} {trade.get('direction')} | "
+                    f"{trade.get('outcome')} {float(trade.get('pips_result') or 0):+.1f}p | "
+                    f"conf={float(trade.get('confidence') or 0):.0%} | "
+                    f"dur={float(trade.get('duration_min') or 0):.0f}m"
+                )
+
+        open_entries = trade_analysis.get("open_entries", [])[:20]
+        if open_entries:
+            lines.append("\n--- Open Trade Entries ---")
+            for trade in open_entries:
+                lines.append(
+                    f"  {trade.get('ts')} | {trade.get('symbol')} {trade.get('direction')} | "
+                    f"entry={trade.get('entry_price')} | conf={float(trade.get('confidence') or 0):.0%}"
+                )
+
+        filtered_trades = trade_analysis.get("filtered_trades", [])[:15]
+        if filtered_trades:
+            lines.append("\n--- Recently Filtered Trades ---")
+            for trade in filtered_trades:
+                lines.append(
+                    f"  {trade.get('ts')} | {trade.get('symbol')} {trade.get('direction')} | "
+                    f"conf={float(trade.get('confidence') or 0):.0%} | reasons={trade.get('filter_reasons')}"
+                )
+
+    readiness = market_data.get("market_readiness", {})
+    if readiness:
+        lines.append(f"\n{'='*60}")
+        lines.append("=== MARKET READINESS ===")
+        lines.append(f"Primary Bias: {readiness.get('bias', 'NEUTRAL')}")
+        for strength in readiness.get("strengths", []):
+            lines.append(f"  Strength: {strength}")
+        for warning in readiness.get("warnings", []):
+            lines.append(f"  Warning: {warning}")
+        for item in readiness.get("priority_symbols", []):
+            lines.append(
+                f"  Priority: {item.get('symbol')} {item.get('direction')} | "
+                f"confidence={item.get('confidence', 0):.1f}% | score={item.get('score', 0):+.2f}"
+            )
 
     # Per-symbol data
     for sym, sym_data in market_data.get("symbols", {}).items():
@@ -382,6 +698,8 @@ You receive COMPLETE market data dumps every 10 minutes. Your job is to provide:
 5. **RISK ASSESSMENT**: Current position risk, drawdown potential, and volatility regime.
 6. **ACTIONABLE RECOMMENDATIONS**: Specific entry/exit levels, stop-loss placement, and confidence.
 7. **10-MINUTE OUTLOOK**: What to watch for in the next 10 minutes.
+8. **TRADE MEMORY REVIEW**: Use the full trade history to say what is working, what is failing, and which symbol/direction/session should be favored or avoided.
+9. **MARKET READINESS PLAN**: Tell us how to be ready for the next move, including best setup, invalidation, and whether to stay flat.
 
 Be thorough but structured. Use concrete price levels and percentages.
 Flag any WARNINGS (divergences, exhaustion, news risk windows).
@@ -398,6 +716,13 @@ def run_analysis_cycle():
     log.info(f"🔄 GLM 5.1 Analysis Cycle — {ts}")
     log.info("=" * 60)
 
+    write_status({
+        "state": "running",
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "last_report": None,
+        "last_error": None,
+    })
+
     # Step 1: Collect market data
     log.info("📊 Step 1: Collecting market data...")
     try:
@@ -407,6 +732,12 @@ def run_analysis_cycle():
     except Exception as e:
         log.error(f"  ❌ Data collection failed: {e}")
         traceback.print_exc()
+        write_status({
+            "state": "error",
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "last_report": None,
+            "last_error": str(e),
+        })
         return
 
     # Step 2: Build prompt
@@ -466,6 +797,16 @@ def run_analysis_cycle():
     latest.write_text(report_content)
 
     elapsed = time.time() - cycle_start
+    write_status({
+        "state": "idle",
+        "last_run_at": datetime.now(timezone.utc).isoformat(),
+        "last_report": str(report_file),
+        "latest_report": str(latest),
+        "last_error": None,
+        "cycle_seconds": round(elapsed, 1),
+        "trade_summary": market_data.get("trade_analysis", {}).get("summary", {}),
+        "market_readiness": market_data.get("market_readiness", {}),
+    })
     log.info(f"✅ Cycle complete in {elapsed:.1f}s")
     log.info(f"  Preview: {analysis[:200]}...")
 
