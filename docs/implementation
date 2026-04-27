@@ -172,7 +172,7 @@ WIN_WEBHOOK_URL=http://<WINDOWS_VM_IP>:5001  # existing — execution
 
 ---
 
-## Phase 2: Signal Quality (🚀 IN PROGRESS)
+## Phase 2: Signal Quality (✅ COMPLETE)
 
 ### 2.1 Adaptive Confidence Gating
 
@@ -185,7 +185,7 @@ WIN_WEBHOOK_URL=http://<WINDOWS_VM_IP>:5001  # existing — execution
 
 ---
 
-## Phase 3: Intelligence
+## Phase 3: Intelligence (✅ COMPLETE)
 
 ### 3.1 Self-Optimization — Enable with guardrails
 ### 3.2 Multi-Regime Strategy — New `core/regime_detector.py`

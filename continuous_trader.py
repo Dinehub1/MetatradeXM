@@ -545,23 +545,42 @@ def build_order_params(
     confidence: float = 0.55,
     atr: float = 0,
     lot_reduction: float = 1.0,
+    regime_data: dict = None,
 ) -> dict:
     pip = sym_cfg["pip"]
     price = tick.ask if direction == "BUY" else tick.bid
     digits = 2 if pip >= 0.01 else 5
 
+    # ── Regime-aware ATR multipliers ──────────────────────────────────────
+    sl_mult = 2.5
+    tp_mult = 3.5
+    
+    if regime_data:
+        vol_state = regime_data.get('volatility_state', 'NORMAL')
+        strat = regime_data.get('recommended_strategy', '')
+        
+        # In highly volatile markets, widen SL to avoid getting whipped out
+        if vol_state == "EXPANDING" or vol_state == "HIGH":
+            sl_mult = 3.0
+            tp_mult = 5.0  # Let runners run in high vol
+        elif vol_state == "COMPRESSED":
+            sl_mult = 1.5  # Tight stops for breakouts
+            tp_mult = 3.0
+
     # ── ATR-based dynamic SL/TP (capped for scalping) ─────────────────────
     if atr > 0:
-        sl_pips = min(int(atr * 2.5 / pip), sym_cfg["sl_pips"])  # was 1.5× → 2.5× ATR for SL
-        tp_pips = min(int(atr * 3.5 / pip), sym_cfg["tp_pips"])  # was 2.0× → 3.5× ATR for TP
+        sl_pips = min(int(atr * sl_mult / pip), sym_cfg["sl_pips"])
+        tp_pips = min(int(atr * tp_mult / pip), sym_cfg["tp_pips"])
         # Floor: minimum viable SL/TP — raised for Gold (institutional standard)
-        sl_floor = 40 if pip >= 0.10 else 8   # was 25 → 40 for Gold (survive 30-40 pip whips)
-        tp_floor = 80 if pip >= 0.10 else 16  # was 40 → 80 for Gold (enforce 1:2 R:R)
+        sl_floor = 40 if pip >= 0.10 else 8
+        tp_floor = 80 if pip >= 0.10 else 16
         sl_pips = max(sl_pips, sl_floor)
         tp_pips = max(tp_pips, tp_floor)
-        # Enforce minimum 1:2 R:R — TP must be at least 2× SL
-        if tp_pips < sl_pips * 2:
-            tp_pips = sl_pips * 2
+        
+        # Regime-based R:R Enforcement
+        min_rr = 1.5 if (regime_data and "MEAN_REVERSION" in regime_data.get('recommended_strategy', '')) else 2.0
+        if tp_pips < sl_pips * min_rr:
+            tp_pips = int(sl_pips * min_rr)
     else:
         sl_pips = sym_cfg["sl_pips"]
         tp_pips = sym_cfg["tp_pips"]
@@ -573,15 +592,26 @@ def build_order_params(
         sl = round(price + sl_pips * pip, digits)
         tp = round(price - tp_pips * pip, digits)
 
-    # ── Confidence-scaled position sizing ─────────────────────────────────
-    if confidence >= 0.80:
-        conf_mult = 1.0
-    elif confidence >= 0.65:
-        conf_mult = 0.7
-    elif confidence >= 0.55:
-        conf_mult = 0.5
-    else:
-        conf_mult = 0.3
+    # ── Kelly Criterion Position Sizing ───────────────────────────────────
+    # f* = p - (1-p)/b
+    # Where p = win probability (using confidence as proxy, capped at 0.85)
+    # b = Risk/Reward ratio (tp_pips / sl_pips)
+    p = min(confidence, 0.85)
+    b = tp_pips / sl_pips if sl_pips > 0 else 2.0
+    
+    # Calculate fractional Kelly (half-Kelly is standard for risk management)
+    kelly_f = p - ((1 - p) / b)
+    kelly_f = max(0.0, kelly_f)  # No negative sizing
+    half_kelly = kelly_f / 2.0
+
+    # Map Half-Kelly directly to our conf_mult. 
+    # A great setup (p=0.8, b=2.5) yields Half-Kelly ~ 0.36
+    # We map 0.36 to max size (1.0 mult).
+    conf_mult = min(half_kelly / 0.35, 1.0)
+    
+    # Floor sizing so we don't completely kill valid signals
+    if confidence >= 0.55:
+        conf_mult = max(conf_mult, 0.3)
 
     lot = round(max(sym_cfg["lot"] * conf_mult * lot_reduction, 0.01), 2)
 
@@ -1305,7 +1335,7 @@ class ContinuousTrader:
 
                     # ── Phase 2.1: Adaptive Confidence Gating ──────────────────────
                     _sig_reason = signal_data.get("reason", "")
-                    _is_ranging = signal_data.get("factor_scores", {}).get("adx_regime") == "RANGING"
+                    _is_ranging = signal_data.get("factor_scores", {}).get("adx_regime", "").startswith("RANGING")
                     _sess_cfg = SESSION_CONFIG.get(session, {"lot_mult": 1.0, "min_conf": 0.48})
                     
                     # 1. Base session/signal confidence
@@ -1427,6 +1457,7 @@ class ContinuousTrader:
                             confidence=confidence,
                             atr=atr,
                             lot_reduction=lot_reduction,
+                            regime_data=signal_data.get("factor_scores"),
                         )
 
                         # ── PYRAMID SYSTEM: Force 0.01 lot for tranche 1 ──

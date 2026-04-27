@@ -14,6 +14,9 @@ import re
 import requests
 import numpy as np
 import pandas as pd
+from typing import Dict, Optional
+from dataclasses import dataclass
+from core.regime_detector import RegimeDetector
 from datetime import datetime, timezone
 
 from core.ai_client import ask_gemini, ask_openrouter  # Gemini primary, OpenRouter fallback
@@ -787,7 +790,8 @@ class MarketAnalyzer:
         # F11: Candlestick pattern confirmation on M15
         f11 = m15.get('candle_pattern_score', 0)
 
-        regime = 'RANGING' if adx < 18 else 'TRENDING'
+        # Advanced regime detection
+        regime_data = RegimeDetector.detect(m15, h1, h4)
 
         return {
             'f1_h4_trend':          round(f1  * weights.get('f1_h4_trend', 1.0), 1),
@@ -801,7 +805,9 @@ class MarketAnalyzer:
             'f9_h1_macd':           round(f9  * weights.get('f9_h1_macd', 0.5), 1),
             'f10_d1_trend':         round(f10 * weights.get('f10_d1', 0.7), 1),
             'f11_candle_pattern':   round(f11 * weights.get('f11_candle', 0.8), 1),
-            'adx_regime':           regime,
+            'adx_regime':           regime_data['regime_label'],
+            'volatility_state':     regime_data['volatility'],
+            'recommended_strategy': regime_data['recommended_strategy'],
             'bb_squeeze':           m15.get('bb_squeeze', False),
         }
 
@@ -842,7 +848,7 @@ class MarketAnalyzer:
         # ── ADX ranging penalty ──────────────────────────────────────────
         # Reduced from 0.6 to 0.8 — ranging market still has valid signals
         ranging_penalty = weights.get('ranging_penalty', 0.8)
-        if scores['adx_regime'] == 'RANGING':
+        if scores['adx_regime'].startswith('RANGING'):
             signed_score = signed_score * ranging_penalty
             regime_note  = f'RANGING ADX<18 — score ×{ranging_penalty}'
         else:
