@@ -6,7 +6,7 @@ set -e
 
 VPS_USER="ubuntu"
 VPS_IP="92.4.71.177"
-SSH_KEY="~/Documents/sshkey/ssh-key-2026-03-16.key"
+SSH_KEY="$HOME/Documents/sshkey/ssh-key-2026-03-16.key"
 TARGET_DIR="~/MetatradeXM"
 
 echo "============================================"

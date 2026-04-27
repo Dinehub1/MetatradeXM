@@ -47,6 +47,11 @@ PYRAMID_CFG = {
     "breakeven_at_tranche": 4,  # wait for more confirmation before lifting the whole basket
     "trail_after_tranche": 6,   # start trailing later so shallow pullbacks do not clip the stack
     "trail_distance_pips": 20,  # wider trail to reduce premature basket stop-outs
+    "breakeven_buffer_pips": 1, # lock a small basket profit once breakeven protection starts
+    "sl_non_loss_tolerance_pips": 0.5,  # never tighten a tranche into a meaningful loss
+    "min_basket_profit_pips_for_late_add": 8,  # stop layering if the basket cushion gets thin
+    "min_locked_profit_pips_before_tranche_5": 4,  # require real locked cushion before tranche 5
+    "min_locked_profit_pips_before_tranche_6": 6,  # tranche 6 needs more locked profit
 
     # TP — let broker TP handle the final target
     "tp_pips": 160,             # same as current SYMBOLS config
@@ -146,6 +151,40 @@ class PyramidSession:
             diff = -diff
         return diff / self.pip_size
 
+    def basket_pips_from_avg(self, current_price: float) -> float:
+        """Basket profit in pips versus the weighted average entry."""
+        diff = current_price - self.avg_entry_price
+        if self.direction == "SELL":
+            diff = -diff
+        return diff / self.pip_size
+
+    def _locked_pips_for_price(self, entry_price: float, stop_price: float) -> float:
+        diff = stop_price - entry_price
+        if self.direction == "SELL":
+            diff = -diff
+        return diff / self.pip_size
+
+    def tranche_can_accept_sl(self, tranche: dict, stop_price: float) -> bool:
+        """Only tighten a tranche if the stop does not turn it into a real loss."""
+        tolerance = PYRAMID_CFG["sl_non_loss_tolerance_pips"]
+        locked_pips = self._locked_pips_for_price(tranche["price"], stop_price)
+        return locked_pips >= -tolerance
+
+    def locked_basket_pips(self, stop_price: float, protected_only: bool = False) -> float:
+        """
+        Weighted average locked pips at a proposed stop.
+        When protected_only=True, only count tranches that can take that stop without a real loss.
+        """
+        eligible = self.tranches
+        if protected_only:
+            eligible = [t for t in self.tranches if self.tranche_can_accept_sl(t, stop_price)]
+        if not eligible:
+            return 0.0
+
+        total_lot = sum(t["lot"] for t in eligible)
+        weighted_pips = sum(self._locked_pips_for_price(t["price"], stop_price) * t["lot"] for t in eligible)
+        return weighted_pips / total_lot if total_lot > 0 else 0.0
+
     def should_add_tranche(self, current_price: float, market_state: dict = None) -> tuple:
         """
         Check if next tranche should be added.
@@ -170,10 +209,22 @@ class PyramidSession:
         # Check pip progress
         pips = self.current_pips_from_entry(current_price)
         next_tranche_idx = self.tranche_count  # 0-indexed, so tranche_count = next index
+        next_tranche_num = self.tranche_count + 1
         required_pips = cfg["entry_ladder_pips"][next_tranche_idx]
 
         if pips < required_pips:
             return False, f"only {pips:.1f} pips (need {required_pips})"
+
+        basket_pips = self.basket_pips_from_avg(current_price)
+        if next_tranche_num >= 5 and basket_pips < cfg["min_basket_profit_pips_for_late_add"]:
+            return False, f"basket cushion thin ({basket_pips:.1f} pips < {cfg['min_basket_profit_pips_for_late_add']})"
+
+        proposed_sl = self.get_sl_for_tranche(current_price, self.pip_size, tranche_count=next_tranche_num)
+        locked_pips = self.locked_basket_pips(proposed_sl, protected_only=True)
+        if next_tranche_num == 5 and locked_pips < cfg["min_locked_profit_pips_before_tranche_5"]:
+            return False, f"locked profit too small for tranche 5 ({locked_pips:.1f} pips)"
+        if next_tranche_num >= 6 and locked_pips < cfg["min_locked_profit_pips_before_tranche_6"]:
+            return False, f"locked profit too small for tranche 6+ ({locked_pips:.1f} pips)"
 
         # Check if latest tranche is in drawdown (abort signal)
         latest_price = self.tranches[-1]["price"]
@@ -302,25 +353,26 @@ class PyramidSession:
         })
         self.last_add_time = time.time()
 
-    def get_sl_for_tranche(self, current_price: float, pip_size: float) -> float:
+    def get_sl_for_tranche(self, current_price: float, pip_size: float, tranche_count: int | None = None) -> float:
         """Compute SL for a new tranche based on pyramid state."""
         cfg = PYRAMID_CFG
         digits = 2 if pip_size >= 0.01 else 5
+        tranche_count = tranche_count if tranche_count is not None else self.tranche_count
 
-        if self.tranche_count >= cfg["trail_after_tranche"]:
+        if tranche_count >= cfg["trail_after_tranche"]:
             # Trailing SL
             trail = cfg["trail_distance_pips"] * pip_size
             if self.direction == "BUY":
                 return round(current_price - trail, digits)
             else:
                 return round(current_price + trail, digits)
-        elif self.tranche_count >= cfg["breakeven_at_tranche"]:
-            # Breakeven SL (first entry price ± 1 pip buffer)
-            buffer = pip_size * 1
+        elif tranche_count >= cfg["breakeven_at_tranche"]:
+            # Basket breakeven SL using weighted average entry, with a small locked-profit buffer.
+            buffer = pip_size * cfg["breakeven_buffer_pips"]
             if self.direction == "BUY":
-                return round(self.first_entry_price - buffer, digits)
+                return round(self.avg_entry_price + buffer, digits)
             else:
-                return round(self.first_entry_price + buffer, digits)
+                return round(self.avg_entry_price - buffer, digits)
         else:
             # Initial SL
             sl_dist = cfg["initial_sl_pips"] * pip_size
@@ -501,7 +553,7 @@ class PyramidManager:
                         "total_lot": session.total_lot,
                     })
 
-                    # Update SL on all existing tranches if breakeven/trailing
+                    # Update SL on protected tranches only if breakeven/trailing
                     if tranche_num >= PYRAMID_CFG["breakeven_at_tranche"]:
                         self._update_all_sls(bridge, session, new_sl, broker_sym)
 
@@ -514,8 +566,14 @@ class PyramidManager:
 
     def _update_all_sls(self, bridge, session: PyramidSession, new_sl: float,
                         broker_sym: str):
-        """Move all tranche SLs to the new level (breakeven or trailing)."""
+        """Move only protected tranche SLs to the new level (breakeven or trailing)."""
         for tranche in session.tranches:
+            if not session.tranche_can_accept_sl(tranche, new_sl):
+                log.info(
+                    f"[PYRAMID] ↔️ #{tranche['ticket']} SL unchanged — "
+                    f"new level {new_sl:.2f} would turn tranche red"
+                )
+                continue
             ticket = tranche["ticket"]
             try:
                 bridge.modify_position(ticket, sl=new_sl)

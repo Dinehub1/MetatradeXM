@@ -1,0 +1,25 @@
+Backtest Report: test_m5_1month
+Thresholds: buy=12 sell=-12
+Ranging penalty: 0.8
+Pyramid scaling: ON
+
+Summary Metrics
+- Profitable: False
+- Total PnL USD: 0.0
+- Total PnL Pips: 0.0
+- Trades: 0
+- Win rate: None%
+- Avg hold: None min
+- Max drawdown: None%
+- Sharpe: None
+- Profit factor: None
+- Expectancy: None pips/trade
+- Worst losing streak: None
+
+Best trade: None
+Worst trade: None
+
+Monthly Breakdown
+- No trades
+
+Confidence Bands
