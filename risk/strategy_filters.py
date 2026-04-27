@@ -111,7 +111,8 @@ class VolatilityFilter(StrategyFilter):
         percentile = np.searchsorted(sorted(atr_history), atr) / len(atr_history) * 100
 
         if percentile < 10:
-            return False, f"Volatility filter: ATR at {percentile:.0f}th percentile (dead market — no liquidity)"
+            context["_lot_reduction"] = min(context.get("_lot_reduction", 1.0), 0.5)
+            return True, f"Volatility warning: ATR at {percentile:.0f}th percentile (thin market)"
 
         if percentile > 95:
             # Don't block, but flag for lot reduction

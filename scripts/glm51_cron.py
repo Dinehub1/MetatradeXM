@@ -74,7 +74,7 @@ signal.signal(signal.SIGTERM, _handle_sig)
 
 
 def _call_glm51_once(messages: list, max_tokens: int, timeout: int) -> str:
-    """Single streaming call to GLM 5.1. Returns full response text."""
+    """Single GLM 5.1 call. Returns full response text."""
     import requests as req
 
     payload = {
@@ -83,7 +83,10 @@ def _call_glm51_once(messages: list, max_tokens: int, timeout: int) -> str:
         "max_tokens": max_tokens,
         "temperature": 0.4,
         "top_p": 0.95,
-        "stream": True,
+        # NVIDIA's GLM 5.1 streaming endpoint can hang until the read timeout even
+        # for tiny prompts. Non-streaming returns reliably and keeps the 10-minute
+        # analysis loop from spending five minutes stuck with no report.
+        "stream": False,
     }
     headers = {
         "Content-Type": "application/json",
@@ -91,32 +94,17 @@ def _call_glm51_once(messages: list, max_tokens: int, timeout: int) -> str:
     }
 
     t0 = time.time()
-    full_text = ""
-
     resp = req.post(GLM_URL, headers=headers, json=payload,
-                    timeout=(15, timeout), stream=True)
+                    timeout=(15, timeout))
 
     if resp.status_code != 200:
         raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:300]}")
 
-    log.info(f"  Connected in {time.time()-t0:.1f}s — streaming...")
-
-    for line in resp.iter_lines(decode_unicode=True):
-        if not line or not line.startswith("data: "):
-            continue
-        data_str = line[6:].strip()
-        if data_str == "[DONE]":
-            break
-        try:
-            chunk = json.loads(data_str)
-            choices = chunk.get("choices", [])
-            if choices:
-                delta = choices[0].get("delta", {})
-                content = delta.get("content", "")
-                if content:
-                    full_text += content
-        except (json.JSONDecodeError, IndexError, KeyError):
-            continue
+    data = resp.json()
+    choices = data.get("choices", [])
+    full_text = ""
+    if choices:
+        full_text = choices[0].get("message", {}).get("content", "") or ""
 
     elapsed = time.time() - t0
     log.info(f"  GLM 5.1 responded: {len(full_text)} chars in {elapsed:.1f}s")
@@ -426,19 +414,25 @@ def run_analysis_cycle():
     prompt = build_analysis_prompt(market_data)
     log.info(f"  Prompt size: {len(prompt):,} chars")
 
-    # Step 3: Call GLM 5.1 (streaming)
-    log.info("🤖 Step 3: Calling GLM 5.1 (streaming)...")
+    # Step 3: Call GLM 5.1
+    log.info("🤖 Step 3: Calling GLM 5.1...")
     try:
         analysis = call_glm51_streaming(
             prompt=prompt,
             system_prompt=GLM_SYSTEM_PROMPT,
-            max_tokens=4096,
-            timeout=300,
+            max_tokens=1200,
+            timeout=90,
+            retries=1,
         )
     except Exception as e:
         log.error(f"  ❌ GLM 5.1 failed: {e}")
         traceback.print_exc()
-        return
+        analysis = (
+            "## GLM 5.1 unavailable\n\n"
+            f"NVIDIA GLM 5.1 call failed this cycle: `{type(e).__name__}: {e}`\n\n"
+            "Market data collection completed successfully, but model analysis did not return before timeout. "
+            "Use the raw data summary below for health verification and wait for the next 10-minute cycle."
+        )
 
     if not analysis.strip():
         log.warning("  ⚠️ Empty response from GLM 5.1")

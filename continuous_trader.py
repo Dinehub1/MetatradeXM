@@ -100,16 +100,15 @@ SYMBOLS = [
         "tp_pips": 160,         # was 80 — enforces minimum 1:2 R:R at the broker level
         "lot": 0.01,
     },
-    # SILVER DISABLED — 21.9% win rate, -$1,609 P&L. Re-enable once Gold is profitable.
-    # {
-    #     "broker": "SILVER.i#",
-    #     "display": "XAGUSD",
-    #     "pip": 0.01,
-    #     "contract_size": 5000,
-    #     "sl_pips": 30,
-    #     "tp_pips": 60,
-    #     "lot": 0.01,
-    # },
+    {
+        "broker": "SILVER.i#",
+        "display": "XAGUSD",
+        "pip": 0.01,
+        "contract_size": 5000,
+        "sl_pips": 30,
+        "tp_pips": 60,
+        "lot": 0.01,
+    },
 ]
 
 # ── Session-Aware Risk Configuration ─────────────────────────────────────────
@@ -124,7 +123,7 @@ SESSION_CONFIG = {
 
 CONFIG = {
     "monitor_interval_s": 15,  # check positions every 15s
-    "analysis_interval_s": 300,  # 5 min between analyses
+    "analysis_interval_s": 60,  # 1 min between analyses
     "profit_close_pct": 3.0,  # was 1.5 → let the broker TP at 160 pips be the primary exit
     "loss_close_pct": 1.0,  # was 0.5 → align with wider 80-pip SL
     "min_confidence": 0.48,  # base confidence gate — lowered from 0.55 (2026-04-24)
@@ -309,6 +308,41 @@ def fmt_profit(p: float) -> str:
     color = "\033[92m" if p >= 0 else "\033[91m"
     reset = "\033[0m"
     return f"{color}{arrow} ${p:+.2f}{reset}"
+
+
+def _compact_text(text: str, limit: int = 88) -> str:
+    """Normalize whitespace and trim long log text for fast scanning."""
+    text = " ".join(str(text or "").replace("\n", " ").split())
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3].rstrip() + "..."
+
+
+def _adx_regime(adx: float) -> str:
+    if adx > 25:
+        return "TRENDING"
+    if adx < 18:
+        return "RANGING"
+    return "DEVELOPING"
+
+
+def _format_factor_summary(factor_scores: dict) -> str:
+    parts = []
+    for key, label in [
+        ("f1_h4_trend", "H4"),
+        ("f2_h1_trend", "H1"),
+        ("f3_rsi_zone", "RSI"),
+        ("f4_macd_momentum", "MACD"),
+        ("f5_adx_strength", "ADX"),
+        ("f6_stoch_confirm", "Stoch"),
+        ("f7_bb_action", "BB"),
+        ("f10_d1_trend", "D1"),
+        ("f12_fibonacci", "Fib"),
+    ]:
+        value = factor_scores.get(key, 0)
+        if value != 0:
+            parts.append(f"{label}={value:+.1f}")
+    return " ".join(parts) if parts else "all neutral"
 
 
 # ── Bridge factory with auto-reconnect ──────────────────────────────────────
@@ -613,6 +647,10 @@ def build_order_params(
     if confidence >= 0.55:
         conf_mult = max(conf_mult, 0.3)
 
+    import logging
+    log = logging.getLogger("trader")
+    log.info(f"   [KELLY] p={p:.2f} b={b:.2f} | Half-Kelly={half_kelly:.3f} | Mult={conf_mult:.2f}")
+
     lot = round(max(sym_cfg["lot"] * conf_mult * lot_reduction, 0.01), 2)
 
     return {
@@ -798,7 +836,7 @@ class ContinuousTrader:
                 webhook_inds = self.bridge.get_indicators(sym_cfg["broker"])
                 if webhook_inds:
                     external_indicators.update(webhook_inds)
-                    log.info(f"   [MT5] {sym_cfg['display']}: fetched native MT5 indicators")
+                    log.info(f"DATA | {sym_cfg['display']} | MT5 native indicators ready")
             except Exception as e:
                 log.debug(f"Webhook indicator fetch failed: {e}")
 
@@ -812,11 +850,11 @@ class ContinuousTrader:
                     if tfs:
                         for tf, data in tfs.items():
                             external_indicators.setdefault(tf, {}).update(data)
-                        log.info(f"   [TV] {display}: live indicators available (merged)")
+                        log.info(f"DATA | {display} | TradingView indicators merged")
                     elif sym_data.get("indicators"):
                         # Flat structure (single timeframe)
                         external_indicators.setdefault("M15", {}).update(sym_data["indicators"])
-                        log.info(f"   [TV] {display}: live M15 indicators available (merged)")
+                        log.info(f"DATA | {display} | TradingView M15 indicators merged")
 
             signal_data = analyzer.analyze(
                 tf_data, tick, sym_cfg["display"],
@@ -890,9 +928,6 @@ class ContinuousTrader:
             self.state["cycle"] = cycle
             ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-            print(f"\n{'─' * 60}")
-            log.info(f"🔄 Cycle #{cycle}  [{ts}]")
-
             # ── Config integrity guard (detects external tampering) ──────────
             _check_config_integrity()
 
@@ -944,14 +979,16 @@ class ContinuousTrader:
                 "currency": getattr(acct, "currency", "USD"),
             }
             pnl = equity - balance
-            log.info(
-                f"💰 Balance: ${balance:.2f} | Equity: ${equity:.2f} | P&L: {fmt_profit(pnl)}"
-            )
 
             # ── Fetch ALL open positions (one RPC call) ──────────────────────
             positions_by_sym = get_positions_by_symbol(self.bridge)
             total_open = sum(len(v) for v in positions_by_sym.values())
-            log.info(f"📊 Open positions: {total_open}")
+            log.info(f"STATUS | Cycle #{cycle} | {session} | {ts}")
+            log.info(
+                f"ACCOUNT | Balance ${balance:.2f} | Equity ${equity:.2f} | Net {fmt_profit(pnl)} | Open positions {total_open}"
+            )
+            if total_open == 0:
+                log.info("POSITIONS | none")
 
             # Build current ticket set and detect externally-closed positions
             _cur_tickets: dict[str, dict] = {}
@@ -964,7 +1001,10 @@ class ContinuousTrader:
                     pr = getattr(p, "profit", 0)
                     op = getattr(p, "price_open", 0)
                     tk = str(getattr(p, "ticket", ""))
-                    log.info(f"   {disp} {d} @{op:.2f} {fmt_profit(pr)}")
+                    vol = getattr(p, "volume", 0.05)
+                    log.info(
+                        f"POSITION | {disp} {d} | entry @{op:.2f} | pnl {fmt_profit(pr)} | lot {vol:.2f}"
+                    )
                     _cur_tickets[tk] = {"profit": pr, "direction": d, "sym_cfg": sym_cfg, "volume": getattr(p, "volume", 0.05)}
 
             # ── Pyramid hard sync: purge phantom tranches every cycle ────────
@@ -1016,12 +1056,6 @@ class ContinuousTrader:
                                 self._consec_losses[_sc["display"]] = (
                                     self._consec_losses.get(_sc["display"], 0) + 1
                                 )
-                                n = self._consec_losses[_sc["display"]]
-                                if n >= 3:
-                                    log.warning(
-                                        f"   ⚠️  ZONE ALERT: {_sc['display']} — "
-                                        f"{n} consecutive losses. Edge may be broken."
-                                    )
                             _save_streaks(self._consec_losses)
                             _save_state(self.state)
                         except Exception as _e:
@@ -1115,7 +1149,7 @@ class ContinuousTrader:
             # ── Analysis & new signals ───────────────────────────────────────
             run_analysis = now >= next_analysis
             if run_analysis:
-                log.info(f"📊 Running market analysis  ({session})")
+                log.info(f"ANALYSIS | Starting market scan | session {session}")
                 next_analysis = now + CONFIG["analysis_interval_s"]
 
                 total_open = sum(len(v) for v in positions_by_sym.values())
@@ -1131,7 +1165,7 @@ class ContinuousTrader:
 
                     if not can_open_new and not self.scaler:
                         log.info(
-                            f"   ⏸  {disp}: max trades reached ({len(current_pos)})"
+                            f"ACTION | {disp} | skip entry | max trades reached ({len(current_pos)})"
                         )
                         if disp in symbols_status:
                             symbols_status[disp]["positions"] = len(current_pos)
@@ -1139,93 +1173,44 @@ class ContinuousTrader:
 
                     if not can_open_new:
                         log.info(
-                            f"   ⏸  {disp}: max trades reached — checking scale only"
+                            f"ACTION | {disp} | entry full | checking scale only"
                         )
 
-                    log.info(f"   🔍 Analyzing {disp}...")
+                    log.info(f"ANALYSIS | {disp} | fetching candles + live indicators")
                     tick = self.bridge.get_tick(broker_sym)
-                    log.info(f"   [LOCAL] {disp}: fetching broker candles")
                     tf_data = self._fetch_candles(sym_cfg)
                     if not tf_data:
-                        log.warning(f"   ⚠️  {disp}: no candle data")
+                        log.warning(f"ACTION | {disp} | skip analysis | no candle data")
                         continue
                     primary = tf_data.get("M15", list(tf_data.values())[0])
                     signal_data = self._run_analysis(sym_cfg, tf_data, tick)
                     direction = signal_data.get("direction", "HOLD")
                     confidence = float(signal_data.get("confidence", 0.0))
                     reason = signal_data.get("reason", "")
-
-                    log.info(
-                        f"   {disp}: {direction:4s} conf={confidence:.0%} | {reason[:55]}"
-                    )
-
-                    # ── Indicator dashboard (show what data we computed) ──────
                     _ind = signal_data.get("indicators", {})
                     _fs  = signal_data.get("factor_scores", {})
                     _fib = signal_data.get("fibonacci_data", {})
                     _score = signal_data.get("score", 0)
 
-                    # Row 1: Core momentum indicators
                     log.info(
-                        f"   ┌─ 📈 INDICATORS ─────────────────────────────────────"
+                        f"SIGNAL | {disp} | {direction} {confidence:.0%} | score {_score:+.1f} | {_compact_text(reason)}"
                     )
                     log.info(
-                        f"   │ ADX: {_ind.get('adx', 0):.1f}  "
-                        f"+DI: {_ind.get('plus_di', 0):.1f}  "
-                        f"-DI: {_ind.get('minus_di', 0):.1f}  "
-                        f"({'TRENDING' if _ind.get('adx', 0) > 25 else 'RANGING' if _ind.get('adx', 0) < 18 else 'DEVELOPING'})"
+                        f"DETAIL | {disp} | trend D1={signal_data.get('d1_trend', '?')} H4={signal_data.get('h4_trend', '?')} "
+                        f"H1={signal_data.get('h1_trend', '?')} M15={_ind.get('ema_trend', '?')}"
                     )
                     log.info(
-                        f"   │ RSI: {_ind.get('rsi', 50):.1f}  "
-                        f"Stoch: K={_ind.get('stoch_k', 50):.0f}/D={_ind.get('stoch_d', 50):.0f} {_ind.get('stoch_cross', '')}  "
-                        f"W%R: {_ind.get('williams_r', -50):.0f}"
+                        f"DETAIL | {disp} | ADX {_ind.get('adx', 0):.1f} {_adx_regime(_ind.get('adx', 0))} | "
+                        f"RSI {_ind.get('rsi', 50):.1f} | MACD {_ind.get('macd_signal', 'N/A')} | "
+                        f"BB {_ind.get('bb_position', 'N/A')} | ATR {_ind.get('atr', 0):.5f}"
                     )
                     log.info(
-                        f"   │ MACD: {_ind.get('macd_signal', 'N/A')} hist={_ind.get('macd_hist', 0):.6f}  "
-                        f"BB: {_ind.get('bb_position', 'N/A')} squeeze={_ind.get('bb_squeeze', False)}"
+                        f"DETAIL | {disp} | Price {_ind.get('price', 0):.5f} | Change {_ind.get('price_change', 0):+.3f}% | "
+                        f"Stoch {_ind.get('stoch_k', 50):.0f}/{_ind.get('stoch_d', 50):.0f} {_ind.get('stoch_cross', '')} | "
+                        f"Score {_score:+.1f} | Factors {_format_factor_summary(_fs)}"
                     )
-                    log.info(
-                        f"   │ EMA: 20={_ind.get('ema20', 0):.2f} 50={_ind.get('ema50', 0):.2f} "
-                        f"200={_ind.get('ema200', 0):.2f}  Trend: {_ind.get('ema_trend', 'N/A')}"
-                    )
-                    log.info(
-                        f"   │ ATR: {_ind.get('atr', 0):.5f}  "
-                        f"Price: {_ind.get('price', 0):.5f}  "
-                        f"Chg: {_ind.get('price_change', 0):+.3f}%  "
-                        f"Vol: {_ind.get('vol_ratio', 1.0):.2f}x"
-                    )
-
-                    # Row 2: Multi-timeframe trends
-                    log.info(
-                        f"   │ Trends → D1: {signal_data.get('d1_trend', '?'):10s} "
-                        f"H4: {signal_data.get('h4_trend', '?'):10s} "
-                        f"H1: {signal_data.get('h1_trend', '?'):10s} "
-                        f"M15: {_ind.get('ema_trend', '?')}"
-                    )
-
-                    # Row 3: Factor scores breakdown
-                    _f_parts = []
-                    for _fk, _fl in [
-                        ('f1_h4_trend', 'H4'), ('f2_h1_trend', 'H1'),
-                        ('f3_rsi_zone', 'RSI'), ('f4_macd_momentum', 'MACD'),
-                        ('f5_adx_strength', 'ADX'), ('f6_stoch_confirm', 'Stoch'),
-                        ('f7_bb_action', 'BB'), ('f10_d1_trend', 'D1'),
-                        ('f12_fibonacci', 'Fib'),
-                    ]:
-                        _fv = _fs.get(_fk, 0)
-                        if _fv != 0:
-                            _f_parts.append(f"{_fl}={_fv:+.1f}")
-                    log.info(
-                        f"   │ Score: {_score:+.1f}  Factors: {' '.join(_f_parts) if _f_parts else 'all neutral'}"
-                    )
-
-                    # Row 4: Fibonacci context (if computed)
                     if _fib and _fib.get('zone_label'):
-                        log.info(f"   │ Fib: {_fib['zone_label']}")
-
-                    log.info(
-                        f"   └──────────────────────────────────────────────────────"
-                    )
+                        log.info(f"DETAIL | {disp} | Fib {_compact_text(_fib['zone_label'], 96)}")
 
                     # Write 4-stage decision trace
                     try:
@@ -1279,24 +1264,24 @@ class ContinuousTrader:
                     if can_open_new and direction in ("BUY", "SELL") and adx_val >= 20:
                         # Check for exhaustion reversal conditions
                         if direction == "SELL" and adx_val > 40 and rsi_val < 30 and bb_pos in ("BELOW_MID", "BELOW_LOW"):
-                            log.info(f"   FADE BLOCK: {disp} SELL blocked — ADX={adx_val} + RSI={rsi_val} + BB={bb_pos} = exhausted downtrend, reversal likely")
+                            log.info(f"ACTION | {disp} | fade block | SELL vs exhausted downtrend (ADX={adx_val:.1f} RSI={rsi_val:.1f} BB={bb_pos})")
                             fade_blocked = True
                         elif direction == "BUY" and adx_val > 40 and rsi_val > 70 and bb_pos in ("ABOVE_MID", "ABOVE_HIGH"):
-                            log.info(f"   FADE BLOCK: {disp} BUY blocked — ADX={adx_val} + RSI={rsi_val} + BB={bb_pos} = exhausted uptrend, reversal likely")
+                            log.info(f"ACTION | {disp} | fade block | BUY vs exhausted uptrend (ADX={adx_val:.1f} RSI={rsi_val:.1f} BB={bb_pos})")
                             fade_blocked = True
 
                     # Loss cooldown: 10 min rest after a loss (was 3 min — too short, caused churn)
                     _LOSS_COOLDOWN_SECS = 600  # 10 minutes — prevents revenge trading
                     _cooldown_remaining = _LOSS_COOLDOWN_SECS - (time.time() - self._loss_cooldown.get(broker_sym, 0))
                     if can_open_new and _cooldown_remaining > 0:
-                        log.info(f"   [COOLDOWN] {disp}: {int(_cooldown_remaining)}s cooldown after loss")
+                        log.info(f"ACTION | {disp} | cooldown after loss | wait {int(_cooldown_remaining)}s")
                         can_open_new = False
 
                     # Post-trade cooldown: no re-entry within 5 min of ANY trade (win or loss)
                     # This alone would have prevented 400+ of the 463 churn trades = saved $1,756
                     _trade_cd_remaining = self._TRADE_COOLDOWN_SECS - (time.time() - self._last_trade_time.get(broker_sym, 0))
                     if can_open_new and _trade_cd_remaining > 0:
-                        log.info(f"   [TRADE COOLDOWN] {disp}: {int(_trade_cd_remaining)}s until next trade allowed")
+                        log.info(f"ACTION | {disp} | post-trade cooldown | wait {int(_trade_cd_remaining)}s")
                         can_open_new = False
 
                     # ── ADX: advisory not exclusionary ───────────────────────
@@ -1312,7 +1297,7 @@ class ContinuousTrader:
                     # Only block if ADX is truly dead (< 5) AND signal is weak (< 8)
                     _adx_ok = not (_adx_val < 5 and _sig_score < 8)
                     if not _adx_ok:
-                        log.info(f"   [DEAD MARKET] {disp}: ADX={_adx_val:.1f} + score={_sig_score:.0f} — no momentum")
+                        log.info(f"ACTION | {disp} | dead market | ADX {_adx_val:.1f} and score {_sig_score:.0f}")
 
                     # ── Circuit breaker: 4 consecutive losses → 1-cycle pause ─
                     _sym_consec = self._consec_losses.get(disp, 0)
@@ -1324,13 +1309,13 @@ class ContinuousTrader:
                         _save_streaks(self._consec_losses)
                         _sym_consec = 0
                         _cb_until   = 0
-                        log.info(f"   ✅ {disp}: circuit breaker reset — resuming")
+                        log.info(f"ACTION | {disp} | circuit breaker reset | trading resumed")
 
                     if can_open_new and _sym_consec >= 4:
                         if _cb_until == 0:
                             self._circuit_break_until[disp] = cycle + 1
                             _cb_until = cycle + 1
-                        log.info(f"   🛑 {disp}: {_sym_consec} losses — 1-cycle pause")
+                        log.info(f"ACTION | {disp} | circuit breaker | {_sym_consec} losses, pausing 1 cycle")
                         can_open_new = False
 
                     # ── Phase 2.1: Adaptive Confidence Gating ──────────────────────
@@ -1354,15 +1339,17 @@ class ContinuousTrader:
                     elif _adx_val < 15:
                         _adx_mod = +0.05  # Chop: raise barrier
                         
-                    # 3. Loss Streak Penalty (Regime Defense)
-                    _streak_mod = min(0.06, _sym_consec * 0.02)  # Up to +0.06 stricter
+                    # 3. Loss streak tracking remains for the circuit breaker, but it
+                    # should not raise the entry gate. That blocked valid reversal BUYs
+                    # after three losses even when the market produced a fresh setup.
+                    _streak_mod = 0.0
                     
                     # Calculate final adaptive gate
                     _conf_gate = round(_base_conf + _adx_mod + _streak_mod, 3)
                     _conf_gate = max(0.35, min(0.75, _conf_gate))  # Keep within safe bounds
-                    
-                    if _sym_consec > 0 or _adx_mod != 0.0:
-                        log.info(f"   🛡️ {disp}: Adaptive Gate = {_conf_gate:.2f} (Base={_base_conf}, ADX={_adx_mod}, Streak={_streak_mod})")
+                    log.info(
+                        f"RISK | {disp} | gate {_conf_gate:.0%} | base {_base_conf:.0%} | adx adj {_adx_mod:+.0%} | streak adj {_streak_mod:+.0%}"
+                    )
 
                     if (
                         can_open_new
@@ -1400,7 +1387,7 @@ class ContinuousTrader:
 
                             if not allowed:
                                 log.info(
-                                    f"   🚫 {disp}: FILTERED — {'; '.join(veto_reasons)}"
+                                    f"ACTION | {disp} | filtered | {'; '.join(veto_reasons)}"
                                 )
                                 _log_signal(
                                     broker_sym,
@@ -1432,7 +1419,7 @@ class ContinuousTrader:
                             )
                             if not skill_result["allowed"]:
                                 log.info(
-                                    f"   🚫 {disp}: SKILL BLOCKED — "
+                                    f"ACTION | {disp} | skill blocked | "
                                     f"{'; '.join(skill_result['reasons'])}"
                                 )
                                 _log_signal(
@@ -1472,9 +1459,7 @@ class ContinuousTrader:
 
                         if self.dry_run:
                             log.info(
-                                f"   📝 DRY RUN {disp} {direction} "
-                                f"lot={order['lot']} sl={order['sl']} "
-                                f"tp={order['tp']} conf={confidence:.0%}"
+                                f"ACTION | {disp} | dry run {direction} | lot {order['lot']} | sl {order['sl']} | tp {order['tp']} | conf {confidence:.0%}"
                             )
                             _log_signal(
                                 broker_sym, direction, confidence, reason, "DRY_TRADE"
@@ -1482,16 +1467,14 @@ class ContinuousTrader:
                         else:
                             # Skip if pyramid already active for this symbol
                             if self.pyramid and self.pyramid.has_active_pyramid(disp):
-                                log.info(f"   ⏸  {disp}: pyramid already active — skipping new entry")
+                                log.info(f"ACTION | {disp} | skip entry | pyramid already active")
                                 continue
 
                             result = self.bridge.place_order(order)
                             if result and hasattr(result, "order"):
                                 log.info(
-                                    f"   💰 PYRAMID TRANCHE 1/10 #{result.order} — "
-                                    f"{disp} {direction} @{order['price']:.2f} "
-                                    f"SL={order['sl']} TP={order['tp']} "
-                                    f"lot=0.01 conf={confidence:.0%}"
+                                    f"ACTION | {disp} | opened tranche 1/10 #{result.order} | {direction} @{order['price']:.2f} | "
+                                    f"sl {order['sl']} | tp {order['tp']} | lot 0.01 | conf {confidence:.0%}"
                                 )
                                 _log_signal(
                                     broker_sym,
@@ -1544,24 +1527,24 @@ class ContinuousTrader:
                                 time.sleep(0.5)
                                 positions_by_sym = get_positions_by_symbol(self.bridge)
                             else:
-                                log.warning(f"   ❌ {disp} order failed")
+                                log.warning(f"ACTION | {disp} | order failed")
                     else:
                         if not can_open_new:
                             pass  # already logged above; don't spam DB for max-trades cases
                         elif direction == "HOLD":
-                            log.info(f"   ⏭  {disp}: HOLD — no trade")
+                            log.info(f"ACTION | {disp} | HOLD | no trade setup")
                             _log_signal(
                                 broker_sym, direction, confidence, reason, "HOLD"
                             )
                         elif fade_blocked:
-                            log.info(f"   ⏭  {disp}: fade blocked (ADX={_adx_val:.1f} RSI={_rsi_v:.1f})")
+                            log.info(f"ACTION | {disp} | skip entry | fade blocked (ADX={_adx_val:.1f} RSI={_rsi_v:.1f})")
                             _log_signal(broker_sym, direction, confidence, "fade_blocked", "LOW_CONF")
                         elif not _adx_ok:
-                            log.info(f"   ⏭  {disp}: ADX too low ({_adx_val:.1f}) — no trend or ranging setup")
+                            log.info(f"ACTION | {disp} | skip entry | ADX too low ({_adx_val:.1f})")
                             _log_signal(broker_sym, direction, confidence, f"adx_low_{_adx_val:.1f}", "LOW_CONF")
                         else:
                             log.info(
-                                f"   ⏭  {disp}: confidence too low ({confidence:.0%} < {_conf_gate:.0%})"
+                                f"ACTION | {disp} | skip entry | confidence {confidence:.0%} below gate {_conf_gate:.0%}"
                             )
                             _log_signal(
                                 broker_sym, direction, confidence, reason, "LOW_CONF"
@@ -1572,9 +1555,7 @@ class ContinuousTrader:
                         _psess = self.pyramid.get_session(disp)
                         if _psess:
                             log.info(
-                                f"   🔺 {disp} pyramid: {_psess.tranche_count}/10 tranches "
-                                f"total={_psess.total_lot:.2f} lot "
-                                f"avg_entry={_psess.avg_entry_price:.2f}"
+                                f"PYRAMID | {disp} | {_psess.tranche_count}/10 tranches | total lot {_psess.total_lot:.2f} | avg entry {_psess.avg_entry_price:.2f}"
                             )
 
             # ── Write dashboard status ────────────────────────────────────────
@@ -1676,9 +1657,7 @@ class ContinuousTrader:
 
             secs = CONFIG["monitor_interval_s"]
             log.info(
-                f"   💤 Next check in {secs}s  "
-                f"(analysis in {next_analysis_in}s)  "
-                f"Cycle #{cycle}"
+                f"NEXT | sleep {secs}s | analysis in {next_analysis_in}s | next cycle #{cycle + 1}"
             )
             time.sleep(secs)
 

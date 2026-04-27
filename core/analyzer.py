@@ -1148,9 +1148,10 @@ Williams%R={tv_ind.get('williams_r','?')} Stoch_K={tv_ind.get('stoch_k','?')} St
             {"role": "user",   "content": prompt},
         ]
         _prompt_chars = len(prompt)
-        log.info(f"   [AI] Sending {_prompt_chars:,} chars to AI chain (NVIDIA→Gemini) — "
-                 f"ADX={m15.get('adx', 0):.0f} RSI={m15.get('rsi', 50):.0f} "
-                 f"Score={base_signal.get('score', 0):+.1f}")
+        log.info(
+            f"AI-REQ | {symbol} | chars {_prompt_chars:,} | chain NVIDIA->Gemini | "
+            f"ADX {m15.get('adx', 0):.0f} | RSI {m15.get('rsi', 50):.0f} | score {base_signal.get('score', 0):+.1f}"
+        )
         data = ask_gemini(ai_messages, label=symbol)
 
         # ── Step 3: Hard indicator fallback (fires ONLY when ALL AI tiers fail)
@@ -1177,10 +1178,10 @@ Williams%R={tv_ind.get('williams_r','?')} Stoch_K={tv_ind.get('stoch_k','?')} St
         # NEW: log for awareness. The MTF disagreement penalty below handles
         # risk reduction. Counter-trend trades at Fibonacci levels are profitable.
         if ai_direction == "BUY" and ind_score <= -12:
-            log.info(f"[ANALYZER] {symbol}: AI BUY against score {ind_score:+.1f} — counter-trend (MTF penalty will apply)")
+            log.info(f"AI-NOTE | {symbol} | counter-trend BUY vs score {ind_score:+.1f} | MTF penalty next")
             data["reason"] = f"[Counter-trend: score={ind_score:+.1f}] " + data.get("reason", "")
         elif ai_direction == "SELL" and ind_score >= 12:
-            log.info(f"[ANALYZER] {symbol}: AI SELL against score {ind_score:+.1f} — counter-trend (MTF penalty will apply)")
+            log.info(f"AI-NOTE | {symbol} | counter-trend SELL vs score {ind_score:+.1f} | MTF penalty next")
             data["reason"] = f"[Counter-trend: score={ind_score:+.1f}] " + data.get("reason", "")
 
         # Strong-score override: if indicators strongly agree but AI says HOLD,
@@ -1239,18 +1240,19 @@ Williams%R={tv_ind.get('williams_r','?')} Stoch_K={tv_ind.get('stoch_k','?')} St
 
             # ── GRADUATED PENALTY (not a kill switch) ──
             # Calibration math at each tier (AI 65% is typical):
-            #   3 TFs: 65% × 0.75 = 48.8% — passes ranging gate (0.45), near normal
-            #          85% × 0.75 = 63.8% — comfortably passes all gates
+            #   3 TFs: 65% × 0.80 = 52.0% — passes normal adaptive gates
+            #          55% × 0.80 = 44.0% — permits small Fib reversal probes
+            #          85% × 0.80 = 68.0% — comfortably passes all gates
             #   2 TFs: 65% × 0.85 = 55.3% — passes normal gate (0.55)
             #   1 TF:  65% × 0.92 = 59.8% — minimal reduction
             # This allows high-conviction counter-trend trades at Fib levels
             # while still penalizing weak signals against the trend.
             if disagree_count >= 3:
-                penalty = 0.75
-                log.info(f"   [MTF] {symbol}: 3 TFs disagree with {ai_direction} — penalty ×{penalty}")
+                penalty = 0.80
+                log.info(f"AI-NOTE | {symbol} | 3 higher TFs disagree with {ai_direction} | conf x{penalty}")
             elif disagree_count == 2:
                 penalty = 0.85
-                log.info(f"   [MTF] {symbol}: 2 TFs disagree with {ai_direction} — penalty ×{penalty}")
+                log.info(f"AI-NOTE | {symbol} | 2 higher TFs disagree with {ai_direction} | conf x{penalty}")
             elif disagree_count == 1:
                 penalty = 0.92
             else:

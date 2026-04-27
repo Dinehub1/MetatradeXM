@@ -251,11 +251,11 @@ def _extract_json(text: str) -> dict:
 
 def _log_line(data: dict, tier: str, model: str, label: str) -> str:
     """Build a concise log line for the result."""
-    tag = f"[{label}] " if label else ""
+    tag = f"{label} | " if label else ""
     direction = data.get("direction", data.get("exit", "?"))
     conf = data.get("confidence")
     summary = f"{direction} {float(conf):.0%}" if conf is not None else str(direction)
-    return f"  [AI] {tier} OK ({model}) — {tag}{summary}"
+    return f"AI-RESP | {tier} | {tag}{summary}"
 
 
 # HTTP status codes that are safe to retry (transient server-side issues)
@@ -293,7 +293,7 @@ def _call_nvidia_with_retry(messages: list, model: str, api_key: str, url: str,
             return _call_nvidia(messages, model, api_key, url, max_tokens, timeout)
         except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
             if attempt < retries:
-                log.info(f"  [AI] NVIDIA transient error — retry {attempt+1}/{retries} in 2s...")
+                log.info(f"AI-RETRY | NVIDIA transient error | retry {attempt+1}/{retries} in 2s")
                 time.sleep(2)
                 continue
             raise
@@ -301,7 +301,7 @@ def _call_nvidia_with_retry(messages: list, model: str, api_key: str, url: str,
             status = e.response.status_code if e.response else 0
             # Retry on known transient codes OR unknown errors (status=0 means no response)
             if (status in _RETRYABLE_HTTP or status == 0) and attempt < retries:
-                log.info(f"  [AI] NVIDIA HTTP {status} — retry {attempt+1}/{retries} in 2s...")
+                log.info(f"AI-RETRY | NVIDIA HTTP {status} | retry {attempt+1}/{retries} in 2s")
                 time.sleep(2)
                 continue
             raise
@@ -357,7 +357,7 @@ def ask_gemini(
 
     for i, (provider, url, api_key, model, timeout, tier) in enumerate(_TIERS):
         try:
-            log.info(f"  [AI] Trying {tier} ({model})...")
+            log.info(f"AI-TRY | {tier} | model {model}")
 
             if provider == "nvidia":
                 resp_json = _call_nvidia_with_retry(messages, model, api_key, url, max_tokens, timeout)
