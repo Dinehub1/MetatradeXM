@@ -263,6 +263,41 @@ class WebhookBridge:
             log.error(f"[WEBHOOK] place_order error: {e}")
             return None
 
+    def place_limit_order(self, params: dict):
+        """Place a limit order via the webhook."""
+        try:
+            payload = {
+                "action": f"LIMIT_{params['direction']}",  # LIMIT_BUY or LIMIT_SELL
+                "symbol": params["symbol"],
+                "lot": params["lot"],
+                "price": params["price"],
+                "comment": params.get("comment", "AI-Bot-Limit"),
+            }
+            if params.get("sl") is not None:
+                payload["sl"] = params["sl"]
+            if params.get("tp") is not None:
+                payload["tp"] = params["tp"]
+
+            resp = requests.post(
+                f"{self.url}/webhook",
+                json=payload,
+                timeout=_TIMEOUT,
+            )
+            data = resp.json()
+
+            if data.get("status") == "success":
+                return SimpleNamespace(
+                    order=data.get("ticket", 0),
+                    retcode=10009,
+                )
+            else:
+                log.error(f"[WEBHOOK] Limit order failed: {data.get('message')}")
+                return None
+
+        except Exception as e:
+            log.error(f"[WEBHOOK] place_limit_order error: {e}")
+            return None
+
     def close_position(self, ticket, volume=None):
         """Close a position by ticket."""
         try:

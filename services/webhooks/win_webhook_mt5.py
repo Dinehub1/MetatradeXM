@@ -378,6 +378,8 @@ def handle_webhook():
             if si is None:
                 return jsonify({"status": "error", "message": f"Symbol {symbol} not found"}), 404
 
+            order_request_action = mt5.TRADE_ACTION_DEAL
+
             if action == "BUY":
                 tick = mt5.symbol_info_tick(symbol)
                 if tick is None:
@@ -392,15 +394,29 @@ def handle_webhook():
                 price = tick.bid
                 order_type = mt5.ORDER_TYPE_SELL
 
+            elif action == "LIMIT_BUY":
+                order_type = mt5.ORDER_TYPE_BUY_LIMIT
+                price = float(data.get("price", 0))
+                if price <= 0:
+                    return jsonify({"status": "error", "message": "Price required for limit orders"}), 400
+                order_request_action = mt5.TRADE_ACTION_PENDING
+
+            elif action == "LIMIT_SELL":
+                order_type = mt5.ORDER_TYPE_SELL_LIMIT
+                price = float(data.get("price", 0))
+                if price <= 0:
+                    return jsonify({"status": "error", "message": "Price required for limit orders"}), 400
+                order_request_action = mt5.TRADE_ACTION_PENDING
+
             elif action == "CLOSE":
                 return _close_positions(symbol, ticket)
 
             else:
-                return jsonify({"status": "error", "message": "Invalid action. Use BUY, SELL, or CLOSE"}), 400
+                return jsonify({"status": "error", "message": "Invalid action. Use BUY, SELL, LIMIT_BUY, LIMIT_SELL, or CLOSE"}), 400
 
             # Build order request
             order_request = {
-                "action": mt5.TRADE_ACTION_DEAL,
+                "action": order_request_action,
                 "symbol": symbol,
                 "volume": float(lot),
                 "type": order_type,
@@ -409,8 +425,9 @@ def handle_webhook():
                 "magic": 100,
                 "comment": data.get("comment", "Webhook Trade"),
                 "type_time": mt5.ORDER_TIME_GTC,
-                "type_filling": mt5.ORDER_FILLING_IOC,
             }
+            if order_request_action == mt5.TRADE_ACTION_DEAL:
+                order_request["type_filling"] = mt5.ORDER_FILLING_IOC
             if sl is not None:
                 order_request["sl"] = float(sl)
             if tp is not None:

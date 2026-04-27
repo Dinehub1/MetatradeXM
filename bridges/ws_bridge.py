@@ -316,6 +316,10 @@ class WSBridge:
         """Place a market order via HTTP webhook."""
         return self._webhook.place_order(params)
 
+    def place_limit_order(self, params: dict):
+        """Place a limit order via HTTP webhook."""
+        return self._webhook.place_limit_order(params)
+
     def close_position(self, ticket, volume=None):
         """Close a position via HTTP webhook."""
         return self._webhook.close_position(ticket, volume)

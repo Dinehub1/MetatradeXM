@@ -1303,20 +1303,36 @@ class ContinuousTrader:
                         log.info(f"   🛑 {disp}: {_sym_consec} losses — 1-cycle pause")
                         can_open_new = False
 
-                    # Confidence gate — tiered by signal type + session awareness:
-                    #   Normal AI signal      → session min_conf (default 0.55)
-                    #   Score override signal → 0.45-0.48 (indicators overrode AI)
-                    #   Indicator fallback    → 0.45 (no AI at all)
+                    # ── Phase 2.1: Adaptive Confidence Gating ──────────────────────
                     _sig_reason = signal_data.get("reason", "")
                     _is_ranging = signal_data.get("factor_scores", {}).get("adx_regime") == "RANGING"
                     _sess_cfg = SESSION_CONFIG.get(session, {"lot_mult": 1.0, "min_conf": 0.48})
-                    _sess_min_conf = _sess_cfg["min_conf"]
+                    
+                    # 1. Base session/signal confidence
+                    _base_conf = _sess_cfg["min_conf"]
                     if "[Score override" in _sig_reason:
-                        _conf_gate = 0.45 if _is_ranging else 0.48
+                        _base_conf = 0.45 if _is_ranging else 0.48
                     elif "[Indicator fallback]" in _sig_reason:
-                        _conf_gate = 0.45
+                        _base_conf = 0.45
                     else:
-                        _conf_gate = 0.45 if _is_ranging else _sess_min_conf
+                        _base_conf = 0.45 if _is_ranging else _sess_cfg["min_conf"]
+                    
+                    # 2. ADX Modifier (Trend Strength)
+                    _adx_mod = 0.0
+                    if _adx_val > 25:
+                        _adx_mod = -0.05  # Strong trend: lower barrier
+                    elif _adx_val < 15:
+                        _adx_mod = +0.05  # Chop: raise barrier
+                        
+                    # 3. Loss Streak Penalty (Regime Defense)
+                    _streak_mod = min(0.06, _sym_consec * 0.02)  # Up to +0.06 stricter
+                    
+                    # Calculate final adaptive gate
+                    _conf_gate = round(_base_conf + _adx_mod + _streak_mod, 3)
+                    _conf_gate = max(0.35, min(0.75, _conf_gate))  # Keep within safe bounds
+                    
+                    if _sym_consec > 0 or _adx_mod != 0.0:
+                        log.info(f"   🛡️ {disp}: Adaptive Gate = {_conf_gate:.2f} (Base={_base_conf}, ADX={_adx_mod}, Streak={_streak_mod})")
 
                     if (
                         can_open_new
