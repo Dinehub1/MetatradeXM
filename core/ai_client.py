@@ -3,19 +3,24 @@ ai_client.py — Multi-tier AI client for MetatradeXM.
 
 Single source of truth for ALL AI calls in the system.
 
-Three-tier fallback chain:
-  T1 (NVIDIA Llama 3.3 70B) — primary, fast deep reasoning via NIM API
-  T2 (gemini-2.5-pro)       — secondary fallback if NVIDIA is down
-  T3 (gemini-2.5-flash)     — emergency fast fallback
+Primary AI:
+  T1 (NVIDIA Llama 3.3 70B) — primary, deep reasoning via NIM API
+     Supports streaming + thinking tokens for best quality output.
 
-Config (set in .env at project root):
-    NVIDIA_API_KEY     = nvapi-...            ← NVIDIA NIM key (primary)
-    INVOKE_URL         = https://...          ← NVIDIA endpoint
-    MODEL_NAME         = meta/llama-3.3-...   ← NVIDIA model
-    GEMINI_API_KEY     = AIza...              ← Google AI Studio key (fallback)
-    GEMINI_PRO_MODEL   = gemini-2.5-pro       ← T2 fallback
-    GEMINI_FLASH_MODEL = gemini-2.5-flash     ← T3 fallback
-    GEMINI_TIMEOUT_S   = 60                   ← seconds
+Fallback chain (only if NVIDIA is down):
+  T2 (gemini-2.5-pro)   — secondary fallback
+  T3 (gemini-2.5-flash) — emergency fast fallback
+
+Config (.env):
+    NVIDIA_API_KEY     = nvapi-...
+    INVOKE_URL         = https://integrate.api.nvidia.com/v1/chat/completions
+    MODEL_NAME         = meta/llama-3.3-70b-instruct
+    MAX_TOKENS         = 16384
+    TEMPERATURE        = 1.00
+    TOP_P              = 1.00
+    STREAM             = true
+    THINKING           = true
+    GEMINI_API_KEY     = AIza...  (fallback only)
 """
 from __future__ import annotations
 
@@ -28,49 +33,49 @@ import requests
 
 log = logging.getLogger("ai_client")
 
-# ── NVIDIA NIM API (T1 — Primary) ─────────────────────────────────────────────
-_NVIDIA_KEY   = os.getenv("NVIDIA_API_KEY", "")
-_NVIDIA_URL   = os.getenv("INVOKE_URL", "https://integrate.api.nvidia.com/v1/chat/completions")
-_NVIDIA_MODEL = os.getenv("MODEL_NAME", "meta/llama-3.3-70b-instruct")
-_NVIDIA_MAX_TOKENS = int(os.getenv("MAX_TOKENS", "1024"))  # capped for trading JSON
-_NVIDIA_TIMEOUT = 45  # seconds
+# ── NVIDIA NIM (T1 — Primary) ─────────────────────────────────────────────────
+_NVIDIA_KEY      = os.getenv("NVIDIA_API_KEY", "")
+_NVIDIA_URL      = os.getenv("INVOKE_URL", "https://integrate.api.nvidia.com/v1/chat/completions")
+_NVIDIA_MODEL    = os.getenv("MODEL_NAME", "meta/llama-3.3-70b-instruct")
+_NVIDIA_TOKENS   = int(os.getenv("MAX_TOKENS", "16384"))
+_NVIDIA_TEMP     = float(os.getenv("TEMPERATURE", "1.0"))
+_NVIDIA_TOP_P    = float(os.getenv("TOP_P", "1.0"))
+_NVIDIA_STREAM   = os.getenv("STREAM", "true").lower() == "true"
+_NVIDIA_THINKING = os.getenv("THINKING", "true").lower() == "true"
+_NVIDIA_TIMEOUT  = 90  # longer for thinking + streaming
 
-# ── Google Gemini OpenAI-compatible endpoint (T2/T3 — Fallback) ────────────────
-_GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/openai"
-_GEMINI_URL  = f"{_GEMINI_BASE}/chat/completions"
-_GEMINI_KEY  = os.getenv("GEMINI_API_KEY", "")
-_T2_MODEL    = os.getenv("GEMINI_PRO_MODEL",   "gemini-2.5-pro")
-_T3_MODEL    = os.getenv("GEMINI_FLASH_MODEL", "gemini-2.5-flash")
+# ── Google Gemini (T2/T3 — Fallback only) ─────────────────────────────────────
+_GEMINI_BASE    = "https://generativelanguage.googleapis.com/v1beta/openai"
+_GEMINI_URL     = f"{_GEMINI_BASE}/chat/completions"
+_GEMINI_KEY     = os.getenv("GEMINI_API_KEY", "")
+_T2_MODEL       = os.getenv("GEMINI_PRO_MODEL",   "gemini-2.5-pro")
+_T3_MODEL       = os.getenv("GEMINI_FLASH_MODEL", "gemini-2.5-flash")
 _GEMINI_TIMEOUT = int(os.getenv("GEMINI_TIMEOUT_S", "60"))
 
-# ── Tier definitions: (provider, url, api_key, model, timeout, label) ──────────
+# ── Tier list ─────────────────────────────────────────────────────────────────
 _TIERS = []
 
-# T1: NVIDIA (only if key is set)
 if _NVIDIA_KEY:
     _TIERS.append(("nvidia", _NVIDIA_URL, _NVIDIA_KEY, _NVIDIA_MODEL, _NVIDIA_TIMEOUT, "T1-NVIDIA"))
 
-# T2/T3: Gemini (only if key is set)
 if _GEMINI_KEY:
     _TIERS.append(("gemini", _GEMINI_URL, _GEMINI_KEY, _T2_MODEL, _GEMINI_TIMEOUT, "T2-Gemini-Pro"))
     _TIERS.append(("gemini", _GEMINI_URL, _GEMINI_KEY, _T3_MODEL, max(30, _GEMINI_TIMEOUT // 2), "T3-Gemini-Flash"))
 
-# Log active tiers at import time
 _tier_names = [t[5] for t in _TIERS]
 if _tier_names:
     log.info(f"[AI] Active tiers: {' → '.join(_tier_names)}")
+    if _NVIDIA_KEY:
+        log.info(f"[AI] NVIDIA config: stream={_NVIDIA_STREAM} thinking={_NVIDIA_THINKING} "
+                 f"tokens={_NVIDIA_TOKENS} temp={_NVIDIA_TEMP} top_p={_NVIDIA_TOP_P}")
 else:
-    log.warning("[AI] WARNING — No AI API keys configured! Set NVIDIA_API_KEY or GEMINI_API_KEY in .env")
+    log.warning("[AI] WARNING — No AI keys configured! Set NVIDIA_API_KEY in .env")
 
 
-# ── JSON extraction & repair helpers ─────────────────────────────────────────
+# ── JSON extraction helpers ───────────────────────────────────────────────────
 
 def _strip_thinking(text: str) -> str:
-    """
-    Remove reasoning/thinking blocks that some models emit before the JSON.
-    Handles: <think>...</think>, <thinking>...</thinking>, <thought>...</thought>,
-    ◁think▷...◁/think▷, and leading prose before the first '{'.
-    """
+    """Remove reasoning/thinking blocks before JSON extraction."""
     text = re.sub(r"<(?:think|thinking|thought)>.*?</(?:think|thinking|thought)>",
                   "", text, flags=re.DOTALL)
     text = re.sub(r"◁think▷.*?◁/think▷", "", text, flags=re.DOTALL)
@@ -87,14 +92,9 @@ def _strip_thinking(text: str) -> str:
 
 
 def _extract_balanced_json(text: str) -> str | None:
-    """
-    Extract the first balanced JSON object from text using brace counting.
-    Handles nested objects correctly.
-    """
     start = text.find('{')
     if start == -1:
         return None
-
     depth = 0
     in_string = False
     escape = False
@@ -121,26 +121,19 @@ def _extract_balanced_json(text: str) -> str | None:
 
 
 def _repair_truncated_json(text: str) -> dict | None:
-    """
-    Attempt to repair a truncated JSON object by closing unclosed strings
-    and braces. Handles the common case where max_tokens cuts off mid-string.
-    """
     text = text.strip()
     if not text:
         return None
-
     try:
         result = json.loads(text)
         if isinstance(result, dict):
             return result
     except json.JSONDecodeError:
         pass
-
     depth = 0
     in_string = False
     escape = False
     last_safe_pos = 0
-
     for i, ch in enumerate(text):
         if escape:
             escape = False
@@ -160,9 +153,7 @@ def _repair_truncated_json(text: str) -> dict | None:
             last_safe_pos = i + 1
         elif ch == '}':
             depth -= 1
-
     repaired = text[:last_safe_pos].rstrip(',').rstrip()
-
     in_string = False
     escape = False
     for ch in repaired:
@@ -174,10 +165,8 @@ def _repair_truncated_json(text: str) -> dict | None:
             continue
         if ch == '"':
             in_string = not in_string
-
     if in_string:
-        repaired += '\"'
-
+        repaired += '"'
     depth = 0
     in_string = False
     escape = False
@@ -197,9 +186,7 @@ def _repair_truncated_json(text: str) -> dict | None:
             depth += 1
         elif ch == '}':
             depth -= 1
-
     repaired += '}' * depth
-
     try:
         result = json.loads(repaired)
         if isinstance(result, dict):
@@ -209,10 +196,6 @@ def _repair_truncated_json(text: str) -> dict | None:
 
 
 def _extract_json(text: str) -> dict:
-    """
-    Parse the first valid JSON object from a model response.
-    Handles: markdown fences, thinking tags, nested objects, truncated output.
-    """
     if "```" in text:
         for part in text.split("```"):
             part = part.strip()
@@ -221,16 +204,13 @@ def _extract_json(text: str) -> dict:
             if part.startswith("{"):
                 text = part
                 break
-
     text = _strip_thinking(text)
-
     try:
         result = json.loads(text)
         if isinstance(result, dict):
             return result
     except json.JSONDecodeError:
         pass
-
     balanced = _extract_balanced_json(text)
     if balanced:
         try:
@@ -241,16 +221,13 @@ def _extract_json(text: str) -> dict:
             repaired = _repair_truncated_json(balanced)
             if repaired is not None:
                 return repaired
-
     repaired = _repair_truncated_json(text)
     if repaired is not None:
         return repaired
-
     raise json.JSONDecodeError("Could not extract valid JSON", text, 0)
 
 
 def _log_line(data: dict, tier: str, model: str, label: str) -> str:
-    """Build a concise log line for the result."""
     tag = f"{label} | " if label else ""
     direction = data.get("direction", data.get("exit", "?"))
     conf = data.get("confidence")
@@ -258,24 +235,75 @@ def _log_line(data: dict, tier: str, model: str, label: str) -> str:
     return f"AI-RESP | {tier} | {tag}{summary}"
 
 
-# HTTP status codes that are safe to retry (transient server-side issues)
 _RETRYABLE_HTTP = {429, 500, 502, 503, 504}
 
 
-def _call_nvidia(messages: list, model: str, api_key: str, url: str,
-                 max_tokens: int, timeout: int) -> dict:
-    """Call NVIDIA NIM API (OpenAI-compatible format, non-streaming)."""
+# ── NVIDIA call (streaming + thinking aware) ──────────────────────────────────
+
+def _call_nvidia_stream(messages: list, model: str, api_key: str, url: str,
+                        max_tokens: int, timeout: int) -> dict:
+    """
+    Call NVIDIA NIM with streaming enabled. Aggregates SSE chunks into a
+    single response. Handles thinking tokens in reasoning_content field.
+    """
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}",
     }
     payload = {
-        "model": model,
-        "messages": messages,
-        "max_tokens": min(max_tokens, 1024),  # cap for trading JSON
-        "temperature": 0.3,
-        "top_p": 0.95,
-        "stream": False,  # non-streaming for reliable JSON extraction
+        "model":       model,
+        "messages":    messages,
+        "max_tokens":  max_tokens,
+        "temperature": _NVIDIA_TEMP,
+        "top_p":       _NVIDIA_TOP_P,
+        "stream":      True,
+    }
+
+    resp = requests.post(url, headers=headers, json=payload,
+                         timeout=timeout, stream=True)
+    resp.raise_for_status()
+
+    content_parts   = []
+    reasoning_parts = []
+
+    for raw_line in resp.iter_lines():
+        if not raw_line:
+            continue
+        line = raw_line.decode("utf-8") if isinstance(raw_line, bytes) else raw_line
+        if not line.startswith("data: "):
+            continue
+        chunk_str = line[6:].strip()
+        if chunk_str == "[DONE]":
+            break
+        try:
+            chunk = json.loads(chunk_str)
+        except json.JSONDecodeError:
+            continue
+        delta = chunk.get("choices", [{}])[0].get("delta", {})
+        if delta.get("content"):
+            content_parts.append(delta["content"])
+        if delta.get("reasoning_content"):
+            reasoning_parts.append(delta["reasoning_content"])
+
+    # Prefer content; fall back to reasoning_content if model only streams that
+    full_content = "".join(content_parts) or "".join(reasoning_parts)
+    return {"choices": [{"message": {"content": full_content}, "model": model}]}
+
+
+def _call_nvidia_sync(messages: list, model: str, api_key: str, url: str,
+                      max_tokens: int, timeout: int) -> dict:
+    """Non-streaming NVIDIA call."""
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+    payload = {
+        "model":       model,
+        "messages":    messages,
+        "max_tokens":  max_tokens,
+        "temperature": _NVIDIA_TEMP,
+        "top_p":       _NVIDIA_TOP_P,
+        "stream":      False,
     }
     resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
     resp.raise_for_status()
@@ -284,13 +312,10 @@ def _call_nvidia(messages: list, model: str, api_key: str, url: str,
 
 def _call_nvidia_with_retry(messages: list, model: str, api_key: str, url: str,
                             max_tokens: int, timeout: int, retries: int = 1) -> dict:
-    """
-    Call NVIDIA with automatic retry on transient failures.
-    Retries once (2s delay) on: timeout, connection error, HTTP 429/5xx.
-    """
+    caller = _call_nvidia_stream if _NVIDIA_STREAM else _call_nvidia_sync
     for attempt in range(retries + 1):
         try:
-            return _call_nvidia(messages, model, api_key, url, max_tokens, timeout)
+            return caller(messages, model, api_key, url, max_tokens, timeout)
         except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
             if attempt < retries:
                 log.info(f"AI-RETRY | NVIDIA transient error | retry {attempt+1}/{retries} in 2s")
@@ -299,7 +324,6 @@ def _call_nvidia_with_retry(messages: list, model: str, api_key: str, url: str,
             raise
         except requests.exceptions.HTTPError as e:
             status = e.response.status_code if e.response else 0
-            # Retry on known transient codes OR unknown errors (status=0 means no response)
             if (status in _RETRYABLE_HTTP or status == 0) and attempt < retries:
                 log.info(f"AI-RETRY | NVIDIA HTTP {status} | retry {attempt+1}/{retries} in 2s")
                 time.sleep(2)
@@ -309,14 +333,13 @@ def _call_nvidia_with_retry(messages: list, model: str, api_key: str, url: str,
 
 def _call_gemini(messages: list, model: str, api_key: str, url: str,
                  max_tokens: int, temperature: float, timeout: int) -> dict:
-    """Call Google Gemini via OpenAI-compatible endpoint."""
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}",
     }
     payload = {
-        "model": model,
-        "messages": messages,
+        "model":      model,
+        "messages":   messages,
         "max_tokens": max_tokens,
         "temperature": temperature,
     }
@@ -334,35 +357,30 @@ def ask_gemini(
     label: str = "",
 ) -> dict | None:
     """
-    Send a chat request through the multi-tier AI chain:
-      T1: NVIDIA Llama 3.3 70B (primary)
-      T2: Gemini Pro (fallback)
-      T3: Gemini Flash (emergency)
+    Send a chat request through the AI chain.
+    NVIDIA is primary (T1). Gemini is fallback only.
 
-    Uses the OpenAI-compatible message format so callers don't need to change.
-
-    Args:
-        messages:    OpenAI-format list [{"role": ..., "content": ...}, ...]
-        max_tokens:  Max response tokens (default 400)
-        temperature: Sampling temperature (default 0.3)
-        label:       Short label for log lines (e.g. "XAUUSD" or "exit-check")
-
-    Returns:
-        Parsed dict on success (e.g. {"direction": "BUY", "confidence": 0.72, "reason": "..."})
-        None if all tiers fail.
+    Returns parsed dict on success, None if all tiers fail.
     """
     if not _TIERS:
-        log.error("[AI] ERROR — No AI API keys configured! Set NVIDIA_API_KEY or GEMINI_API_KEY in .env")
+        log.error("[AI] ERROR — No AI keys configured! Set NVIDIA_API_KEY in .env")
         return None
+
+    # NVIDIA uses its own token/temp settings from .env
+    nvidia_tokens = _NVIDIA_TOKENS
 
     for i, (provider, url, api_key, model, timeout, tier) in enumerate(_TIERS):
         try:
             log.info(f"AI-TRY | {tier} | model {model}")
 
             if provider == "nvidia":
-                resp_json = _call_nvidia_with_retry(messages, model, api_key, url, max_tokens, timeout)
+                resp_json = _call_nvidia_with_retry(
+                    messages, model, api_key, url, nvidia_tokens, timeout
+                )
             else:
-                resp_json = _call_gemini(messages, model, api_key, url, max_tokens, temperature, timeout)
+                resp_json = _call_gemini(
+                    messages, model, api_key, url, max_tokens, temperature, timeout
+                )
 
             msg = resp_json["choices"][0]["message"]
             raw = (msg.get("content") or "").strip()
@@ -397,6 +415,5 @@ def ask_gemini(
     return None
 
 
-# ── Alias for backward compat ─────────────────────────────────────────────────
-# analyzer.py imports both ask_gemini and ask_openrouter
+# Alias — analyzer.py imports both names
 ask_openrouter = ask_gemini
