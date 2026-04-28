@@ -29,40 +29,40 @@ DB_PATH = DATA_DIR / "trade_memory.db"
 STATE_PATH = STATE_DIR / "pyramid_state.json"
 
 # ── Pyramid Configuration ─────────────────────────────────────────────────────
+# CALIBRATED 2026-04-28 from 30-day live data analysis:
+#   - 964 trades, 49.2% WR, R:R 0.49 → -$3,707 in 30 days
+#   - Worst single position: -$533 (whipsaw pyramid)
+#   - Root cause: pyramid added at +3 pips (whipsaw range), breakeven only at T4
 PYRAMID_CFG = {
     "tranche_lot": 0.01,       # each tranche size
-    "max_tranches": 10,        # total tranches per pyramid
+    "max_tranches": 6,         # 10→6: limit blast radius from whipsaws
 
-    # Entry ladder — pip thresholds for each add
-    # Tranche 1 is the initial entry (always fires)
-    # Tranche 2+ requires price to have moved X pips in our direction
-    "entry_ladder_pips": [0, 3, 6, 10, 15, 20, 25, 30, 35, 40],
+    # Entry ladder — REQUIRE +10 pips minimum for ANY add (was 3)
+    # Wider gaps prevent whipsaw pyramids that wipe out 4 tranches at once
+    "entry_ladder_pips": [0, 10, 18, 28, 40, 55, 70, 85, 100, 120],
 
-    # Tranches 1-2 fire without extra confirmation (momentum check only)
-    # Tranches 3+ require indicator confirmation
-    "confirm_from_tranche": 3,
+    # Tranche 2 needs confirmation (was 3) — first add is the riskiest
+    "confirm_from_tranche": 2,
 
-    # SL Management
-    "initial_sl_pips": 30,      # tight SL on first tranche (0.01 × 30 pips = ~$3 risk)
-    "breakeven_at_tranche": 4,  # wait for more confirmation before lifting the whole basket
-    "trail_after_tranche": 6,   # start trailing later so shallow pullbacks do not clip the stack
-    "trail_distance_pips": 20,  # wider trail to reduce premature basket stop-outs
-    "breakeven_buffer_pips": 1, # lock a small basket profit once breakeven protection starts
-    "sl_non_loss_tolerance_pips": 0.5,  # never tighten a tranche into a meaningful loss
-    "min_basket_profit_pips_for_late_add": 8,  # stop layering if the basket cushion gets thin
-    "min_locked_profit_pips_before_tranche_5": 4,  # require real locked cushion before tranche 5
-    "min_locked_profit_pips_before_tranche_6": 6,  # tranche 6 needs more locked profit
+    # SL Management — protect profits MUCH earlier
+    "initial_sl_pips": 30,
+    "breakeven_at_tranche": 2,  # 4→2: lock breakeven on first add, not 4th
+    "trail_after_tranche": 3,   # 6→3: trail after 3rd tranche, not 6th
+    "trail_distance_pips": 15,  # 20→15: tighter trail keeps more profit
+    "breakeven_buffer_pips": 5, # 1→5: lock $5 profit per tranche, not $1
+    "sl_non_loss_tolerance_pips": 0.5,
+    "min_basket_profit_pips_for_late_add": 15,   # 8→15: need real cushion to layer
+    "min_locked_profit_pips_before_tranche_5": 10,  # 4→10
+    "min_locked_profit_pips_before_tranche_6": 15,  # 6→15
 
-    # TP — let broker TP handle the final target
-    "tp_pips": 160,             # same as current SYMBOLS config
+    # TP
+    "tp_pips": 160,
 
-    # Safety
-    "max_open_pyramids": 2,     # max concurrent pyramid groups
-    "abort_drawdown_pips": 8,   # if latest tranche drops 8 pips, stop adding
-    "cooldown_between_tranches_s": 10,  # minimum seconds between tranche adds
-
-    # Time limit — don't add tranches forever
-    "max_pyramid_duration_s": 3600,  # 1 hour max from first entry to last add
+    # Safety — much more conservative
+    "max_open_pyramids": 1,     # 2→1: one pyramid at a time across all symbols
+    "abort_drawdown_pips": 5,   # 8→5: abort sooner on adverse move
+    "cooldown_between_tranches_s": 60,  # 10→60: 1 min between adds (was 10s = whipsaw fuel)
+    "max_pyramid_duration_s": 1800,  # 1hr→30min
 }
 
 

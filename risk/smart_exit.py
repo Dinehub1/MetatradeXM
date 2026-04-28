@@ -31,40 +31,48 @@ log = logging.getLogger("smart_exit")
 DB_PATH = DATA_DIR / "trade_memory.db"
 
 # ── Smart Exit Configuration ─────────────────────────────────────────────────
+# CALIBRATED 2026-04-28 from 30-day live data:
+#   - 30-day avg win $7.03 vs avg loss $14.36 → R:R 0.49 (need 1.0+ to be profitable)
+#   - Tiny wins ($0.08, $0.10) from breakeven SL closing on micro-pullbacks
+#   - Single position lost -$533 (no per-position stop)
 EXIT_CFG = {
-    # Profit taking: let winners run with trailing stops
-    "partial_close_pips":      50,       # close 1/3 at +50 pips (let rest run)
-    "partial_close_fraction":  0.33,    # close 1/3 of position
+    # Profit taking
+    "partial_close_pips":      50,
+    "partial_close_fraction":  0.33,
 
-    # Breakeven: protect entry after reasonable profit
-    "breakeven_trigger_pips":  15,       # move SL to breakeven at +15 pips
-    "breakeven_buffer_pips":   1.0,     # SL at entry + 1.0 pip
+    # Breakeven — lock REAL profit, not pennies
+    "breakeven_trigger_pips":  12,       # 15→12: trigger sooner
+    "breakeven_buffer_pips":   5.0,     # 1→5: lock 5 pips, not 1 (kills $0.08 wins)
 
-    # Momentum reversal: detect reversals
+    # Momentum reversal
     "reversal_check_enabled":  True,
-    "reversal_min_factors":    3,       # 3+ factors against = reversal
+    "reversal_min_factors":    3,
 
-    # Time decay: give trades time to develop
-    "max_trade_age_hours":     4,       # max 4 hours for a trade
-    "stale_min_profit_pips":   10,      # if <10 pips after 2hr, consider closing
-    "stale_check_hours":       2.0,     # check staleness after 2hr
+    # Time decay
+    "max_trade_age_hours":     4,
+    "stale_min_profit_pips":   10,
+    "stale_check_hours":       2.0,
 
-    # Trailing stop: wider trailing for larger moves
-    "trailing_start_pips":     30,       # start trailing at +30 pips
-    "trailing_distance_pips":  10,      # trail 10 pips behind price
+    # Trailing stop — start sooner, trail tighter
+    "trailing_start_pips":     20,       # 30→20: protect winners earlier
+    "trailing_distance_pips":  10,
 
-    # AI confirmation for exits — keep disabled for speed
+    # AI confirmation
     "ai_confirm_exits":        False,
     "ai_timeout":              10,
 
-    # Loss cut: cut losses much earlier
-    "loss_cut_pips":           82,       # close 50% at -82 pips (much larger stop for volatile market)
-    "loss_cut_fraction":       0.5,      # close 50% of position on loss
-    "loss_time_cut_minutes":   15,       # close all if negative after 15 min
+    # Loss cut — much tighter than before (one -$533 trade nearly killed account)
+    "loss_cut_pips":           40,       # 82→40: half the stop tolerance
+    "loss_cut_fraction":       0.5,
+    "loss_time_cut_minutes":   10,       # 15→10: cut faster on negative trades
+    "max_position_loss_usd":   30,       # NEW: hard $30 cap per position (kills -$533 events)
 
-    # Winner protection: protect larger profits
-    "winner_peak_pips":        30,       # if trade was ever +30 pips...
-    "winner_floor_pips":       15,       # ...and drops below +15 pip, close
+    # Winner protection
+    "winner_peak_pips":        25,       # 30→25
+    "winner_floor_pips":       12,       # 15→12: protect profits sooner
+
+    # NEW: minimum profit floor — once a trade peaked above this, never close below it
+    "min_lock_pips":           5,        # if trade was ever +5 pips, never exit below +5
 }
 
 
@@ -502,6 +510,44 @@ Respond with ONLY JSON (no markdown):
     def _check_loss_cut(self, bridge, ticket, symbol, direction,
                         profit, profit_pips, volume, open_time, dry_run):
         """Aggressive loss protection: cut 50% at -3 pips, close all after 5 min if negative."""
+
+        # Rule 0: Hard USD cap — kill any position losing more than $30
+        # 30-day data showed one position lost -$533 with no per-trade brake.
+        max_usd_loss = EXIT_CFG.get("max_position_loss_usd", 30)
+        if profit <= -max_usd_loss and ticket not in self._loss_cut_set:
+            reason = (f"USD hard cap: ${profit:.2f} ≤ -${max_usd_loss} "
+                      f"— emergency close (kills runaway losses)")
+            log.warning(f"[SMART EXIT] {symbol} #{ticket}: {reason}")
+            if not dry_run:
+                try:
+                    bridge.close_position(ticket)
+                    self._loss_cut_set.add(ticket)
+                    _record_exit(ticket, symbol, direction, "USD_CAP",
+                                 profit_pips, profit, reason)
+                    return {"ticket": ticket, "action": "usd_cap", "reason": reason}
+                except Exception as e:
+                    log.warning(f"[SMART EXIT] USD cap close failed: {e}")
+            else:
+                self._loss_cut_set.add(ticket)
+                return {"ticket": ticket, "action": "usd_cap_dry", "reason": reason}
+
+        # Rule 0b: Profit floor — once trade peaked above min_lock_pips, never let it close below
+        peak = self._peak_pips.get(ticket, 0)
+        min_lock = EXIT_CFG.get("min_lock_pips", 5)
+        if peak >= min_lock and profit_pips < min_lock and profit_pips > 0:
+            reason = (f"Profit floor: peaked at +{peak:.1f} pips, now +{profit_pips:.1f} "
+                      f"— locking minimum {min_lock} pips")
+            log.info(f"[SMART EXIT] {symbol} #{ticket}: {reason}")
+            if not dry_run:
+                try:
+                    bridge.close_position(ticket)
+                    _record_exit(ticket, symbol, direction, "PROFIT_FLOOR",
+                                 profit_pips, profit, reason)
+                    return {"ticket": ticket, "action": "profit_floor", "reason": reason}
+                except Exception as e:
+                    log.warning(f"[SMART EXIT] Profit floor close failed: {e}")
+            else:
+                return {"ticket": ticket, "action": "profit_floor_dry", "reason": reason}
 
         # Rule 1: If negative after X minutes, close everything
         if open_time is not None and profit_pips < 0:

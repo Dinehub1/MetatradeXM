@@ -35,40 +35,52 @@ class StrategyFilter:
 
 class TimeOfDayFilter(StrategyFilter):
     """
-    Session-aware activity filter for Gold/Silver.
+    Session-aware activity filter — DATA-DRIVEN from 30-day live trade analysis.
 
-    Gold is active in all three major sessions — but the pre-London dead zone
-    (01:00–07:59 UTC) has the lowest volatility and widest spreads.
-    We don't block Asian entirely (Shanghai Gold Exchange is active), but we
-    require stronger signals during the quietest window.
+    Hourly WR/P&L breakdown (UTC) showed:
+      05–07: 71% WR  +$48    ✅ London open — best window
+      14:    62% WR  +$102   ✅ NY morning
+      08–13: 47–64% WR -$1,206 ⚠️  Mixed (allow with conf gate)
+      15–17: 36–46% WR -$835  ❌ NY mid — block
+      18–04: 23–32% WR -$2,007 ❌ NY late + Asian — block (worst)
 
-    Session confidence adjustments are handled here; lot-size multipliers
-    are in capital_manager.py (ASIAN=0.3×, LONDON=1.0×, etc.).
+    Total: 18:00–04:59 UTC accounts for $1,963 of the $3,707 30-day loss.
     """
     name = "time_of_day"
 
-    # UTC hours where Gold spreads are widest / moves smallest
-    # Pre-London dead zone: 01:00–07:59 UTC
-    DEAD_ZONE_START = 1
-    DEAD_ZONE_END   = 8   # exclusive
+    # Hours where the bot historically loses money (UTC)
+    # block:           18,19,20,21,22,23,0,1,2,3,4
+    # allow:           5–17 with conf gate
+    # premium window:  5–7, 14 (full size)
+    BLOCKED_HOURS = {18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4}
+    PREMIUM_HOURS = {5, 6, 7, 14}
 
     def should_trade(self, symbol, direction, context):
-        now     = datetime.now(timezone.utc)
-        h       = now.hour
-        session = _current_session()
+        now = datetime.now(timezone.utc)
+        h   = now.hour
 
-        # Gold trades 24/5 — Asian session (Shanghai Gold Exchange) is legitimate.
-        # Only block truly dead hours: 23:30-00:30 UTC (venue crossover, widest spreads).
-        if h == 23 and now.minute >= 30:
-            conf = context.get("confidence", 1.0)
-            if conf < 0.65:
-                return False, f"Session filter: venue crossover ({h:02d}:{now.minute:02d} UTC) — conf {conf:.0%} < 65%"
-        if h == 0 and now.minute < 30:
-            conf = context.get("confidence", 1.0)
-            if conf < 0.65:
-                return False, f"Session filter: venue crossover ({h:02d}:{now.minute:02d} UTC) — conf {conf:.0%} < 65%"
+        # Hard block: hours that historically lost money
+        if h in self.BLOCKED_HOURS:
+            return False, (
+                f"Session filter: hour {h:02d} UTC is blocked (30-day data: "
+                "23–32% WR, -$2,007 cumulative loss in this window)"
+            )
 
-        return True, ""
+        # Premium hours: trade freely
+        if h in self.PREMIUM_HOURS:
+            return True, ""
+
+        # Mixed hours (8-13, 15-17): require higher confidence
+        conf = context.get("confidence", 1.0)
+        if conf < 0.72:
+            return False, (
+                f"Session filter: hour {h:02d} UTC needs 72%+ confidence "
+                f"(got {conf:.0%}) — mixed-result window"
+            )
+
+        # Reduce lot 30% during mixed hours
+        context["_lot_reduction"] = min(context.get("_lot_reduction", 1.0), 0.7)
+        return True, f"Mixed hour {h:02d} — lot reduced 30%"
 
 
 class DayOfWeekFilter(StrategyFilter):
@@ -164,14 +176,19 @@ class NYLateSessionFilter(StrategyFilter):
 
 class SilverADXFilter(StrategyFilter):
     """
-    Silver (XAGUSD) is significantly choppier than Gold.
-    Backtest showed 33% win rate for silver vs 56% for gold in the same period.
-    Silver needs a stronger trend signal (ADX ≥ 22 vs gold's 18) to trade.
-    Only applies to XAGUSD / SILVER symbols.
+    Silver (XAGUSD) is a graveyard.
+    30-day live data: 27% WR, -$2,262 P&L on 284 trades.
+    Below random — taking the OPPOSITE of every signal would have profited.
+
+    Until the silver signal generation is rebuilt, we require:
+      - ADX ≥ 30 (only trade strongest silver trends)
+      - Confidence ≥ 80% (vs 75% for gold)
+      - Half lot size
     """
     name = "silver_adx"
 
-    SILVER_ADX_MIN = 22   # gold threshold is 18 (in ADX_regime in analyzer)
+    SILVER_ADX_MIN  = 30   # was 22 — raised after 27% WR
+    SILVER_CONF_MIN = 0.80 # raise from 0.75
 
     def should_trade(self, symbol, direction, context):
         sym_upper = symbol.upper()
@@ -180,13 +197,23 @@ class SilverADXFilter(StrategyFilter):
 
         indicators = context.get("indicators", {})
         adx        = indicators.get("adx", 0)
+        conf       = context.get("confidence", 1.0)
 
         if adx < self.SILVER_ADX_MIN:
             return False, (
                 f"Silver ADX filter: ADX={adx:.1f} < {self.SILVER_ADX_MIN} "
-                "(Silver requires stronger trend than Gold — too choppy to trade)"
+                "(silver 30-day WR: 27% — only trade strongest trends)"
             )
-        return True, ""
+
+        if conf < self.SILVER_CONF_MIN:
+            return False, (
+                f"Silver confidence filter: {conf:.0%} < {self.SILVER_CONF_MIN:.0%} "
+                "(silver 30-day P&L: -$2,262 — very high bar required)"
+            )
+
+        # Always halve silver lot size until WR improves
+        context["_lot_reduction"] = min(context.get("_lot_reduction", 1.0), 0.5)
+        return True, "Silver — lot halved until WR improves"
 
 
 class CorrelationFilter(StrategyFilter):

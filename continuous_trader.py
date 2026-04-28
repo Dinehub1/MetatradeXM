@@ -120,8 +120,8 @@ CONFIG = {
     "profit_close_pct": 3.0,   # let broker TP at 160 pips be primary exit
     "loss_close_pct": 1.0,     # align with wider 80-pip SL
     "min_confidence": 0.85,    # pyramid system: high-conviction entries only
-    "max_trades_per_sym": 10,  # 10 tranches per pyramid
-    "max_total_positions": 12,
+    "max_trades_per_sym": 6,   # 10→6: pyramid max_tranches reduced (whipsaw protection)
+    "max_total_positions": 6,  # 12→6: smaller blast radius if a pyramid goes wrong
     "dry_run": False,
     "use_ai": True,
     "max_reconnect_attempts": 5,
