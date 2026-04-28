@@ -147,6 +147,21 @@ def positions_get(symbol: str = None, ticket: int = None):
     return list(_open_positions) or None
 
 
+TRADE_ACTION_SLTP = 6  # modify SL/TP (matches real MT5 constant)
+
+
+def modify_position_sltp(ticket: int, sl: float, tp: float):
+    """Modify SL/TP of a mock position."""
+    for p in _open_positions:
+        if p.ticket == ticket:
+            if sl is not None:
+                p.sl = sl
+            if tp is not None:
+                p.tp = tp
+            return SimpleNamespace(retcode=TRADE_RETCODE_DONE, comment="Mock SL/TP updated")
+    return SimpleNamespace(retcode=10004, comment="Position not found")
+
+
 # ── Orders ────────────────────────────────────────────────────────────────────
 def order_send(request: dict):
     global _ticket_counter, _open_positions

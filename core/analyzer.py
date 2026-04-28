@@ -1190,16 +1190,30 @@ Williams%R={tv_ind.get('williams_r','?')} Stoch_K={tv_ind.get('stoch_k','?')} St
 
         # ── Step 3: Hard indicator fallback (fires ONLY when ALL AI tiers fail)
         if not data:
+            _fb_score = base_signal.get("score", 0)
+            _fb_dir   = base_signal.get("direction", "HOLD")
+            _w = self._load_weights()
+            _fb_buy_t  = _w.get("buy_threshold",  12)
+            _fb_sell_t = _w.get("sell_threshold", -12)
+
+            # When AI is down, allow 85% of threshold to trigger — prevents
+            # the bot going completely dark during API outages.
+            _fb_lower = _fb_buy_t * 0.85
+            if _fb_dir == "HOLD":
+                if _fb_score >= _fb_lower:
+                    _fb_dir = "BUY"
+                elif _fb_score <= -_fb_lower:
+                    _fb_dir = "SELL"
+
             log.warning(
-                f"[ANALYZER] {symbol}: ALL AI tiers exhausted — falling back to "
-                f"indicator signal (score={base_signal.get('score', 0):.1f}, "
-                f"dir={base_signal.get('direction', 'HOLD')}). "
-                f"Check NVIDIA_API_KEY / GEMINI_API_KEY in .env."
+                f"[ANALYZER] {symbol}: ALL AI tiers exhausted — using indicator fallback "
+                f"(score={_fb_score:.1f} vs thresh={_fb_buy_t}, lowered to {_fb_lower:.1f}) "
+                f"dir={_fb_dir}. Renew GEMINI_API_KEY at aistudio.google.com"
             )
             data = {
-                "direction":  base_signal.get("direction", "HOLD"),
-                "confidence": base_signal.get("confidence", 0.55),
-                "reason":     "[Indicator fallback] " + base_signal.get("reason", ""),
+                "direction":  _fb_dir,
+                "confidence": min(base_signal.get("confidence", 0.55), 0.65),
+                "reason":     "[AI-down fallback] " + base_signal.get("reason", ""),
             }
 
         # ── Step 4: Post-processing (outside any try/except) ─────────────────

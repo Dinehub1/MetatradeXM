@@ -136,6 +136,31 @@ class MT5Bridge:
             return None
         return result
 
+    def modify_position(self, ticket: int, sl: float = None, tp: float = None):
+        """Modify SL/TP of an open position (e.g. move to breakeven)."""
+        position = mt5.positions_get(ticket=ticket)
+        if not position:
+            print(f"  Position #{ticket} not found.")
+            return False
+        pos = position[0]
+        if hasattr(mt5, "modify_position_sltp"):
+            # mock path
+            result = mt5.modify_position_sltp(
+                ticket,
+                sl if sl is not None else pos.sl,
+                tp if tp is not None else pos.tp,
+            )
+        else:
+            request = {
+                "action":   mt5.TRADE_ACTION_SLTP,
+                "position": ticket,
+                "symbol":   pos.symbol,
+                "sl":       sl if sl is not None else pos.sl,
+                "tp":       tp if tp is not None else pos.tp,
+            }
+            result = mt5.order_send(request)
+        return result.retcode == mt5.TRADE_RETCODE_DONE
+
     def close_position(self, ticket: int):
         """Close a position by ticket number."""
         position = mt5.positions_get(ticket=ticket)
