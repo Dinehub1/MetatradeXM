@@ -1,8 +1,8 @@
 {
   "_note": "buy_threshold HARD-CAPPED at 20 by analyzer._load_weights(). Valid range 8-20. Setting >20 halts all trading.",
-  "buy_threshold": 12,
-  "sell_threshold": -12,
-  "ranging_penalty": 0.70,
+  "buy_threshold": 15,
+  "sell_threshold": -15,
+  "ranging_penalty": 0.65,
   "f1_h4_trend": 1.0,
   "f2_h1_trend": 1.0,
   "f3_rsi": 1.0,
@@ -15,7 +15,7 @@
   "f10_d1": 0.7,
   "f11_candle": 0.8,
   "f12_fibonacci": 0.9,
-  "last_adjusted": "2026-04-28",
+  "last_adjusted": "2026-04-29",
   "adjustment_history": [
     {
       "date": "2026-04-15",
@@ -36,6 +36,10 @@
     {
       "date": "2026-04-28",
       "change": "Added hard cap in analyzer._load_weights() (8-20). Added NYLateSessionFilter, SilverADXFilter, adaptive trailing stop (ADX-based), CapitalManager atr_avg fix."
+    },
+    {
+      "date": "2026-04-29",
+      "change": "Threshold 12->15 (require stronger confluence). ranging_penalty 0.70->0.65 (harder to trade choppy market). Backtest shows 65.5% WR achievable \u2014 noise from sub-threshold signals was causing losses."
     }
   ]
 }

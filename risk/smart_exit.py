@@ -36,43 +36,47 @@ DB_PATH = DATA_DIR / "trade_memory.db"
 #   - Tiny wins ($0.08, $0.10) from breakeven SL closing on micro-pullbacks
 #   - Single position lost -$533 (no per-position stop)
 EXIT_CFG = {
-    # Profit taking
-    "partial_close_pips":      50,
+    # Profit taking — partial close at 80 pips (backtest avg win = 100 pips)
+    "partial_close_pips":      80,
     "partial_close_fraction":  0.33,
 
-    # Breakeven — lock REAL profit, not pennies
-    "breakeven_trigger_pips":  12,       # 15→12: trigger sooner
-    "breakeven_buffer_pips":   5.0,     # 1→5: lock 5 pips, not 1 (kills $0.08 wins)
+    # Breakeven — trigger later so micro-pullbacks don't close at +1 pip
+    # Backtest BE exits averaged -1 pip — they were useless. Trigger later.
+    "breakeven_trigger_pips":  20,       # 8→20: wait for real profit before moving BE
+    "breakeven_buffer_pips":   10.0,     # lock 10 pips (not 12)
 
-    # Momentum reversal
-    "reversal_check_enabled":  True,
+    # Momentum reversal — disabled, AI is too slow for live reversals
+    "reversal_check_enabled":  False,
     "reversal_min_factors":    3,
 
-    # Time decay
-    "max_trade_age_hours":     4,
-    "stale_min_profit_pips":   10,
-    "stale_check_hours":       2.0,
+    # Time decay — backtest showed winners can run 6-12 hours. Don't kill them.
+    "max_trade_age_hours":     8,        # 3→8: give trades room to develop
+    "stale_min_profit_pips":   30,       # 22→30: only close stale if meaningful profit
+    "stale_check_hours":       4.0,      # 1.5→4.0: don't rush stale check
 
-    # Trailing stop — start sooner, trail tighter
-    "trailing_start_pips":     20,       # 30→20: protect winners earlier
-    "trailing_distance_pips":  10,
+    # Trailing stop — start LATER so trades can breathe to 100-pip target
+    # Backtest TRAIL exits: avg +100 pips. Start trail at 35 so trades reach target.
+    "trailing_start_pips":     35,       # 15→35: let trade develop before trailing
+    "trailing_distance_pips":  20,       # 10→20: wider trail in gold's ATR range
 
-    # AI confirmation
+    # AI confirmation — off (too slow for exit decisions)
     "ai_confirm_exits":        False,
     "ai_timeout":              10,
 
-    # Loss cut — much tighter than before (one -$533 trade nearly killed account)
-    "loss_cut_pips":           40,       # 82→40: half the stop tolerance
+    # Loss cut — give gold breathing room (ATR ~30-50 pips per M15 candle)
+    # loss_time_cut at 5 min was closing trades before natural price action completed
+    "loss_cut_pips":           30,       # 20→30: match initial SL distance
     "loss_cut_fraction":       0.5,
-    "loss_time_cut_minutes":   10,       # 15→10: cut faster on negative trades
-    "max_position_loss_usd":   30,       # NEW: hard $30 cap per position (kills -$533 events)
+    "loss_time_cut_minutes":   25,       # 5→25: gold needs 20-30 min breathing room
+    "max_position_loss_usd":   30,       # KEEP: hard $30 cap (prevents -$533 disasters)
 
-    # Winner protection
-    "winner_peak_pips":        25,       # 30→25
-    "winner_floor_pips":       12,       # 15→12: protect profits sooner
+    # Winner protection — backtest avg win 100 pips. Don't close at 15→8.
+    # Raise to 50→25: protect trades that went big but not micro-winners.
+    "winner_peak_pips":        50,       # 15→50: don't kill a 15-pip trade, let it run
+    "winner_floor_pips":       25,       # 8→25: meaningful protection floor
 
-    # NEW: minimum profit floor — once a trade peaked above this, never close below it
-    "min_lock_pips":           5,        # if trade was ever +5 pips, never exit below +5
+    # Profit floor — raised to match new winner threshold
+    "min_lock_pips":           15,       # 5→15: lock real profit, not $0.50
 }
 
 
@@ -144,6 +148,7 @@ class SmartExitManager:
         self._loss_cut_set   = set()   # tickets already loss-cut (50%)
         self._peak_pips      = {}      # ticket -> peak profit in pips
         self._last_reversal_check = {}  # ticket -> last reversal check time
+        self._negative_since = {}      # ticket -> datetime when we first saw it negative
         log.info("[SMART EXIT] Smart exit manager initialized")
 
     def evaluate_exits(self, bridge, positions_by_sym: dict, symbols: dict,
@@ -159,6 +164,8 @@ class SmartExitManager:
             broker_sym = sym_cfg["broker"]
             pip        = sym_cfg["pip"]
             positions  = positions_by_sym.get(broker_sym, [])
+            if positions:
+                log.debug(f"[SMART EXIT] checking {len(positions)} position(s) for {display_name}")
 
             for pos in positions:
                 ticket     = str(getattr(pos, "ticket", "?"))
@@ -185,7 +192,7 @@ class SmartExitManager:
                 # 0a. LOSS CUT — aggressive loss protection
                 lc_action = self._check_loss_cut(
                     bridge, ticket, display_name, direction,
-                    profit, profit_pips, volume, open_time, dry_run
+                    profit, profit_pips, volume, dry_run
                 )
                 if lc_action:
                     self._update_stats(state, profit, profit_pips)
@@ -217,7 +224,8 @@ class SmartExitManager:
                 # 2. TIME DECAY — close stale trades
                 td_action = self._check_time_decay(
                     bridge, ticket, display_name, direction,
-                    profit, profit_pips, open_time, dry_run
+                    profit, profit_pips, open_time, dry_run,
+                    open_price=open_price, current_sl=current_sl, pip=pip
                 )
                 if td_action:
                     self._update_stats(state, profit, profit_pips)
@@ -290,7 +298,9 @@ class SmartExitManager:
     # ── 2. Time Decay ────────────────────────────────────────────────────────
 
     def _check_time_decay(self, bridge, ticket, symbol, direction,
-                          profit, profit_pips, open_time, dry_run):
+                          profit, profit_pips, open_time, dry_run,
+                          open_price: float = 0.0, current_sl: float = 0.0,
+                          pip: float = 0.10):
         """Close stale trades that have been open too long with little profit."""
         if open_time is None:
             return None
@@ -329,9 +339,13 @@ class SmartExitManager:
 
         # Stale check: if trade is old and barely profitable
         if age_hours >= EXIT_CFG["stale_check_hours"]:
-            if 0 < profit_pips < EXIT_CFG["stale_min_profit_pips"]:
+            # Dynamic minimum: require at least 60% of SL distance as profit before stale exit
+            # This prevents exiting winners for pennies when the risk was large
+            _sl_dist_pips = abs(open_price - current_sl) / pip if (current_sl > 0 and pip > 0) else 0
+            _dynamic_min = max(_sl_dist_pips * 0.60, EXIT_CFG["stale_min_profit_pips"])
+            if 0 < profit_pips < _dynamic_min:
                 reason = (f"Trade stale: {age_hours:.1f}h old, only {profit_pips:.1f}pips "
-                          f"(need {EXIT_CFG['stale_min_profit_pips']}+ pips by now)")
+                          f"(need {_dynamic_min:.0f}+ pips, SL={_sl_dist_pips:.0f}p away)")
                 log.info(f"[SMART EXIT] 😴 {symbol} #{ticket}: {reason}")
 
                 if not dry_run:
@@ -508,8 +522,8 @@ Respond with ONLY JSON (no markdown):
     # ── 0a. Loss Cut ────────────────────────────────────────────────────────
 
     def _check_loss_cut(self, bridge, ticket, symbol, direction,
-                        profit, profit_pips, volume, open_time, dry_run):
-        """Aggressive loss protection: cut 50% at -3 pips, close all after 5 min if negative."""
+                        profit, profit_pips, volume, dry_run):
+        """Aggressive loss protection: hard USD cap, pip threshold, and time-based cut."""
 
         # Rule 0: Hard USD cap — kill any position losing more than $30
         # 30-day data showed one position lost -$533 with no per-trade brake.
@@ -549,35 +563,32 @@ Respond with ONLY JSON (no markdown):
             else:
                 return {"ticket": ticket, "action": "profit_floor_dry", "reason": reason}
 
-        # Rule 1: If negative after X minutes, close everything
-        if open_time is not None and profit_pips < 0:
-            try:
-                if isinstance(open_time, (int, float)):
-                    open_dt = datetime.fromtimestamp(open_time, tz=timezone.utc)
-                elif isinstance(open_time, str):
-                    open_dt = datetime.fromisoformat(open_time.replace("Z", "+00:00"))
+        # Rule 1: If negative for X continuous minutes (tracked by us, not broker time)
+        # We use our own internal clock so broker timezone differences don't matter.
+        now_utc = datetime.now(timezone.utc)
+        if profit_pips < 0:
+            if ticket not in self._negative_since:
+                self._negative_since[ticket] = now_utc
+            neg_minutes = (now_utc - self._negative_since[ticket]).total_seconds() / 60
+            if neg_minutes >= EXIT_CFG["loss_time_cut_minutes"]:
+                reason = (f"Loss time cut: {profit_pips:.1f} pips for {neg_minutes:.0f}min "
+                          f"— closing to protect capital")
+                log.info(f"[SMART EXIT] {symbol} #{ticket}: {reason}")
+                if not dry_run:
+                    try:
+                        bridge.close_position(ticket)
+                        _record_exit(ticket, symbol, direction, "LOSS_TIME_CUT",
+                                     profit_pips, profit, reason)
+                        self._negative_since.pop(ticket, None)
+                        return {"ticket": ticket, "action": "loss_time_cut", "reason": reason}
+                    except Exception as e:
+                        log.warning(f"[SMART EXIT] Loss time cut failed: {e}")
                 else:
-                    open_dt = open_time
-                    if open_dt.tzinfo is None:
-                        open_dt = open_dt.replace(tzinfo=timezone.utc)
-
-                age_minutes = (datetime.now(timezone.utc) - open_dt).total_seconds() / 60
-                if age_minutes >= EXIT_CFG["loss_time_cut_minutes"]:
-                    reason = (f"Loss time cut: {profit_pips:.1f} pips after {age_minutes:.0f}min "
-                              f"— closing to protect capital")
-                    log.info(f"[SMART EXIT] {symbol} #{ticket}: {reason}")
-                    if not dry_run:
-                        try:
-                            bridge.close_position(ticket)
-                            _record_exit(ticket, symbol, direction, "LOSS_TIME_CUT",
-                                         profit_pips, profit, reason)
-                            return {"ticket": ticket, "action": "loss_time_cut", "reason": reason}
-                        except Exception as e:
-                            log.warning(f"[SMART EXIT] Loss time cut failed: {e}")
-                    else:
-                        return {"ticket": ticket, "action": "loss_time_cut_dry", "reason": reason}
-            except Exception:
-                pass
+                    self._negative_since.pop(ticket, None)
+                    return {"ticket": ticket, "action": "loss_time_cut_dry", "reason": reason}
+        else:
+            # Position went positive — reset the negative timer
+            self._negative_since.pop(ticket, None)
 
         # Rule 2: If hits loss threshold, reduce exposure
         if profit_pips <= -EXIT_CFG["loss_cut_pips"] and ticket not in self._loss_cut_set:

@@ -1139,23 +1139,24 @@ TREND-FOLLOWING (go WITH the score):
 - Score strongly agrees with your direction → confidence 0.65-0.85
 - 6+ factors in same direction → strong signal, minimum confidence 0.65
 
-COUNTER-TREND (go AGAINST the score):
-- You MAY trade against the score when: RSI extreme + Fibonacci level + BB extreme
-- Gold regularly reverses 200-400 pips intraday — reversals at key levels are profitable
-- Counter-trend confidence should be LOWER: 0.55-0.65
-- Require at least 2 reversal confirmations (e.g., RSI<30 + Fib 61.8% support)
+COUNTER-TREND (go AGAINST the score — HIGH BAR required):
+- Only trade against score when: RSI extreme (<25 or >75) + Fibonacci 61.8% + BB extreme ALL together
+- Require at least 3 reversal confirmations simultaneously
+- Counter-trend minimum confidence: 0.68 (same bar as trend-following)
+- If only 1-2 reversal signals: HOLD
 
 RANGING market (ADX < 18):
 - Use RSI extremes at Fibonacci levels → mean-reversion entries
 - BB extremes with Stoch cross = valid trigger
-- Require 2+ confluent signals
+- Require ALL THREE: RSI extreme + Fib level + BB extreme
+- ADX < 15: HOLD unless the above 3 confirmations are all present
 
 Confidence calibration:
-    0.55-0.60: counter-trend reversal at key level
-    0.60-0.70: solid directional setup, most factors agree
-    0.70-0.85: strong multi-factor confluence + Fibonacci level
-- If you say BUY or SELL, minimum confidence is 0.55.
-- If uncertain, say HOLD.
+    0.65-0.70: minimum viable — cautious entry, strong setup required
+    0.70-0.80: solid setup, 2+ timeframes agree, confident entry
+    0.80-0.95: high conviction — all timeframes agree + Fibonacci confluence
+- Minimum confidence for ANY trade (BUY or SELL): 0.65
+- Below 0.65: HOLD. No exceptions.
 
 Respond with ONLY raw JSON (no markdown, no backticks):
 {{"direction": "BUY"|"SELL"|"HOLD", "confidence": 0.0-1.0, "reason": "1-2 sentences"}}"""
