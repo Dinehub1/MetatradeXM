@@ -58,9 +58,10 @@ _TIERS = []
 if _NVIDIA_KEY:
     _TIERS.append(("nvidia", _NVIDIA_URL, _NVIDIA_KEY, _NVIDIA_MODEL, _NVIDIA_TIMEOUT, "T1-NVIDIA"))
 
-if _GEMINI_KEY:
-    _TIERS.append(("gemini", _GEMINI_URL, _GEMINI_KEY, _T2_MODEL, _GEMINI_TIMEOUT, "T2-Gemini-Pro"))
-    _TIERS.append(("gemini", _GEMINI_URL, _GEMINI_KEY, _T3_MODEL, max(30, _GEMINI_TIMEOUT // 2), "T3-Gemini-Flash"))
+# 2026-04-30: Gemini exhausted. Use NVIDIA only. Commented off T2/T3 fallback.
+# if _GEMINI_KEY:
+#     _TIERS.append(("gemini", _GEMINI_URL, _GEMINI_KEY, _T2_MODEL, _GEMINI_TIMEOUT, "T2-Gemini-Pro"))
+#     _TIERS.append(("gemini", _GEMINI_URL, _GEMINI_KEY, _T3_MODEL, max(30, _GEMINI_TIMEOUT // 2), "T3-Gemini-Flash"))
 
 _tier_names = [t[5] for t in _TIERS]
 if _tier_names:
@@ -279,7 +280,8 @@ def _call_nvidia_stream(messages: list, model: str, api_key: str, url: str,
             chunk = json.loads(chunk_str)
         except json.JSONDecodeError:
             continue
-        delta = chunk.get("choices", [{}])[0].get("delta", {})
+        # Use `or [{}]` so an empty choices list (content-filter) doesn't IndexError
+        delta = (chunk.get("choices") or [{}])[0].get("delta", {})
         if delta.get("content"):
             content_parts.append(delta["content"])
         if delta.get("reasoning_content"):
@@ -386,6 +388,11 @@ def ask_gemini(
             raw = (msg.get("content") or "").strip()
             if not raw:
                 raise ValueError("Empty content — model may be in think/safety mode")
+            # Nemotron sometimes prepends a narrative before the JSON for non-trading
+            # prompts (e.g., skills analysis with no data). Strip leading prose so
+            # _extract_json finds the object reliably.
+            if "{" in raw and not raw.lstrip().startswith("{"):
+                raw = raw[raw.index("{"):]
             data = _extract_json(raw)
 
             if not isinstance(data, dict):
