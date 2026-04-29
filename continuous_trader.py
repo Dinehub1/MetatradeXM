@@ -96,7 +96,6 @@ SYMBOLS = [
     {
         "broker": "SILVER.i#",
         "display": "XAGUSD",
-        "enabled": False,  # 2026-04-29: Disabled — 27% WR, -$2,262. Signal generation is backwards.
         "pip": 0.01,
         "contract_size": 5000,
         "sl_pips": 15,
@@ -1142,8 +1141,6 @@ class ContinuousTrader:
 
                 total_open = sum(len(v) for v in positions_by_sym.values())
                 for sym_cfg in SYMBOLS:
-                    if not sym_cfg.get("enabled", True):
-                        continue
                     broker_sym = sym_cfg["broker"]
                     disp = sym_cfg["display"]
 

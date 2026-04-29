@@ -49,34 +49,30 @@ class TimeOfDayFilter(StrategyFilter):
     name = "time_of_day"
 
     # Hours where the bot historically loses money (UTC)
-    # block:           18,19,20,21,22,23,0,1,2,3,4
-    # allow:           5–17 with conf gate
-    # premium window:  5–7, 14 (full size)
-    BLOCKED_HOURS = {18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4}
+    # 2026-04-30: Relaxed to require high confidence instead of hard block
+    # 18-04 UTC had 23-32% WR but new 0.65 conf gate + smart exit may help
+    # premium window:  5–7, 14 (trade freely)
+    # caution window:  8–13, 15–17, 18–04 (need 72%+ conf)
     PREMIUM_HOURS = {5, 6, 7, 14}
+    CAUTION_HOURS = set(range(8, 18)) | {18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4}
 
     def should_trade(self, symbol, direction, context):
         now = datetime.now(timezone.utc)
         h   = now.hour
 
-        # Hard block: hours that historically lost money
-        if h in self.BLOCKED_HOURS:
-            return False, (
-                f"Session filter: hour {h:02d} UTC is blocked (30-day data: "
-                "23–32% WR, -$2,007 cumulative loss in this window)"
-            )
-
         # Premium hours: trade freely
         if h in self.PREMIUM_HOURS:
             return True, ""
 
-        # Mixed hours (8-13, 15-17): require higher confidence
-        conf = context.get("confidence", 1.0)
-        if conf < 0.72:
-            return False, (
-                f"Session filter: hour {h:02d} UTC needs 72%+ confidence "
-                f"(got {conf:.0%}) — mixed-result window"
-            )
+        # Caution hours (8-13, 15-17, 18-04): require higher confidence
+        # Previous hard block at 18-04 removed. Rely on confidence gate instead.
+        if h in self.CAUTION_HOURS:
+            conf = context.get("confidence", 1.0)
+            if conf < 0.72:
+                return False, (
+                    f"Session filter: hour {h:02d} UTC needs 72%+ confidence "
+                    f"(got {conf:.0%}) — caution window (hist 23-64% WR)"
+                )
 
         # Reduce lot 30% during mixed hours
         context["_lot_reduction"] = min(context.get("_lot_reduction", 1.0), 0.7)
