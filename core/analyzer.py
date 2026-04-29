@@ -54,20 +54,19 @@ WHEN TO HOLD (only in these situations):
 - Extreme spread/low liquidity conditions → HOLD
 - Score magnitude < 2 AND no Fib level nearby AND ADX < 15 → HOLD
 
-WHEN TO GIVE BUY/SELL (prefer this — the pyramid manages risk):
-- Score > +5 with ADX > 18 → BUY (trend confirmation)
-- Score < -5 with ADX > 18 → SELL (trend confirmation)
-- Price at key Fibonacci level with RSI extreme → BUY/SELL (reversal)
-- MACD cross with ADX > 20 → BUY/SELL (momentum)
-- Even on a loss streak, if 2+ indicators align → BUY/SELL with 0.45-0.55 confidence (probe)
-- M15 trend matches at least one higher timeframe → valid entry
+WHEN TO GIVE BUY/SELL (only in high-conviction setups):
+- Score > +5 with ADX > 20 AND 2+ higher timeframes agree → BUY (0.70+ confidence)
+- Score < -5 with ADX > 20 AND 2+ higher timeframes agree → SELL (0.70+ confidence)
+- Price at key Fibonacci level with RSI extreme (< 30 or > 70) AND ADX > 18 → BUY/SELL (0.65+ confidence)
+- MACD cross with ADX > 22 → BUY/SELL (0.68+ confidence)
+- M15 trend matches 2+ higher timeframes → valid entry (0.70+ confidence)
+- NO "probe" trades. Minimum confidence is 0.65. HOLD if below 0.65.
 
-CONFIDENCE GUIDE (calibrated for pyramid entries):
-- 0.80-1.00: All timeframes agree, ADX strong, Fib confluence = maximum conviction
-- 0.65-0.80: Good setup, 2-3 timeframes agree = solid entry
-- 0.50-0.65: Decent setup, some conflict but trend visible = pyramid probe
-- 0.45-0.50: Marginal but tradeable = small probe, let pyramid decide
-- 0.00-0.40: Poor setup = HOLD (only return HOLD with confidence in this range)
+CONFIDENCE GUIDE (revised for actual profitability):
+- 0.80-1.00: All timeframes agree, ADX strong, Fib confluence = BUY/SELL with conviction
+- 0.70-0.80: Good setup, 2-3 timeframes agree = solid entry, execute
+- 0.65-0.70: Acceptable setup, some conflict but trend visible = cautious entry only
+- 0.00-0.65: Below minimum threshold = HOLD (return HOLD, do not trade)
 
 TREND-FOLLOWING TRADES (go WITH the score):
 - Score and direction agree with 2+ higher timeframes → good setup
@@ -1003,6 +1002,22 @@ Extensions:   127.2%={ext.get(127.2,'?')}  161.8%={ext.get(161.8,'?')}  200%={ex
         bullish_count = sum(1 for v in factor_vals if v > 0)
         bearish_count = sum(1 for v in factor_vals if v < 0)
 
+        # ── Regime-specific strategy guidance for AI ─────────────────────────
+        _regime_label = fs.get('adx_regime', 'UNKNOWN')
+        _vol_state    = fs.get('volatility_state', 'NORMAL')
+        _rec_strategy = fs.get('recommended_strategy', 'TREND_FOLLOWING')
+        regime_guidance_map = {
+            "STRONG_TREND_UP":    "📈 STRONG UP TREND — prefer BUY on pullbacks, trail winners. Avoid SELL.",
+            "STRONG_TREND_DOWN":  "📉 STRONG DOWN TREND — prefer SELL on bounces, trail winners. Avoid BUY.",
+            "WEAK_TREND_UP":      "↗️ WEAK UP TREND — BUY on support with 2+ confirmations. SELL needs reversal evidence.",
+            "WEAK_TREND_DOWN":    "↘️ WEAK DOWN TREND — SELL on resistance with 2+ confirmations. BUY needs reversal evidence.",
+            "SQUEEZE_UP":         "⚡ SQUEEZE (bias UP) — breakout imminent. BUY on volume/candle confirmation.",
+            "SQUEEZE_DOWN":       "⚡ SQUEEZE (bias DOWN) — breakout imminent. SELL on volume/candle confirmation.",
+            "RANGING_CHOP":       "⚠️ RANGING CHOP — use mean-reversion ONLY. Require RSI extreme + Fib level. Skip marginal setups.",
+            "RANGING_VOLATILE":   "🌊 RANGING VOLATILE — wide swings. Mean-reversion at Fib+BB extremes with Stoch cross only.",
+        }
+        _regime_guidance = regime_guidance_map.get(_regime_label, f"Regime: {_regime_label} | Strategy: {_rec_strategy}")
+
         memory_block = ""
         if memory_context:
             memory_block = f"\n=== TRADE MEMORY (past performance in similar conditions) ===\n{memory_context}\n"
@@ -1056,6 +1071,10 @@ M1 Range: {m1_range:.5f}
         ]
 
         prompt = f"""Analyze {symbol} market data and decide: BUY, SELL, or HOLD.
+
+=== MARKET REGIME (adapt your strategy to this) ===
+{_regime_guidance}
+Volatility: {_vol_state} | Recommended approach: {_rec_strategy}
 
 === DATA QUALITY & SOURCES ===
 Source: MetaTrader 5 broker candles (via MetaApi bridge)

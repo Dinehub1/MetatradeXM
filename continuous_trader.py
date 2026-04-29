@@ -89,17 +89,18 @@ SYMBOLS = [
         "display": "XAUUSD",
         "pip": 0.10,
         "contract_size": 100,   # 100 oz/lot → pip_value = pip * contract_size = $10/pip/lot
-        "sl_pips": 80,          # was 50 — institutional standard for Gold M15 (ATR ~10-15 pips, whips 30-40)
-        "tp_pips": 160,         # was 80 — enforces minimum 1:2 R:R at the broker level
+        "sl_pips": 35,          # was 80 — tightened caps to reduce per-trade risk
+        "tp_pips": 70,          # was 160 — tightened to match tighter SL
         "lot": 0.01,
     },
     {
         "broker": "SILVER.i#",
         "display": "XAGUSD",
+        "enabled": False,  # 2026-04-29: Disabled — 27% WR, -$2,262. Signal generation is backwards.
         "pip": 0.01,
         "contract_size": 5000,
-        "sl_pips": 30,
-        "tp_pips": 60,
+        "sl_pips": 15,
+        "tp_pips": 30,
         "lot": 0.01,
     },
 ]
@@ -578,33 +579,33 @@ def build_order_params(
     digits = 2 if pip >= 0.01 else 5
 
     # ── Regime-aware ATR multipliers ──────────────────────────────────────
-    sl_mult = 2.5
-    tp_mult = 3.5
-    
+    sl_mult = 1.2
+    tp_mult = 2.0
+
     if regime_data:
         vol_state = regime_data.get('volatility_state', 'NORMAL')
         strat = regime_data.get('recommended_strategy', '')
-        
+
         # In highly volatile markets, widen SL to avoid getting whipped out
         if vol_state == "EXPANDING" or vol_state == "HIGH":
-            sl_mult = 3.0
-            tp_mult = 5.0  # Let runners run in high vol
+            sl_mult = 1.5
+            tp_mult = 2.5  # Let runners run in high vol
         elif vol_state == "COMPRESSED":
-            sl_mult = 1.5  # Tight stops for breakouts
-            tp_mult = 3.0
+            sl_mult = 1.0  # Tight stops for breakouts
+            tp_mult = 1.8
 
     # ── ATR-based dynamic SL/TP (capped for scalping) ─────────────────────
     if atr > 0:
         sl_pips = min(int(atr * sl_mult / pip), sym_cfg["sl_pips"])
         tp_pips = min(int(atr * tp_mult / pip), sym_cfg["tp_pips"])
-        # Floor: minimum viable SL/TP — raised for Gold (institutional standard)
-        sl_floor = 40 if pip >= 0.10 else 8
-        tp_floor = 80 if pip >= 0.10 else 16
+        # Floor: minimum viable SL/TP
+        sl_floor = 20 if pip >= 0.10 else 5
+        tp_floor = 35 if pip >= 0.10 else 10
         sl_pips = max(sl_pips, sl_floor)
         tp_pips = max(tp_pips, tp_floor)
-        
+
         # Regime-based R:R Enforcement
-        min_rr = 1.5 if (regime_data and "MEAN_REVERSION" in regime_data.get('recommended_strategy', '')) else 2.0
+        min_rr = 1.5 if (regime_data and "MEAN_REVERSION" in regime_data.get('recommended_strategy', '')) else 1.8
         if tp_pips < sl_pips * min_rr:
             tp_pips = int(sl_pips * min_rr)
     else:
@@ -706,7 +707,7 @@ class ContinuousTrader:
         try:
             from risk.pyramid_manager import PyramidManager
 
-            self.pyramid = PyramidManager()
+            self.pyramid = PyramidManager(memory=self.memory)
             log.info(f"  [PYRAMID] 🔺 Smart 10-tranche pyramid system initialized")
         except Exception as e:
             log.warning(f"  [PYRAMID] Failed to init: {e}")
@@ -798,11 +799,20 @@ class ContinuousTrader:
 
             analyzer = MarketAnalyzer(use_claude=CONFIG["use_ai"])
 
-            # Prefetch memory context for AI reasoning
+            # Prefetch memory context for AI reasoning.
+            # Use indicators cached from the PREVIOUS cycle so the AI sees
+            # similar-setup recall and session win-rate data (1 cycle lag is fine
+            # since similar patterns span hours/days, not seconds).
             memory_context = ""
             if self.memory:
                 try:
-                    memory_context = self.memory.prefetch_context(sym_cfg["display"])
+                    _prev = sym_cfg.get("_last_indicators", {})
+                    memory_context = self.memory.prefetch_context(
+                        sym_cfg["display"],
+                        direction=_prev.get("direction"),
+                        adx=_prev.get("adx", 0.0),
+                        rsi=_prev.get("rsi", 50.0),
+                    )
                 except Exception as e:
                     log.warning(f"Memory prefetch error: {e}")
 
@@ -1132,6 +1142,8 @@ class ContinuousTrader:
 
                 total_open = sum(len(v) for v in positions_by_sym.values())
                 for sym_cfg in SYMBOLS:
+                    if not sym_cfg.get("enabled", True):
+                        continue
                     broker_sym = sym_cfg["broker"]
                     disp = sym_cfg["display"]
 
@@ -1169,8 +1181,13 @@ class ContinuousTrader:
                     _fs  = signal_data.get("factor_scores", {})
                     _fib = signal_data.get("fibonacci_data", {})
                     _score = signal_data.get("score", 0)
-                    # Stash ADX so SmartExitManager can use adaptive trailing without a bridge call
+                    # Stash indicators so SmartExitManager + next-cycle memory enrichment can use them
                     sym_cfg["_last_adx"] = _ind.get("adx", 0.0)
+                    sym_cfg["_last_indicators"] = {
+                        "direction": direction,
+                        "adx":       _ind.get("adx", 0.0),
+                        "rsi":       _ind.get("rsi", 50.0),
+                    }
 
                     log.info(
                         f"SIGNAL | {disp} | {direction} {confidence:.0%} | score {_score:+.1f} | {_compact_text(reason)}"
@@ -1231,24 +1248,36 @@ class ContinuousTrader:
                     }
 
                     # ── Fade Detection: block counter-trend entries on exhausted moves ──
-                    # When ADX > 35 and RSI is at extreme, the trend is MATURE and likely to reverse
-                    # SELLing when RSI < 40 (oversold) = catching a falling knife
-                    # BUYing when RSI > 60 (overbought) = catching a peak
-                    # This runs BEFORE the confidence gate so we can block even low-confidence exhaustion trades
+                    # Target: ADX 40-55 + RSI mildly oversold/overbought (20-30 / 70-80)
+                    #   → mature trend that is approaching exhaustion, likely to stall/reverse.
+                    #
+                    # Do NOT block:
+                    #   RSI < 20 (SELL) or RSI > 80 (BUY) — this is CAPITULATION / PANIC, not
+                    #   exhaustion. Extreme RSI + extreme ADX = continuation, not reversal.
+                    #   Score ≤ -25 or ≥ +25 with conf ≥ 82% — full-stack alignment, respect it.
                     indicators = signal_data.get("indicators", {})
-                    adx_val = indicators.get("adx", 0)
-                    rsi_val = indicators.get("rsi", 50)
-                    bb_pos = indicators.get("bb_position", "MID")
+                    adx_val  = indicators.get("adx", 0)
+                    rsi_val  = indicators.get("rsi", 50)
+                    bb_pos   = indicators.get("bb_position", "MID")
+                    _sig_score_raw = signal_data.get("score", 0)
                     fade_blocked = False
 
                     if can_open_new and direction in ("BUY", "SELL") and adx_val >= 20:
-                        # Check for exhaustion reversal conditions
-                        if direction == "SELL" and adx_val > 40 and rsi_val < 30 and bb_pos in ("BELOW_MID", "BELOW_LOW"):
-                            log.info(f"ACTION | {disp} | fade block | SELL vs exhausted downtrend (ADX={adx_val:.1f} RSI={rsi_val:.1f} BB={bb_pos})")
-                            fade_blocked = True
-                        elif direction == "BUY" and adx_val > 40 and rsi_val > 70 and bb_pos in ("ABOVE_MID", "ABOVE_HIGH"):
-                            log.info(f"ACTION | {disp} | fade block | BUY vs exhausted uptrend (ADX={adx_val:.1f} RSI={rsi_val:.1f} BB={bb_pos})")
-                            fade_blocked = True
+                        # Capitulation / panic exception: extreme RSI means continuation, not reversal
+                        # RSI < 25 on SELL = deep panic selling (continuation likely)
+                        # RSI > 75 on BUY  = extreme euphoria (continuation likely)
+                        _is_capitulation_sell = direction == "SELL" and rsi_val < 25
+                        _is_capitulation_buy  = direction == "BUY"  and rsi_val > 75
+                        # Full-stack alignment exception: overwhelming evidence across all factors
+                        _is_overwhelm = abs(_sig_score_raw) >= 20 and confidence >= 0.78
+
+                        if not (_is_capitulation_sell or _is_capitulation_buy or _is_overwhelm):
+                            if direction == "SELL" and adx_val > 40 and rsi_val < 30 and bb_pos in ("BELOW_MID", "BELOW_LOW"):
+                                log.info(f"ACTION | {disp} | fade block | SELL vs exhausted downtrend (ADX={adx_val:.1f} RSI={rsi_val:.1f} BB={bb_pos})")
+                                fade_blocked = True
+                            elif direction == "BUY" and adx_val > 40 and rsi_val > 70 and bb_pos in ("ABOVE_MID", "ABOVE_HIGH"):
+                                log.info(f"ACTION | {disp} | fade block | BUY vs exhausted uptrend (ADX={adx_val:.1f} RSI={rsi_val:.1f} BB={bb_pos})")
+                                fade_blocked = True
 
                     # Loss cooldown: 10 min rest after a loss (was 3 min — too short, caused churn)
                     _LOSS_COOLDOWN_SECS = 600  # 10 minutes — prevents revenge trading
@@ -1300,36 +1329,85 @@ class ContinuousTrader:
 
                     # ── Phase 2.1: Adaptive Confidence Gating ──────────────────────
                     _sig_reason = signal_data.get("reason", "")
-                    _is_ranging = signal_data.get("factor_scores", {}).get("adx_regime", "").startswith("RANGING")
-                    _sess_cfg = SESSION_CONFIG.get(session, {"lot_mult": 1.0, "min_conf": 0.48})
-                    
+                    _regime_label = signal_data.get("factor_scores", {}).get("adx_regime", "")
+                    _is_ranging   = _regime_label.startswith("RANGING")
+                    _sess_cfg     = SESSION_CONFIG.get(session, {"lot_mult": 1.0, "min_conf": 0.48})
+
                     # 1. Base session/signal confidence
-                    _base_conf = _sess_cfg["min_conf"]
                     if "[Score override" in _sig_reason:
                         _base_conf = 0.45 if _is_ranging else 0.48
                     elif "[Indicator fallback]" in _sig_reason:
                         _base_conf = 0.45
                     else:
                         _base_conf = 0.45 if _is_ranging else _sess_cfg["min_conf"]
-                    
-                    # 2. ADX Modifier (Trend Strength)
-                    _adx_mod = 0.0
-                    if _adx_val > 25:
-                        _adx_mod = -0.05  # Strong trend: lower barrier
+
+                    # 2. Full-regime modifier (replaces bare ADX ±5% logic)
+                    #    STRONG_TREND  → lower gate (trend confirmation = higher edge)
+                    #    SQUEEZE       → lower gate (breakout incoming)
+                    #    RANGING_CHOP  → raise gate (low-quality signals)
+                    #    RANGING_VOLATILE → slight raise (some edge but noisy)
+                    _regime_mod = 0.0
+                    if "STRONG_TREND" in _regime_label:
+                        _regime_mod = -0.07   # ADX > 25, trending hard → be bold
+                    elif "SQUEEZE" in _regime_label:
+                        _regime_mod = -0.05   # BB squeeze → breakout imminent
+                    elif "WEAK_TREND" in _regime_label:
+                        _regime_mod = -0.02   # Developing trend → slight benefit
+                    elif "RANGING_CHOP" in _regime_label:
+                        _regime_mod = +0.05   # Chop → require stronger signal
+                    elif "RANGING_VOLATILE" in _regime_label:
+                        _regime_mod = +0.02   # Wide range → slight penalty
+                    # backward compat: bare ADX mod if no regime label
+                    elif _adx_val > 25:
+                        _regime_mod = -0.05
                     elif _adx_val < 15:
-                        _adx_mod = +0.05  # Chop: raise barrier
-                        
-                    # 3. Loss streak tracking remains for the circuit breaker, but it
-                    # should not raise the entry gate. That blocked valid reversal BUYs
-                    # after three losses even when the market produced a fresh setup.
+                        _regime_mod = +0.05
+
+                    # 3. Session historical win-rate modifier
+                    #    If this symbol historically underperforms in this session,
+                    #    raise the bar. If it outperforms, lower it slightly.
+                    _sess_wr_mod = 0.0
+                    if self.memory:
+                        try:
+                            _sess_wr = self.memory.get_session_win_rate(disp, session)
+                            if _sess_wr:
+                                _wr = _sess_wr["win_rate"]
+                                if _wr < 0.40:
+                                    _sess_wr_mod = +0.08   # < 40% WR → raise gate hard
+                                    log.info(f"RISK | {disp} | session WR {_wr:.0%} in {session} → gate +8%")
+                                elif _wr < 0.50:
+                                    _sess_wr_mod = +0.04   # < 50% WR → raise gate
+                                elif _wr > 0.70:
+                                    _sess_wr_mod = -0.05   # > 70% WR → lower gate
+                                elif _wr > 0.60:
+                                    _sess_wr_mod = -0.02   # > 60% WR → slight benefit
+                        except Exception:
+                            pass
+
+                    # 4. Loss-streak modifier removed from gate — circuit breaker handles it
                     _streak_mod = 0.0
-                    
+
                     # Calculate final adaptive gate
-                    _conf_gate = round(_base_conf + _adx_mod + _streak_mod, 3)
-                    _conf_gate = max(0.35, min(0.75, _conf_gate))  # Keep within safe bounds
+                    _conf_gate = round(_base_conf + _regime_mod + _sess_wr_mod + _streak_mod, 3)
+                    _conf_gate = max(0.65, min(0.85, _conf_gate))  # 0.35→0.65: filter noise; 0.82→0.85: cap higher
                     log.info(
-                        f"RISK | {disp} | gate {_conf_gate:.0%} | base {_base_conf:.0%} | adx adj {_adx_mod:+.0%} | streak adj {_streak_mod:+.0%}"
+                        f"RISK | {disp} | gate {_conf_gate:.0%} | base {_base_conf:.0%} | "
+                        f"regime({_regime_label}) {_regime_mod:+.0%} | sess_wr {_sess_wr_mod:+.0%}"
                     )
+
+                    # ── Regime direction block ─────────────────────────────────────
+                    # NEVER sell into a strong uptrend or buy into a strong downtrend
+                    # unless confidence is extremely high (>=0.88 with AI confirmation)
+                    _regime_label_now = signal_data.get("factor_scores", {}).get("adx_regime", "")
+                    _regime_blocked = False
+                    if direction == "SELL" and "STRONG_TREND_UP" in _regime_label_now:
+                        if confidence < 0.88:
+                            _regime_blocked = True
+                            log.info(f"ACTION | {disp} | regime_block | SELL blocked in STRONG_TREND_UP (conf {confidence:.0%} < 88%)")
+                    elif direction == "BUY" and "STRONG_TREND_DOWN" in _regime_label_now:
+                        if confidence < 0.88:
+                            _regime_blocked = True
+                            log.info(f"ACTION | {disp} | regime_block | BUY blocked in STRONG_TREND_DOWN (conf {confidence:.0%} < 88%)")
 
                     if (
                         can_open_new
@@ -1337,6 +1415,7 @@ class ContinuousTrader:
                         and confidence >= _conf_gate
                         and _adx_ok
                         and not fade_blocked
+                        and not _regime_blocked
                     ):
                         # ── Run strategy filters ─────────────────────────────
                         lot_reduction = 1.0
@@ -1482,6 +1561,18 @@ class ContinuousTrader:
                                         pip_size=sym_cfg["pip"],
                                         sl=order["sl"],
                                         tp=order["tp"],
+                                        signal_context={
+                                            "confidence": confidence,
+                                            "factors": signal_data.get("factor_scores"),
+                                            "conditions": {
+                                                "session": session,
+                                                "atr": atr,
+                                                "adx": signal_data.get("indicators", {}).get("adx", 0),
+                                                "rsi": signal_data.get("indicators", {}).get("rsi", 0),
+                                                "h4_trend": signal_data.get("h4_trend", ""),
+                                            },
+                                            "skills_used": skills_used,
+                                        },
                                     )
 
                                 # ── Record in trade memory ───────────────────

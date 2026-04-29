@@ -37,9 +37,10 @@ PYRAMID_CFG = {
     "tranche_lot": 0.01,       # each tranche size
     "max_tranches": 6,         # 10→6: limit blast radius from whipsaws
 
-    # Entry ladder — REQUIRE +10 pips minimum for ANY add (was 3)
-    # Wider gaps prevent whipsaw pyramids that wipe out 4 tranches at once
-    "entry_ladder_pips": [0, 10, 18, 28, 40, 55, 70, 85, 100, 120],
+    # Entry ladder — REQUIRE +15 pips minimum for ANY add (was 10)
+    # At +10, Gold ATR 30-50pips means whipsaw = 50-65pips from entry = 5-6pips loss on T1
+    # At +15, T2 adds in safer zone after confirmed direction
+    "entry_ladder_pips": [0, 15, 25, 38, 55, 75, 100, 130, 165, 210],
 
     # Tranche 2 needs confirmation (was 3) — first add is the riskiest
     "confirm_from_tranche": 2,
@@ -113,13 +114,15 @@ class PyramidSession:
     """Tracks one active pyramid for a symbol/direction."""
 
     def __init__(self, symbol: str, direction: str, first_entry_price: float,
-                 first_ticket: str, pip_size: float):
+                 first_ticket: str, pip_size: float,
+                 signal_context: dict = None):
         self.symbol = symbol
         self.direction = direction
         self.first_entry_price = first_entry_price
         self.pip_size = pip_size
         self.started_at = time.time()
         self.last_add_time = time.time()
+        self.signal_context = signal_context or {}
         self.tranches = [
             {
                 "num": 1,
@@ -390,6 +393,7 @@ class PyramidSession:
             "started_at": self.started_at,
             "last_add_time": self.last_add_time,
             "tranches": self.tranches,
+            "signal_context": self.signal_context,
         }
 
     @classmethod
@@ -400,6 +404,7 @@ class PyramidSession:
             first_entry_price=data["first_entry_price"],
             first_ticket=data["tranches"][0]["ticket"],
             pip_size=data["pip_size"],
+            signal_context=data.get("signal_context") or {},
         )
         session.started_at = data.get("started_at", time.time())
         session.last_add_time = data.get("last_add_time", time.time())
@@ -417,10 +422,14 @@ class PyramidManager:
       - Call close_pyramid() when trade exits
     """
 
-    def __init__(self):
+    def __init__(self, memory=None):
         _ensure_table()
         self.state = _load_state()
         self.sessions: dict[str, PyramidSession] = {}
+        # TradeMemory used to record each tranche as a learnable entry.
+        # Without this, pyramid trade outcomes save with confidence=0 and empty
+        # factors_json, so self_improver can't correlate them.
+        self.memory = memory
 
         # Restore active sessions from state
         for sym, data in self.state.get("pyramids", {}).items():
@@ -441,16 +450,21 @@ class PyramidManager:
         return len(self.sessions)
 
     def start_pyramid(self, symbol: str, direction: str, entry_price: float,
-                      ticket: str, pip_size: float, sl: float, tp: float) -> PyramidSession:
+                      ticket: str, pip_size: float, sl: float, tp: float,
+                      signal_context: dict = None) -> PyramidSession:
         """
         Start a new pyramid session with the first tranche.
         Called after the first 0.01 lot order is successfully placed.
+
+        signal_context carries the original AI confidence/factors/conditions so
+        every subsequent tranche can be recorded with the same learning data.
         """
         if self.active_pyramid_count() >= PYRAMID_CFG["max_open_pyramids"]:
             log.warning(f"[PYRAMID] Max pyramids reached ({PYRAMID_CFG['max_open_pyramids']})")
             return None
 
-        session = PyramidSession(symbol, direction, entry_price, ticket, pip_size)
+        session = PyramidSession(symbol, direction, entry_price, ticket, pip_size,
+                                 signal_context=signal_context)
         self.sessions[symbol] = session
         self._save()
 
@@ -543,6 +557,29 @@ class PyramidManager:
                         ticket, PYRAMID_CFG["tranche_lot"], current_price,
                         new_sl, new_tp, pips_from_first
                     )
+
+                    # Inherit AI signal context so self_improver can learn from
+                    # every tranche, not just tranche-1 (issue: 80%+ of outcomes
+                    # were saving with confidence=0 + empty factors_json).
+                    if self.memory and session.signal_context:
+                        try:
+                            ctx = session.signal_context
+                            self.memory.record_entry(
+                                ticket=ticket,
+                                symbol=session.symbol,
+                                direction=session.direction,
+                                entry_price=current_price,
+                                confidence=ctx.get("confidence", 0.0),
+                                factors=ctx.get("factors"),
+                                conditions={
+                                    **(ctx.get("conditions") or {}),
+                                    "tranche": tranche_num,
+                                    "pips_from_first": round(pips_from_first, 1),
+                                },
+                                skills_used=ctx.get("skills_used") or [],
+                            )
+                        except Exception as _e:
+                            log.debug(f"[PYRAMID] memory.record_entry failed: {_e}")
 
                     actions.append({
                         "symbol": session.symbol,
