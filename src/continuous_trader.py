@@ -129,9 +129,9 @@ SYMBOLS = [
         "lot": 0.01,
         # 2026-05-01 trend-following recalibration: thresholds lowered now that
         # F12 Fibonacci (which was producing -5 to -6 contradictory penalties) is removed.
-        "score_threshold": 10,    # min score magnitude to consider trade (was 15)
+        "score_threshold": 9,     # min score magnitude to consider trade (was 15→10→9)
         "min_confidence":  0.50,  # 50% AI confidence floor
-        "adx_min":         22,    # min ADX for trend trades
+        "adx_min":         18,    # min ADX (was 22 — gold trades trends earlier than silver)
         "rsi_oversold":    25,    # tightened from 30
         "rsi_overbought":  75,    # tightened from 70
         # ATR-based dynamic stops (preferred over fixed pips)
