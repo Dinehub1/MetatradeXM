@@ -1224,102 +1224,179 @@ LOGS_HTML = r"""<!DOCTYPE html>
 :root{
   --bg:#06090f;--bg1:#0b1017;--bg2:rgba(255,255,255,.04);
   --border:rgba(255,255,255,.08);--border2:rgba(255,255,255,.13);
-  --cyan:#00e5ff;--green:#00ff88;--amber:#fbbf24;--red:#ff3b5c;
+  --cyan:#00e5ff;--green:#00ff88;--amber:#fbbf24;--red:#ff3b5c;--purple:#a855f7;
   --text:#e2e8f0;--muted:#64748b;
   --font:'Inter',system-ui,sans-serif;--mono:'JetBrains Mono','Fira Code',monospace;
 }
-body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:13px;height:100vh;display:flex;flex-direction:column;
+html{height:100%}body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:12px;height:100vh;display:flex;flex-direction:column;overflow:hidden;
   background-image:radial-gradient(ellipse 90% 55% at 50% -10%,rgba(0,229,255,.05) 0%,transparent 100%);}
-header{background:rgba(6,9,15,.9);backdrop-filter:blur(14px);border-bottom:1px solid var(--border);
-  padding:0 20px;height:52px;display:flex;align-items:center;gap:14px;flex-shrink:0}
-.logo{color:var(--cyan);font-family:var(--mono);font-size:14px;font-weight:500}
-.back{color:var(--muted);text-decoration:none;font-size:12px;margin-left:12px;transition:color .2s}
+header{background:rgba(6,9,15,.92);backdrop-filter:blur(14px);border-bottom:1px solid var(--border);
+  padding:0 16px;height:44px;display:flex;align-items:center;gap:12px;flex-shrink:0}
+.logo{color:var(--cyan);font-family:var(--mono);font-size:13px;font-weight:500}
+.back{color:var(--muted);text-decoration:none;font-size:11px;margin-left:10px;transition:color .2s}
 .back:hover{color:var(--cyan)}
-.hdr-r{margin-left:auto;display:flex;align-items:center;gap:10px}
-.dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 7px var(--green);animation:pulse 2s infinite}
+.hdr-r{margin-left:auto;display:flex;align-items:center;gap:10px;font-size:10px}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green);animation:pulse 2s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
-#lastUpdate{font-family:var(--mono);font-size:11px;color:var(--muted)}
-.toolbar{display:flex;align-items:center;gap:10px;padding:10px 20px;background:var(--bg1);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap}
-.btn{padding:6px 14px;border:1px solid var(--border2);border-radius:6px;background:var(--bg2);
-  color:var(--text);font-family:var(--mono);font-size:12px;cursor:pointer;transition:all .2s}
+.toolbar{display:flex;align-items:center;gap:8px;padding:8px 16px;background:var(--bg1);border-bottom:1px solid var(--border);flex-shrink:0}
+.btn{padding:4px 10px;border:1px solid var(--border2);border-radius:5px;background:var(--bg2);color:var(--text);font-family:var(--mono);font-size:11px;cursor:pointer;transition:all .2s}
 .btn:hover{border-color:var(--cyan);color:var(--cyan)}
-.filter-btns{display:flex;gap:6px;margin-left:auto}
-.fbtn{padding:4px 10px;border-radius:12px;font-size:11px;font-family:var(--mono);cursor:pointer;
-  border:1px solid var(--border2);background:var(--bg2);color:var(--muted);transition:all .2s}
+.filter-btns{display:flex;gap:4px;margin-left:auto}
+.fbtn{padding:3px 8px;border-radius:10px;font-size:10px;font-family:var(--mono);cursor:pointer;border:1px solid var(--border2);background:var(--bg2);color:var(--muted);transition:all .2s}
 .fbtn.active{border-color:var(--cyan);color:var(--cyan);background:rgba(0,229,255,.1)}
-.fbtn.warn.active{border-color:var(--amber);color:var(--amber);background:rgba(251,191,36,.1)}
-.fbtn.err.active{border-color:var(--red);color:var(--red);background:rgba(255,59,92,.1)}
-#source{font-family:var(--mono);font-size:10px;color:var(--muted);padding:4px 20px;flex-shrink:0;background:var(--bg1);border-bottom:1px solid var(--border)}
-#logs{flex:1;overflow-y:auto;padding:10px 20px;font-family:var(--mono);font-size:12px;line-height:1.6}
-.line{padding:2px 8px;border-radius:3px;white-space:pre-wrap;word-break:break-all}
-.line:hover{background:var(--bg2)}
-.info{color:#94a3b8}.success{color:var(--green)}.warning{color:var(--amber)}.error{color:var(--red)}
-#status-bar{padding:6px 20px;background:var(--bg1);border-top:1px solid var(--border);
-  font-family:var(--mono);font-size:11px;color:var(--muted);flex-shrink:0;display:flex;gap:20px}
-::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:var(--bg1)}
-::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
+#logs{flex:1;overflow-y:auto;padding:8px 16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:8px;align-content:start}
+.signal-card{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px;backdrop-filter:blur(6px)}
+.signal-card:hover{border-color:var(--border2);box-shadow:0 0 12px rgba(0,229,255,.1)}
+.card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;border-bottom:1px solid var(--border);padding-bottom:6px}
+.symbol{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--cyan)}
+.time{font-family:var(--mono);font-size:9px;color:var(--muted)}
+.signal-badge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:4px;font-family:var(--mono)}
+.signal-badge.BUY{background:rgba(0,255,136,.2);color:var(--green);border:1px solid rgba(0,255,136,.5)}
+.signal-badge.SELL{background:rgba(255,59,92,.2);color:var(--red);border:1px solid rgba(255,59,92,.5)}
+.signal-badge.HOLD{background:rgba(251,191,36,.15);color:var(--amber);border:1px solid rgba(251,191,36,.4)}
+.confidence-section{margin:8px 0}
+.conf-label{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px;display:flex;justify-content:space-between}
+.conf-bar{height:6px;background:rgba(255,255,255,.05);border-radius:3px;overflow:hidden;border:1px solid var(--border)}
+.conf-fill{height:100%;background:linear-gradient(90deg,var(--cyan),var(--green));border-radius:3px;transition:width .3s ease}
+.price-section{margin:8px 0;padding:8px;background:rgba(0,229,255,.03);border-radius:4px;border-left:2px solid var(--cyan)}
+.price-row{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;margin:3px 0}
+.label{color:var(--muted)}
+.value{color:var(--text);font-weight:500}
+.value.up{color:var(--green)}
+.value.down{color:var(--red)}
+.indicators{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin:8px 0;font-size:9px}
+.ind-item{padding:4px;background:rgba(255,255,255,.02);border-radius:3px;border:1px solid var(--border)}
+.ind-label{color:var(--muted);font-size:8px}
+.ind-value{font-family:var(--mono);color:var(--text);font-weight:500}
+.action-section{margin:8px 0;padding:6px;background:rgba(255,255,255,.02);border-radius:3px;border-left:2px solid var(--amber)}
+.action{font-size:9px;color:var(--amber)}
+.action.success{color:var(--green);border-left-color:var(--green)}
+.action.skip{color:var(--muted);border-left-color:var(--muted)}
+#status-bar{padding:6px 16px;background:var(--bg1);border-top:1px solid var(--border);font-family:var(--mono);font-size:10px;color:var(--muted);flex-shrink:0;display:flex;gap:20px}
+::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:var(--bg1)}::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.2)}
 </style>
 </head>
 <body>
 <header>
-  <div class="logo">MetatradeXM | Trading Logs<a class="back" href="/">← Dashboard</a></div>
-  <div class="hdr-r"><span id="lastUpdate">Loading...</span><div class="dot"></div></div>
+  <div class="logo">📊 Trading Signals<a class="back" href="/">← Dashboard</a></div>
+  <div class="hdr-r"><span id="lastUpdate">—</span><div class="dot"></div></div>
 </header>
 <div class="toolbar">
   <button class="btn" onclick="loadLogs()">⟳ Refresh</button>
-  <button class="btn" onclick="toggleScroll()">📌 <span id="scrollLabel">Scroll: ON</span></button>
   <button class="btn" onclick="downloadLogs()">⬇ Download</button>
   <div class="filter-btns">
-    <button class="fbtn active" onclick="setFilter('all',this)">ALL</button>
-    <button class="fbtn warn" onclick="setFilter('warn',this)">WARN</button>
-    <button class="fbtn err" onclick="setFilter('error',this)">ERROR</button>
+    <button class="fbtn active" onclick="setSymbol('all',this)">ALL</button>
+    <button class="fbtn" onclick="setSymbol('XAUUSD',this)">XAUUSD</button>
+    <button class="fbtn" onclick="setSymbol('XAGUSD',this)">XAGUSD</button>
   </div>
 </div>
-<div id="source">Loading source...</div>
-<div id="logs">Loading logs...</div>
+<div id="logs">Loading signals...</div>
 <div id="status-bar">
-  <span id="count">0 lines</span>
-  <span id="warn-count" style="color:var(--amber)">0 warnings</span>
-  <span id="err-count" style="color:var(--red)">0 errors</span>
+  <span id="count">0 signals</span>
+  <span id="buy-count" style="color:var(--green)">0 BUY</span>
+  <span id="sell-count" style="color:var(--red)">0 SELL</span>
 </div>
 <script>
-let autoScroll=true, filter='all', allLines=[];
-const esc=t=>t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-function classify(l){
-  if(l.includes('ERROR')||l.includes('❌')||l.includes('Traceback')||l.includes('Exception')) return 'error';
-  if(l.includes('WARNING')||l.includes('⚠️')||l.includes('Stale')) return 'warning';
-  if(l.includes('✅')||l.includes('[INFO')||l.includes('ACTION')||l.includes('STATUS')||l.includes('POSITION')) return 'success';
-  return 'info';
+let allLogs=[], symbolFilter='all';
+async function parseSignals(logs){
+  const signals={};
+  const sigRegex=/SIGNAL.*?\|\s*(\w+)\s*\|\s*(BUY|SELL|HOLD)\s*([\d.]+)%/;
+  const priceRegex=/Price\s+([\d.]+).*?Change\s*([\+\-][\d.]+)%/;
+  const riskRegex=/gate\s*([\d.]+)%/;
+  const adxRegex=/ADX\s*([\d.]+)/;
+  const macdRegex=/MACD\s*(\w+)/;
+  const rsiRegex=/RSI\s*([\d.]+)/;
+  const stochRegex=/Stoch\s*([\d.]+)\/([\d.]+)/;
+  const scoreRegex=/score\s*([\+\-][\d.]+)/;
+  const actionRegex=/ACTION.*?\|\s*(\w+)\s*\|\s*(.+?)(?:\||$)/;
+  const timeRegex=/(\d{2}:\d{2}:\d{2})/;
+
+  for(let i=logs.length-1;i>=Math.max(0,logs.length-50);i--){
+    const line=logs[i];
+    if(!line.includes('SIGNAL')) continue;
+    const match=sigRegex.exec(line);
+    if(!match) continue;
+    const symbol=match[1], signal=match[2], conf=parseFloat(match[3]);
+    const key=symbol;
+    if(!signals[key]||parseFloat(signals[key].conf)<conf){
+      const priceMatch=priceRegex.exec(line);
+      const price=priceMatch?parseFloat(priceMatch[1]):null;
+      const change=priceMatch?parseFloat(priceMatch[2]):null;
+      const riskMatch=riskRegex.exec(line);
+      const gate=riskMatch?parseFloat(riskMatch[1]):null;
+      const adxMatch=adxRegex.exec(line);
+      const adx=adxMatch?parseFloat(adxMatch[1]):null;
+      const scoreMatch=scoreRegex.exec(line);
+      const score=scoreMatch?parseFloat(scoreMatch[1]):null;
+      const timeMatch=timeRegex.exec(line);
+      const time=timeMatch?timeMatch[1]:'--:--:--';
+      signals[key]={symbol,signal,conf,price,change,gate,adx,score,time,fullLine:line};
+    }
+  }
+  return Object.values(signals);
 }
-function renderLines(){
-  const vis=allLines.filter(({cls})=>filter==='all'||(filter==='warn'&&cls==='warning')||(filter==='error'&&cls==='error'));
-  document.getElementById('logs').innerHTML=vis.map(({line,cls})=>`<div class="line ${cls}">${esc(line)}</div>`).join('')||'<div class="line info">No lines match filter.</div>';
-  if(autoScroll){const el=document.getElementById('logs');el.scrollTop=el.scrollHeight;}
+function renderSignals(sigs){
+  const filtered=symbolFilter==='all'?sigs:sigs.filter(s=>s.symbol===symbolFilter);
+  const buyCount=filtered.filter(x=>x.signal==='BUY').length;
+  const sellCount=filtered.filter(x=>x.signal==='SELL').length;
+  document.getElementById('count').textContent=`${filtered.length} signals`;
+  document.getElementById('buy-count').textContent=`${buyCount} BUY`;
+  document.getElementById('sell-count').textContent=`${sellCount} SELL`;
+  const html=filtered.length?filtered.map(s=>{
+    const confPct=Math.round(s.conf);
+    const color=s.signal==='BUY'?'#00ff88':s.signal==='SELL'?'#ff3b5c':'#fbbf24';
+    return`<div class="signal-card">
+<div class="card-header">
+  <div class="symbol">${s.symbol}</div>
+  <div class="time">${s.time}</div>
+</div>
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+  <div class="signal-badge ${s.signal}">${s.signal}</div>
+  <span style="font-family:var(--mono);font-size:11px;color:${color};font-weight:600">${confPct}%</span>
+</div>
+<div class="confidence-section">
+  <div class="conf-label"><span>CONFIDENCE</span><span>${confPct}%</span></div>
+  <div class="conf-bar"><div class="conf-fill" style="width:${confPct}%"></div></div>
+</div>
+${s.price?`<div class="price-section">
+  <div class="price-row"><span class="label">Price</span><span class="value">${s.price.toFixed(2)}</span></div>
+  <div class="price-row"><span class="label">Change</span><span class="value ${s.change>=0?'up':'down'}">${s.change>=0?'+':''}${s.change.toFixed(3)}%</span></div>
+</div>`:''}
+${s.score!==null?`<div class="indicators">
+  <div class="ind-item"><div class="ind-label">SCORE</div><div class="ind-value">${s.score>=0?'+':''}${s.score.toFixed(1)}</div></div>
+  <div class="ind-item"><div class="ind-label">GATE</div><div class="ind-value">${s.gate?s.gate.toFixed(0)+'%':'-'}</div></div>
+  <div class="ind-item"><div class="ind-label">ADX</div><div class="ind-value">${s.adx?s.adx.toFixed(0):'-'}</div></div>
+  <div class="ind-item"><div class="ind-label">STATUS</div><div class="ind-value">${s.adx>25?'TREND':'RANGE'}</div></div>
+</div>`:''}
+</div>`;
+  }).join(''):`<div style="grid-column:1/-1;padding:20px;text-align:center;color:var(--muted)">No signals yet</div>`;
+  document.getElementById('logs').innerHTML=html;
+  document.getElementById('count').textContent=`${filtered.length} signals`;
 }
 async function loadLogs(){
   try{
-    const r=await fetch('/api/logs');
-    const {logs,source}=await r.json();
-    allLines=(logs||[]).map(line=>({line,cls:classify(line)}));
-    const warns=allLines.filter(l=>l.cls==='warning').length;
-    const errs=allLines.filter(l=>l.cls==='error').length;
-    document.getElementById('count').textContent=`${allLines.length} lines`;
-    document.getElementById('warn-count').textContent=`${warns} warnings`;
-    document.getElementById('err-count').textContent=`${errs} errors`;
-    document.getElementById('source').textContent=`Log source: ${source||'unknown'}`;
+    const r=await fetch('/api/logs',{credentials:'same-origin'});
+    if(!r.ok)throw new Error(`HTTP ${r.status} — check credentials`);
+    const data=await r.json();
+    allLogs=data.logs||[];
+    const sigs=await parseSignals(allLogs);
+    renderSignals(sigs);
     document.getElementById('lastUpdate').textContent=new Date().toLocaleTimeString();
-    renderLines();
   }catch(e){
-    document.getElementById('logs').innerHTML=`<div class="line error">Failed: ${e.message}</div>`;
+    document.getElementById('logs').innerHTML=`<div style="grid-column:1/-1;color:var(--red);padding:20px;font-family:var(--mono)">Error: ${e.message}</div>`;
   }
 }
-function setFilter(f,btn){
-  filter=f;
+function setSymbol(sym,btn){
+  symbolFilter=sym;
   document.querySelectorAll('.fbtn').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
-  renderLines();
+  const sigs=[];
+  for(let i=allLogs.length-1;i>=0;i--){
+    const m=/SIGNAL.*?\|\s*(\w+)/.exec(allLogs[i]);
+    if(m&&(sym==='all'||m[1]===sym))sigs.push(allLogs[i]);
+  }
+  parseSignals(allLogs).then(renderSignals);
 }
-function toggleScroll(){autoScroll=!autoScroll;document.getElementById('scrollLabel').textContent=`Scroll: ${autoScroll?'ON':'OFF'}`;}
 function downloadLogs(){window.location.href='/api/logs/download';}
 loadLogs();
 setInterval(loadLogs,5000);
