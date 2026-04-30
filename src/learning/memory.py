@@ -227,11 +227,11 @@ class TradeMemory:
                 losses = stats['losses'] or 0
                 wr = wins / total * 100
                 avg_pips = stats['avg_pips'] or 0
-                parts.append(f"⚠️ YOUR PERFORMANCE ON {symbol}:")
-                parts.append(f"  Total: {total} trades | Win Rate: {wr:.0f}%")
-                parts.append(f"  Avg P&L: {avg_pips:+.1f} pips per trade")
-                if wr < 35:
-                    parts.append(f"  ⛔ EDGE IS NEGATIVE — be EXTREMELY selective, prefer HOLD")
+                parts.append(f"📊 PERFORMANCE ON {symbol} (informational — strategy was recalibrated 2026-05-01):")
+                parts.append(f"  Total: {total} trades | Win Rate: {wr:.0f}% | Avg: {avg_pips:+.1f} pips")
+                # Note: old losses are from prior strategy (broken Fibonacci factor).
+                # New strategy is fundamentally different — do NOT let old losses stop trades
+                # if technical setup is strong (ADX > 22, MACD aligned, score >= threshold).
 
             # ── WIN RATE BY DIRECTION (NEW — blocks weak directions) ──
             dir_stats = conn.execute("""
@@ -245,10 +245,10 @@ class TradeMemory:
             for ds in dir_stats:
                 ds_total = ds['total'] or 0
                 ds_wins = ds['wins'] or 0
-                if ds_total > 0:
+                if ds_total >= 5 and ds_total > 0:  # need >=5 trades to be statistically meaningful
                     wr = ds_wins / ds_total * 100
                     if wr < 30:
-                        parts.append(f"  ⛔ {ds['direction']} win rate: {wr:.0f}% ({ds_wins}/{ds_total}) — AVOID this direction")
+                        parts.append(f"  Note: {ds['direction']} historical WR {wr:.0f}% ({ds_wins}/{ds_total}) — proceed only with strong confluence")
 
             # ── CURRENT STREAK (NEW — AI knows if edge is broken) ──
             recent_outcomes = conn.execute("""
@@ -264,11 +264,9 @@ class TradeMemory:
                         streak += 1
                     else:
                         break
-                if streak >= 3:
+                if streak >= 5:  # only flag streaks of 5+, not 3
                     icon = '🔴' if streak_type == 'LOSS' else '🟢'
-                    parts.append(f"  {icon} Current streak: {streak} consecutive {streak_type}s")
-                    if streak_type == 'LOSS' and streak >= 5:
-                        parts.append(f"  ⛔ EDGE IS BROKEN — strongly prefer HOLD until streak resets")
+                    parts.append(f"  {icon} Recent streak: {streak} consecutive {streak_type}s (informational only)")
 
             # Last 5 trade outcomes for this symbol
             recent = conn.execute("""

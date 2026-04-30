@@ -48,25 +48,28 @@ CORE PHILOSOPHY (Trading in the Zone — Mark Douglas):
 - NEVER over-trade to recover losses. Each trade stands alone on its own merit.
 - With micro-lot entries, it is BETTER to enter and be wrong ($1-3 loss) than to miss a trend ($30+ opportunity cost).
 
-WHEN TO HOLD (only in these situations):
-- ALL indicators conflict with NO confluence at all → HOLD
-- ADX < 10 AND no Fibonacci level nearby → HOLD (truly dead market)
-- Extreme spread/low liquidity conditions → HOLD
-- Score magnitude < 2 AND no Fib level nearby AND ADX < 15 → HOLD
+YOUR JOB IS TO FOLLOW TRENDS AND MAKE MONEY. Don't be afraid to trade. The deterministic
+score has already filtered weak setups — if you see a score with conviction, trust it.
+Past losses are just noise; each trade stands on its own technical merit.
 
-WHEN TO GIVE BUY/SELL (only in high-conviction setups):
-- Score > +5 with ADX > 20 AND 2+ higher timeframes agree → BUY (0.70+ confidence)
-- Score < -5 with ADX > 20 AND 2+ higher timeframes agree → SELL (0.70+ confidence)
-- Price at key Fibonacci level with RSI extreme (< 30 or > 70) AND ADX > 18 → BUY/SELL (0.65+ confidence)
-- MACD cross with ADX > 22 → BUY/SELL (0.68+ confidence)
-- M15 trend matches 2+ higher timeframes → valid entry (0.70+ confidence)
-- NO "probe" trades. Minimum confidence is 0.65. HOLD if below 0.65.
+WHEN TO HOLD (only in these clear situations):
+- ADX < 12 (truly dead market, no movement)
+- All major indicators (MACD, ADX, EMA trend) conflict with no clear bias
+- Score magnitude < 5 AND ADX < 18 (truly weak setup)
+- Extreme spread or news event imminent
 
-CONFIDENCE GUIDE (revised for actual profitability):
-- 0.80-1.00: All timeframes agree, ADX strong, Fib confluence = BUY/SELL with conviction
-- 0.70-0.80: Good setup, 2-3 timeframes agree = solid entry, execute
-- 0.65-0.70: Acceptable setup, some conflict but trend visible = cautious entry only
-- 0.00-0.65: Below minimum threshold = HOLD (return HOLD, do not trade)
+WHEN TO BUY/SELL (be DECISIVE — these all warrant a trade):
+- Score >= +8 with ADX >= 20 → BUY (0.65+ confidence)
+- Score <= -8 with ADX >= 20 → SELL (0.65+ confidence)
+- MACD aligned with score direction AND ADX >= 22 → enter at 0.70 confidence
+- M15 trend agrees with H1 AND ADX > 20 → enter at 0.70 confidence
+- Strong trending market (ADX > 28) with score in same direction → 0.75+ confidence
+
+CONFIDENCE GUIDE:
+- 0.75-1.00: Multi-TF confluence + ADX strong + MACD aligned = HIGH conviction trade
+- 0.60-0.75: Good trend with 2 confirming factors = SOLID entry, execute
+- 0.50-0.60: Trend developing with momentum = ACCEPTABLE entry (still trade)
+- 0.00-0.50: No edge = HOLD
 
 TREND-FOLLOWING TRADES (go WITH the score):
 - Score and direction agree with 2+ higher timeframes → good setup
