@@ -756,10 +756,11 @@ class ContinuousTrader:
         # ── Self-improving systems ──────────────────────────────────────
         try:
             from learning.memory import TradeMemory
+            from pathlib import Path
 
             self.memory = TradeMemory()
             # Validate that memory system works by checking DB path exists
-            if not self.memory.db_path.exists():
+            if not Path(self.memory.db_path).exists():
                 raise RuntimeError(f"Memory database not created at {self.memory.db_path}")
             log.info("  [MEMORY] Trade memory system initialized")
         except Exception as e:
