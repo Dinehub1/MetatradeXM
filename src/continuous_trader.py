@@ -150,7 +150,7 @@ SYMBOLS = [
         # Silver-specific gating (still higher bar than gold due to volatility)
         "score_threshold": 12,    # +12 vs gold's +10 (was 18)
         "min_confidence":  0.50,  # 50% AI confidence floor
-        "adx_min":         28,    # silver only trades strongest trends (28+ ADX)
+        "adx_min":         25,    # silver requires trending market (25+ ADX, was 28)
         "rsi_oversold":    25,
         "rsi_overbought":  75,
         "sl_atr_mult":     1.5,
