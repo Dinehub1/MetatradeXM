@@ -32,14 +32,41 @@ if str(_SRC_DIR) not in sys.path:
     sys.path.insert(0, str(_SRC_DIR))
 
 from core.paths import ROOT_DIR, CONFIG_DIR, STATE_DIR, LOG_DIR, DATA_DIR
+
 # ── Environment loading — load .env (single source of truth) ──
-_env_path = ROOT_DIR / ".env"
-if _env_path.exists():
-    for _line in _env_path.read_text().splitlines():
+def _load_env_file(p):
+    for _line in p.read_text().splitlines():
         _line = _line.strip()
         if _line and not _line.startswith("#") and "=" in _line:
             k, v = _line.split("=", 1)
-            os.environ[k.strip()] = v.strip()
+            # Strip surrounding quotes if present
+            v = v.strip().strip('"').strip("'")
+            os.environ[k.strip()] = v
+
+_env_candidates = [
+    ROOT_DIR / ".env",
+    Path(__file__).resolve().parent.parent / ".env",  # project root one level up from src/
+    Path.cwd() / ".env",
+]
+_env_loaded_from = None
+for _candidate in _env_candidates:
+    if _candidate.exists():
+        _load_env_file(_candidate)
+        _env_loaded_from = _candidate
+        break
+
+# Print to stdout immediately so it shows in PM2 logs even before logger init
+print(f"[STARTUP] ROOT_DIR = {ROOT_DIR}", flush=True)
+if _env_loaded_from:
+    print(f"[STARTUP] .env loaded from: {_env_loaded_from}", flush=True)
+    _nv1 = "set" if os.environ.get("NVIDIA_API_KEY") else "MISSING"
+    _nv2 = "set" if os.environ.get("NVIDIA_API_KEY_2") else "missing"
+    _ws = os.environ.get("WIN_WS_URL", "MISSING")
+    _wh = os.environ.get("WIN_WEBHOOK_URL", "MISSING")
+    print(f"[STARTUP] NVIDIA_API_KEY={_nv1}  NVIDIA_API_KEY_2={_nv2}", flush=True)
+    print(f"[STARTUP] WIN_WS_URL={_ws}  WIN_WEBHOOK_URL={_wh}", flush=True)
+else:
+    print(f"[STARTUP] ⚠️  NO .env FOUND. Searched: {[str(c) for c in _env_candidates]}", flush=True)
 
 # ── Paths ────────────────────────────────────────────────────────────────────
 STATUS_FILE = STATE_DIR / "bot_status.json"
