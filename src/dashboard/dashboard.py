@@ -1462,27 +1462,39 @@ function downloadLogs(){window.location.href='/api/logs/download';}
 async function loadPositions(){
   try{
     const r=await fetch('/api/open-positions',{credentials:'same-origin'});
+    if(!r.ok)throw new Error(`HTTP ${r.status}`);
     const data=await r.json();
     const positions=data.positions||[];
+    console.log('Positions loaded:',positions);
 
     if(positions.length>0&&!positions[0].error){
       const banner=document.getElementById('positions-banner');
       const content=document.getElementById('position-content');
       banner.style.display='block';
 
-      content.innerHTML=positions.map(p=>`
-        <div style="background:rgba(0,229,255,.04);border:1px solid rgba(0,229,255,.2);border-radius:6px;padding:10px">
-          <div style="font-weight:600;margin-bottom:8px;color:var(--cyan)">${p.symbol}</div>
-          <div style="font-size:10px;line-height:1.6;font-family:var(--mono)">
-            <div><span style="color:var(--muted)">Price:</span> <span style="color:var(--text)">${p.price.toFixed(p.price>100?2:4)}</span></div>
-            <div><span style="color:var(--muted)">D1:</span> <span style="color:${p.trend_d1.includes('BULL')?'var(--green)':'var(--red)'}">${p.trend_d1}</span></div>
-            <div><span style="color:var(--muted)">H4:</span> <span style="color:${p.trend_h4.includes('BULL')?'var(--green)':'var(--red)'}">${p.trend_h4}</span></div>
-            <div><span style="color:var(--muted)">H1:</span> <span style="color:${p.trend_h1.includes('BULL')?'var(--green)':'var(--red)'}">${p.trend_h1}</span></div>
-            <div><span style="color:var(--muted)">ADX:</span> <span style="color:${p.adx_h4>=25?'var(--green)':'var(--amber)'}">${p.adx_h4.toFixed(1)}</span></div>
-            <div><span style="color:var(--muted)">RSI:</span> <span style="color:${p.rsi>70?'var(--red)':p.rsi<30?'var(--green)':'var(--text)'}">${p.rsi.toFixed(1)}</span></div>
+      content.innerHTML=positions.map(p=>{
+        const d1Color=p.trend_d1.includes('BULL')?'var(--green)':p.trend_d1.includes('BEAR')?'var(--red)':'var(--amber)';
+        const h4Color=p.trend_h4.includes('BULL')?'var(--green)':p.trend_h4.includes('BEAR')?'var(--red)':'var(--amber)';
+        const h1Color=p.trend_h1.includes('BULL')?'var(--green)':p.trend_h1.includes('BEAR')?'var(--red)':'var(--amber)';
+        const m15Color=p.trend_m15.includes('BULL')?'var(--green)':p.trend_m15.includes('BEAR')?'var(--red)':'var(--amber)';
+        return`<div style="background:rgba(0,229,255,.04);border:1px solid rgba(0,229,255,.2);border-radius:6px;padding:10px">
+          <div style="font-weight:600;margin-bottom:8px;color:var(--cyan);font-size:12px">${p.symbol}</div>
+          <div style="font-size:9px;line-height:1.7;font-family:var(--mono);color:var(--muted)">
+            <div><strong>Price:</strong> <span style="color:var(--text)">${p.price.toFixed(p.price>100?2:4)}</span></div>
+            <div style="margin-top:6px;border-top:1px solid rgba(255,255,255,.1);padding-top:6px">
+              <div><strong style="color:var(--amber)">D1:</strong> <span style="color:${d1Color}">${p.trend_d1}</span></div>
+              <div><strong style="color:var(--amber)">H4:</strong> <span style="color:${h4Color}">${p.trend_h4}</span> (ADX ${p.adx_h4.toFixed(1)})</div>
+              <div><strong style="color:var(--amber)">H1:</strong> <span style="color:${h1Color}">${p.trend_h1}</span> (ADX ${p.adx_h1.toFixed(1)})</div>
+              <div><strong style="color:var(--amber)">M15:</strong> <span style="color:${m15Color}">${p.trend_m15}</span></div>
+            </div>
+            <div style="margin-top:6px;border-top:1px solid rgba(255,255,255,.1);padding-top:6px">
+              <div><strong>RSI:</strong> <span style="color:${p.rsi>70?'var(--red)':p.rsi<30?'var(--green)':'var(--text)'}">${p.rsi.toFixed(1)}</span></div>
+              <div><strong>BB:</strong> <span style="color:var(--text)">${p.bb_position}</span></div>
+              <div><strong>MACD:</strong> <span style="color:${p.macd_signal==='BULLISH'?'var(--green)':'var(--red)'}">${p.macd_signal}</span></div>
+            </div>
           </div>
-        </div>
-      `).join('');
+        </div>`;
+      }).join('');
     }
   }catch(e){
     console.log('Position load error:',e);
