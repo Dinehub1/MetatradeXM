@@ -5,7 +5,7 @@
   "ranging_penalty": 0.85,
   "f1_h4_trend": 1.0,
   "f2_h1_trend": 1.0,
-  "f3_rsi": 1.1,
+  "f3_rsi": 0.9,
   "f4_macd": 1.0,
   "f5_adx": 1.1,
   "f6_stoch": 1.0,
@@ -14,8 +14,7 @@
   "f9_h1_macd": 0.5,
   "f10_d1": 0.7,
   "f11_candle": 0.8,
-  "f12_fibonacci": 0.9,
-  "last_adjusted": "2026-04-30",
+  "last_adjusted": "2026-05-01",
   "adjustment_history": [
     {
       "date": "2026-04-15",
@@ -44,6 +43,10 @@
     {
       "date": "2026-04-30",
       "change": "PHASE 2 OPTIMIZE: f3_rsi 1.0->1.1, f5_adx 1.0->1.1 (boost reliable factors). Per-symbol thresholds (silver +18) handled in code."
+    },
+    {
+      "date": "2026-05-01",
+      "change": "STRATEGY REFINEMENT: RSI factor 1.1->0.9 (reduce overweight on mean-reversion). Silver ADX 25->23 (catch more early trends without sacrificing quality). Removed f12_fibonacci (was causing noise)."
     }
   ]
 }

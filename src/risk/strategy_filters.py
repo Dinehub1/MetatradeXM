@@ -160,7 +160,7 @@ class SilverADXFilter(StrategyFilter):
     """
     name = "silver_adx"
 
-    SILVER_ADX_MIN  = 28   # 30→28: aligns with per-symbol adx_min in SYMBOLS
+    SILVER_ADX_MIN  = 23   # optimized to catch developing trends (was 28)
     SILVER_CONF_MIN = 0.72 # 0.80→0.72: matches per-symbol min_confidence floor
 
     def should_trade(self, symbol, direction, context):
