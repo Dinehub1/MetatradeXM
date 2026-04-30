@@ -6,7 +6,8 @@
 #   bash start_trading_cycle.sh --stop   # stop everything
 #   bash start_trading_cycle.sh --status # show status
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Get absolute path to project root (two levels up from deployment/scripts/)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$SCRIPT_DIR"
 
 PORT=8889
@@ -63,10 +64,10 @@ show_status() {
   fi
 
   echo -e "\n${BLD}═══ Account Status ═══${RST}"
-  if [ -f "$SCRIPT_DIR/bot_status.json" ]; then
+  if [ -f "$SCRIPT_DIR/data/bot_status.json" ]; then
     python3 -c "
 import json
-d = json.loads(open('bot_status.json').read())
+d = json.loads(open('data/bot_status.json').read())
 a = d.get('account', {})
 st = d.get('stats', {})
 print(f\"  Balance:  \${a.get('balance', '—')}\")
@@ -147,7 +148,8 @@ sleep 2
 
 # ── Start dashboard ───────────────────────────────────────────────────────────
 echo -e "${CYN}🖥  Starting dashboard...${RST}"
-nohup python3 -u "$SCRIPT_DIR/dashboard/dashboard.py" >> "$SCRIPT_DIR/logs/system.log" 2>&1 &
+mkdir -p "$SCRIPT_DIR/logs"
+nohup python3 -u "$SCRIPT_DIR/src/dashboard/dashboard.py" >> "$SCRIPT_DIR/logs/system.log" 2>&1 &
 DASH_PID=$!
 echo $DASH_PID > /tmp/trading_dashboard.pid
 sleep 2
@@ -161,7 +163,7 @@ fi
 
 # ── Start continuous trader ───────────────────────────────────────────────────
 echo -e "${CYN}🚀 Starting continuous trader ($MODE)...${RST}"
-nohup python3 -u "$SCRIPT_DIR/continuous_trader.py" $DRY_FLAG \
+nohup python3 -u "$SCRIPT_DIR/src/continuous_trader.py" $DRY_FLAG \
   >> "$SCRIPT_DIR/logs/system.log" 2>&1 &
 TRADER_PID=$!
 echo $TRADER_PID > /tmp/trading_bot.pid
@@ -188,7 +190,7 @@ fi
 
 # ── Start watchdog in background ─────────────────────────────────────────────
 echo -e "${CYN}🛡  Starting watchdog...${RST}"
-nohup bash "$SCRIPT_DIR/auto_recovery.sh" $DRY_FLAG > /tmp/watchdog.log 2>&1 &
+nohup bash "$SCRIPT_DIR/deployment/scripts/auto_recovery.sh" $DRY_FLAG > /tmp/watchdog.log 2>&1 &
 echo -e "   ${GRN}✅ Watchdog running${RST}"
 
 # ── Summary ──────────────────────────────────────────────────────────────────

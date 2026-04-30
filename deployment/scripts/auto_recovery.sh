@@ -3,7 +3,8 @@
 # Restarts processes if they crash. Run this in a tmux/screen session.
 # Usage: bash auto_recovery.sh [--dry]
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Get absolute path to project root (two levels up from deployment/scripts/)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$SCRIPT_DIR"
 
 DRY_FLAG=""
@@ -18,7 +19,7 @@ log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$MASTER_LOG"; }
 # ── Start functions ──────────────────────────────────────────────────────────
 start_dashboard() {
   log "🖥  Starting dashboard on port 8889..."
-  nohup python3 -u "$SCRIPT_DIR/dashboard/dashboard.py" >> "$MASTER_LOG" 2>&1 &
+  nohup python3 -u "$SCRIPT_DIR/src/dashboard/dashboard.py" >> "$MASTER_LOG" 2>&1 &
   DASH_PID=$!
   echo $DASH_PID > /tmp/trading_dashboard.pid
   log "   Dashboard PID: $DASH_PID"
@@ -26,7 +27,7 @@ start_dashboard() {
 
 start_trader() {
   log "🚀 Starting continuous trader $DRY_FLAG..."
-  nohup python3 -u "$SCRIPT_DIR/continuous_trader.py" $DRY_FLAG \
+  nohup python3 -u "$SCRIPT_DIR/src/continuous_trader.py" $DRY_FLAG \
     >> "$MASTER_LOG" 2>&1 &
   TRADER_PID=$!
   echo $TRADER_PID > /tmp/trading_bot.pid

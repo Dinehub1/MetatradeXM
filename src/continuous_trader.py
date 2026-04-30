@@ -25,6 +25,12 @@ import threading
 import queue
 from datetime import datetime, timezone
 from pathlib import Path
+
+# Ensure src/ directory is in sys.path for imports
+_SRC_DIR = Path(__file__).parent
+if str(_SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(_SRC_DIR))
+
 from core.paths import ROOT_DIR, CONFIG_DIR, STATE_DIR, LOG_DIR, DATA_DIR
 # ── Environment loading — load .env (single source of truth) ──
 _env_path = ROOT_DIR / ".env"

@@ -1,0 +1,30 @@
+# ── Core dependencies ─────────────────────────────────────────────────────────
+# metaapi-cloud-sdk>=9.0.0        # DISABLED — migrated to WebSocket-only architecture
+websocket-client==1.6.1           # WebSocket client (ws_bridge.py on Ubuntu)
+websockets>=12.0                  # WebSocket server (win_webhook_mt5.py on Windows)
+requests==2.31.0                  # OpenRouter / WebhookBridge REST calls
+numpy>=1.24.3                     # Indicator math
+pandas>=2.0.3                     # Candle DataFrame processing
+python-dotenv==1.0.0              # .env loading helper (optional, manual loader in place)
+Flask>=2.3.2                      # Webhook server for the Windows MT5 bridge
+MetaTrader5>=5.0.45               # Native Windows MT5 terminal bridge used by win_webhook_mt5.py
+
+# ── Python stdlib (no install needed) ─────────────────────────────────────────
+# sqlite3    — trades.db, trade_memory.db, signals table
+# http.server — dashboard.py (no Flask needed)
+# asyncio    — metaapi_bridge.py
+# threading  — tv_client.py, metaapi_bridge.py
+
+# ── Dev / testing ─────────────────────────────────────────────────────────────
+pytest==7.4.0
+pytest-cov==4.1.0
+black==23.7.0
+flake8==6.0.0
+
+# ── Removed (were listed but unused) ─────────────────────────────────────────
+# Flask-CORS         — dashboard uses stdlib http.server, not Flask-CORS
+# SQLAlchemy         — all DB access uses sqlite3 directly
+# python-binance     — no crypto trading in this bot
+# python-json-logger — not imported anywhere
+# gunicorn           — not used (dashboard is http.server)
+# mypy               — not configured
