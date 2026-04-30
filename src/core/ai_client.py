@@ -1,18 +1,12 @@
 """
-ai_client.py — Multi-tier AI client for MetatradeXM.
+ai_client.py — NVIDIA-only AI client for MetatradeXM.
 
-Single source of truth for ALL AI calls in the system.
-
-Primary AI:
-  T1 (NVIDIA Llama 3.3 70B) — primary, deep reasoning via NIM API
-     Supports streaming + thinking tokens for best quality output.
-
-Fallback chain (only if NVIDIA is down):
-  T2 (gemini-2.5-pro)   — secondary fallback
-  T3 (gemini-2.5-flash) — emergency fast fallback
+T1 (NVIDIA_API_KEY)   — primary
+T2 (NVIDIA_API_KEY_2) — fallback (second key / sub-account)
 
 Config (.env):
-    NVIDIA_API_KEY     = nvapi-...
+    NVIDIA_API_KEY     = nvapi-...   (required)
+    NVIDIA_API_KEY_2   = nvapi-...   (optional fallback)
     INVOKE_URL         = https://integrate.api.nvidia.com/v1/chat/completions
     MODEL_NAME         = meta/llama-3.3-70b-instruct
     MAX_TOKENS         = 16384
@@ -20,7 +14,6 @@ Config (.env):
     TOP_P              = 1.00
     STREAM             = true
     THINKING           = true
-    GEMINI_API_KEY     = AIza...  (fallback only)
 """
 from __future__ import annotations
 
@@ -45,15 +38,7 @@ _NVIDIA_STREAM   = os.getenv("STREAM", "true").lower() == "true"
 _NVIDIA_THINKING = os.getenv("THINKING", "true").lower() == "true"
 _NVIDIA_TIMEOUT  = 90  # longer for thinking + streaming
 
-# ── Google Gemini (T2/T3 — Fallback only) ─────────────────────────────────────
-_GEMINI_BASE    = "https://generativelanguage.googleapis.com/v1beta/openai"
-_GEMINI_URL     = f"{_GEMINI_BASE}/chat/completions"
-_GEMINI_KEY     = os.getenv("GEMINI_API_KEY", "")
-_T2_MODEL       = os.getenv("GEMINI_PRO_MODEL",   "gemini-2.5-pro")
-_T3_MODEL       = os.getenv("GEMINI_FLASH_MODEL", "gemini-2.5-flash")
-_GEMINI_TIMEOUT = int(os.getenv("GEMINI_TIMEOUT_S", "60"))
-
-# ── Tier list ─────────────────────────────────────────────────────────────────
+# ── Tier list — NVIDIA keys only ─────────────────────────────────────────────
 _TIERS = []
 
 if _NVIDIA_KEY:
@@ -61,13 +46,6 @@ if _NVIDIA_KEY:
 
 if _NVIDIA_KEY_2:
     _TIERS.append(("nvidia", _NVIDIA_URL, _NVIDIA_KEY_2, _NVIDIA_MODEL, _NVIDIA_TIMEOUT, "T2-NVIDIA-B"))
-
-# Re-enable Gemini as T2/T3 fallback if configured (prevents single point of failure)
-if _GEMINI_KEY:
-    _TIERS.append(("gemini", _GEMINI_URL, _GEMINI_KEY, _T2_MODEL, _GEMINI_TIMEOUT, "T2-Gemini-Pro"))
-    _TIERS.append(("gemini", _GEMINI_URL, _GEMINI_KEY, _T3_MODEL, max(30, _GEMINI_TIMEOUT // 2), "T3-Gemini-Flash"))
-else:
-    log.warning("[AI] No Gemini API key configured. Set GEMINI_API_KEY for fallback tier.")
 
 def _validate_api_keys():
     """Validate API key configuration at startup. Fail fast if misconfigured."""
@@ -398,64 +376,32 @@ def _call_nvidia_with_retry(messages: list, model: str, api_key: str, url: str,
             raise
 
 
-def _call_gemini(messages: list, model: str, api_key: str, url: str,
-                 max_tokens: int, temperature: float, timeout: int) -> dict:
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}",
-    }
-    payload = {
-        "model":      model,
-        "messages":   messages,
-        "max_tokens": max_tokens,
-        "temperature": temperature,
-    }
-    resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
-    resp.raise_for_status()
-    return resp.json()
-
-
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def ask_gemini(
+def ask_nvidia(
     messages: list,
-    max_tokens: int = 400,
-    temperature: float = 0.3,
     label: str = "",
 ) -> dict | None:
     """
-    Send a chat request through the AI chain.
-    NVIDIA is primary (T1). Gemini is fallback only.
-
+    Send a chat request through NVIDIA tiers (T1 → T2 fallback).
     Returns parsed dict on success, None if all tiers fail.
     """
     if not _TIERS:
         log.error("[AI] ERROR — No AI keys configured! Set NVIDIA_API_KEY in .env")
         return None
 
-    # NVIDIA uses its own token/temp settings from .env
-    nvidia_tokens = _NVIDIA_TOKENS
-
     for i, (provider, url, api_key, model, timeout, tier) in enumerate(_TIERS):
         try:
             log.info(f"AI-TRY | {tier} | model {model}")
 
-            if provider == "nvidia":
-                resp_json = _call_nvidia_with_retry(
-                    messages, model, api_key, url, nvidia_tokens, timeout
-                )
-            else:
-                resp_json = _call_gemini(
-                    messages, model, api_key, url, max_tokens, temperature, timeout
-                )
+            resp_json = _call_nvidia_with_retry(
+                messages, model, api_key, url, _NVIDIA_TOKENS, timeout
+            )
 
             msg = resp_json["choices"][0]["message"]
             raw = (msg.get("content") or "").strip()
             if not raw:
                 raise ValueError("Empty content — model may be in think/safety mode")
-            # Nemotron sometimes prepends a narrative before the JSON for non-trading
-            # prompts (e.g., skills analysis with no data). Strip leading prose so
-            # _extract_json finds the object reliably.
             if "{" in raw and not raw.lstrip().startswith("{"):
                 raw = raw[raw.index("{"):]
             data = _extract_json(raw)
@@ -487,5 +433,6 @@ def ask_gemini(
     return None
 
 
-# Alias — analyzer.py imports both names
-ask_openrouter = ask_gemini
+# Aliases for backward compatibility — analyzer.py imports these names
+ask_gemini = ask_nvidia
+ask_openrouter = ask_nvidia

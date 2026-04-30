@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from core.regime_detector import RegimeDetector
 from datetime import datetime, timezone
 
-from core.ai_client import ask_gemini, ask_openrouter  # Gemini primary, OpenRouter fallback
+from core.ai_client import ask_gemini, ask_openrouter  # NVIDIA primary + fallback
 
 log = logging.getLogger("analyzer")
 

@@ -3,7 +3,7 @@ paths.py — Centralized project path definitions.
 """
 from pathlib import Path
 
-ROOT_DIR = Path(__file__).resolve().parent.parent
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 
 DATA_DIR = ROOT_DIR / "data"
 STATE_DIR = ROOT_DIR / "state"
