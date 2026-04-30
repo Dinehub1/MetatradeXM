@@ -127,9 +127,10 @@ SYMBOLS = [
         "sl_pips": 35,           # fallback if ATR unavailable
         "tp_pips": 70,
         "lot": 0.01,
-        # 2026-04-30 per-symbol gating (silver more volatile, needs higher bar)
-        "score_threshold": 15,    # min score magnitude to consider trade
-        "min_confidence":  0.50,  # Lowered from 0.65 → 0.50 (50%) to capture more signals
+        # 2026-05-01 trend-following recalibration: thresholds lowered now that
+        # F12 Fibonacci (which was producing -5 to -6 contradictory penalties) is removed.
+        "score_threshold": 10,    # min score magnitude to consider trade (was 15)
+        "min_confidence":  0.50,  # 50% AI confidence floor
         "adx_min":         22,    # min ADX for trend trades
         "rsi_oversold":    25,    # tightened from 30
         "rsi_overbought":  75,    # tightened from 70
@@ -146,10 +147,10 @@ SYMBOLS = [
         "sl_pips": 25,           # 15→25 (silver moves 1.7x more)
         "tp_pips": 80,           # 30→80 (R:R 3.2)
         "lot": 0.01,
-        # Silver-specific gating (higher bar — historically choppy 27% WR)
-        "score_threshold": 18,    # +18 vs gold's +15
-        "min_confidence":  0.50,  # Lowered from 0.72 → 0.50 (50%) to capture more signals
-        "adx_min":         28,    # silver only trades strongest trends
+        # Silver-specific gating (still higher bar than gold due to volatility)
+        "score_threshold": 12,    # +12 vs gold's +10 (was 18)
+        "min_confidence":  0.50,  # 50% AI confidence floor
+        "adx_min":         28,    # silver only trades strongest trends (28+ ADX)
         "rsi_oversold":    25,
         "rsi_overbought":  75,
         "sl_atr_mult":     1.5,

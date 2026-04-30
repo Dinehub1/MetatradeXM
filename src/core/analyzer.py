@@ -149,15 +149,10 @@ class MarketAnalyzer:
         base_signal = self._multi_tf_signal(ind_m15, ind_h1, ind_h4, ind_d1, weights=weights)
         base_signal["session"] = session
 
-        # ── F12: Fibonacci proximity (Trading in the Zone — enter at edges) ──
-        m15_df = tf_data.get("M15")
-        if m15_df is not None and len(m15_df) >= 20:
-            fib_data   = self.compute_fibonacci_levels(m15_df, lookback=100)
-            f12_raw    = self._compute_fib_factor(m15_df, fib_data=fib_data)
-            f12_scored = round(f12_raw * weights.get("f12_fibonacci", 0.9), 1)
-            base_signal.setdefault("factor_scores", {})["f12_fibonacci"] = f12_scored
-            base_signal["score"] = round(base_signal.get("score", 0) + f12_scored, 1)
-            base_signal["fibonacci_data"] = fib_data
+        # F12 Fibonacci removed 2026-05-01: mechanical swing detection conflicted with
+        # EMA trend across timeframes, introducing noise in choppy/ranging markets.
+        # 11 other factors (EMA trend, RSI, MACD, ADX, Stochastic, Bollinger Bands, etc.)
+        # are more reliable and provide better confluence detection.
 
         if self.use_claude:
             research_ctx = self._fetch_nemotron_research(symbol, base_signal)
@@ -248,13 +243,7 @@ class MarketAnalyzer:
         base_signal = self._multi_tf_signal(ind_m15, ind_h1, ind_h4, ind_d1, weights=weights)
         base_signal["session"] = session
 
-        if m15_candles is not None and len(m15_candles) >= 20:
-            fib_data   = self.compute_fibonacci_levels(m15_candles, lookback=100)
-            f12_raw    = self._compute_fib_factor(m15_candles, fib_data=fib_data)
-            f12_scored = round(f12_raw * weights.get("f12_fibonacci", 0.9), 1)
-            base_signal.setdefault("factor_scores", {})["f12_fibonacci"] = f12_scored
-            base_signal["score"] = round(base_signal.get("score", 0) + f12_scored, 1)
-            base_signal["fibonacci_data"] = fib_data
+        # F12 Fibonacci removed 2026-05-01 (see above for rationale)
 
         if self.use_claude:
             research_ctx = self._fetch_nemotron_research(symbol, base_signal)
