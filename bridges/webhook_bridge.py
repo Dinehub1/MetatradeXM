@@ -39,9 +39,34 @@ class WebhookBridge:
 
     def __init__(self, url: str = None):
         self.url = (url or os.environ.get("WIN_WEBHOOK_URL", "")).rstrip("/")
+        self._validate_url()  # SSRF prevention: validate URL at startup
         self.connected = False
         self._account_cache = None
         self._cache_ts = 0
+
+    def _validate_url(self):
+        """Validate webhook URL for SSRF prevention."""
+        if not self.url:
+            log.error("[WEBHOOK] WIN_WEBHOOK_URL not configured")
+            return
+
+        # Only allow http/https protocols
+        if not self.url.startswith(("http://", "https://")):
+            raise ValueError(f"[WEBHOOK] Invalid URL scheme. Only http/https allowed: {self.url[:20]}")
+
+        # Whitelist: localhost, 127.0.0.1, or private IP ranges (optional)
+        # For now, we allow any http/https but log a warning for non-localhost
+        from urllib.parse import urlparse
+        parsed = urlparse(self.url)
+        hostname = parsed.hostname or ""
+
+        if hostname not in ("localhost", "127.0.0.1"):
+            log.info(f"[WEBHOOK] Connecting to non-localhost server: {hostname} (ensure it's trusted)")
+
+        # Reject suspicious hostnames
+        suspicious = ["metadata.google", "169.254.169.254", "internal", "admin"]
+        if any(s in hostname.lower() for s in suspicious):
+            raise ValueError(f"[WEBHOOK] Suspicious hostname detected: {hostname}")
 
     # ── Connection ────────────────────────────────────────────────────────────
 
@@ -208,6 +233,8 @@ class WebhookBridge:
                     tp=p.get("tp", 0),
                     profit=p.get("profit", 0),
                     comment=p.get("comment", ""),
+                    time=p.get("time", 0),              # Unix open-time (seconds) — needed by SmartExit
+                    time_update=p.get("time_update", 0),
                 ))
             return result
         except Exception as e:

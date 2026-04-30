@@ -33,8 +33,9 @@ import requests
 
 log = logging.getLogger("ai_client")
 
-# ── NVIDIA NIM (T1 — Primary) ─────────────────────────────────────────────────
+# ── NVIDIA NIM (T1 — Primary, T2 — Backup key) ───────────────────────────────
 _NVIDIA_KEY      = os.getenv("NVIDIA_API_KEY", "")
+_NVIDIA_KEY_2    = os.getenv("NVIDIA_API_KEY_2", "")
 _NVIDIA_URL      = os.getenv("INVOKE_URL", "https://integrate.api.nvidia.com/v1/chat/completions")
 _NVIDIA_MODEL    = os.getenv("MODEL_NAME", "meta/llama-3.3-70b-instruct")
 _NVIDIA_TOKENS   = int(os.getenv("MAX_TOKENS", "16384"))
@@ -58,10 +59,30 @@ _TIERS = []
 if _NVIDIA_KEY:
     _TIERS.append(("nvidia", _NVIDIA_URL, _NVIDIA_KEY, _NVIDIA_MODEL, _NVIDIA_TIMEOUT, "T1-NVIDIA"))
 
-# 2026-04-30: Gemini exhausted. Use NVIDIA only. Commented off T2/T3 fallback.
-# if _GEMINI_KEY:
-#     _TIERS.append(("gemini", _GEMINI_URL, _GEMINI_KEY, _T2_MODEL, _GEMINI_TIMEOUT, "T2-Gemini-Pro"))
-#     _TIERS.append(("gemini", _GEMINI_URL, _GEMINI_KEY, _T3_MODEL, max(30, _GEMINI_TIMEOUT // 2), "T3-Gemini-Flash"))
+if _NVIDIA_KEY_2:
+    _TIERS.append(("nvidia", _NVIDIA_URL, _NVIDIA_KEY_2, _NVIDIA_MODEL, _NVIDIA_TIMEOUT, "T2-NVIDIA-B"))
+
+# Re-enable Gemini as T2/T3 fallback if configured (prevents single point of failure)
+if _GEMINI_KEY:
+    _TIERS.append(("gemini", _GEMINI_URL, _GEMINI_KEY, _T2_MODEL, _GEMINI_TIMEOUT, "T2-Gemini-Pro"))
+    _TIERS.append(("gemini", _GEMINI_URL, _GEMINI_KEY, _T3_MODEL, max(30, _GEMINI_TIMEOUT // 2), "T3-Gemini-Flash"))
+else:
+    log.warning("[AI] No Gemini API key configured. Set GEMINI_API_KEY for fallback tier.")
+
+def _validate_api_keys():
+    """Validate API key configuration at startup. Fail fast if misconfigured."""
+    if not _NVIDIA_KEY and not _NVIDIA_KEY_2:
+        raise RuntimeError(
+            "[AI] CRITICAL: No NVIDIA API keys configured. "
+            "Set NVIDIA_API_KEY in .env. Cannot trade without AI confirmation."
+        )
+    # Validate key format: NVIDIA keys should start with 'nvapi-' and be long enough
+    for key_name, key_val in [("NVIDIA_API_KEY", _NVIDIA_KEY), ("NVIDIA_API_KEY_2", _NVIDIA_KEY_2)]:
+        if key_val and (not key_val.startswith("nvapi-") or len(key_val) < 20):
+            raise RuntimeError(f"[AI] Invalid {key_name} format. NVIDIA keys must start with 'nvapi-'")
+
+
+_validate_api_keys()
 
 _tier_names = [t[5] for t in _TIERS]
 if _tier_names:
@@ -70,7 +91,8 @@ if _tier_names:
         log.info(f"[AI] NVIDIA config: stream={_NVIDIA_STREAM} thinking={_NVIDIA_THINKING} "
                  f"tokens={_NVIDIA_TOKENS} temp={_NVIDIA_TEMP} top_p={_NVIDIA_TOP_P}")
 else:
-    log.warning("[AI] WARNING — No AI keys configured! Set NVIDIA_API_KEY in .env")
+    log.error("[AI] CRITICAL: No AI tiers available! Validate API keys in .env")
+    raise RuntimeError("No working AI tier configured")
 
 
 # ── JSON extraction helpers ───────────────────────────────────────────────────
@@ -196,6 +218,37 @@ def _repair_truncated_json(text: str) -> dict | None:
         return None
 
 
+def _validate_response_schema(data: dict) -> bool:
+    """Validate that AI response has required fields for trading."""
+    if not isinstance(data, dict):
+        return False
+
+    # Required fields for trading decision
+    required_fields = {"direction", "confidence"}
+    if not required_fields.issubset(data.keys()):
+        missing = required_fields - set(data.keys())
+        log.warning(f"[AI] Response missing required fields: {missing}")
+        return False
+
+    # Validate direction is one of the accepted values
+    direction = data.get("direction", "").upper()
+    if direction not in ("BUY", "SELL", "HOLD"):
+        log.warning(f"[AI] Invalid direction: {direction} (must be BUY/SELL/HOLD)")
+        return False
+
+    # Validate confidence is a number between 0 and 1
+    try:
+        confidence = float(data.get("confidence", 0))
+        if not (0 <= confidence <= 1):
+            log.warning(f"[AI] Invalid confidence: {confidence} (must be 0-1)")
+            return False
+    except (TypeError, ValueError):
+        log.warning(f"[AI] Confidence not a number: {data.get('confidence')}")
+        return False
+
+    return True
+
+
 def _extract_json(text: str) -> dict:
     if "```" in text:
         for part in text.split("```"):
@@ -209,7 +262,11 @@ def _extract_json(text: str) -> dict:
     try:
         result = json.loads(text)
         if isinstance(result, dict):
-            return result
+            # Validate schema before returning
+            if _validate_response_schema(result):
+                return result
+            else:
+                raise json.JSONDecodeError("Invalid response schema", text, 0)
     except json.JSONDecodeError:
         pass
     balanced = _extract_balanced_json(text)
@@ -217,15 +274,18 @@ def _extract_json(text: str) -> dict:
         try:
             result = json.loads(balanced)
             if isinstance(result, dict):
-                return result
+                if _validate_response_schema(result):
+                    return result
+                else:
+                    raise json.JSONDecodeError("Invalid response schema", text, 0)
         except json.JSONDecodeError:
             repaired = _repair_truncated_json(balanced)
-            if repaired is not None:
+            if repaired is not None and _validate_response_schema(repaired):
                 return repaired
     repaired = _repair_truncated_json(text)
-    if repaired is not None:
+    if repaired is not None and _validate_response_schema(repaired):
         return repaired
-    raise json.JSONDecodeError("Could not extract valid JSON", text, 0)
+    raise json.JSONDecodeError("Could not extract valid JSON with correct schema", text, 0)
 
 
 def _log_line(data: dict, tier: str, model: str, label: str) -> str:

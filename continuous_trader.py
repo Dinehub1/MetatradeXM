@@ -21,6 +21,8 @@ import logging.handlers
 import argparse
 import signal
 import concurrent.futures
+import threading
+import queue
 from datetime import datetime, timezone
 from pathlib import Path
 from core.paths import ROOT_DIR, CONFIG_DIR, STATE_DIR, LOG_DIR, DATA_DIR
@@ -251,11 +253,21 @@ def _load_state() -> dict:
     return {"cycle": 0, "total_trades": 0, "wins": 0, "losses": 0}
 
 
-def _save_state(state: dict):
+def _atomic_save(file_path: Path, data: dict, label: str) -> bool:
+    """Atomically save JSON to disk: write to temp, then rename. Prevents corruption on crash."""
     try:
-        STATE_FILE.write_text(json.dumps(state, indent=2))
-    except Exception:
-        pass
+        temp_path = file_path.with_suffix(".json.tmp")
+        temp_path.write_text(json.dumps(data, indent=2))
+        temp_path.replace(file_path)
+        return True
+    except Exception as e:
+        log.warning(f"Failed to save {label}: {e}")
+        return False
+
+
+def _save_state(state: dict):
+    """Async save (queued for background thread)."""
+    _file_save_queue.put((STATE_FILE, state, "state"))
 
 
 def _load_cooldown() -> dict:
@@ -263,17 +275,16 @@ def _load_cooldown() -> dict:
     try:
         if COOLDOWN_FILE.exists():
             return json.loads(COOLDOWN_FILE.read_text())
+    except json.JSONDecodeError:
+        log.warning(f"Corrupted cooldown file, starting fresh")
     except Exception:
         pass
     return {}
 
 
 def _save_cooldown(cooldown: dict):
-    """Persist cooldown timestamps so restarts don't wipe the 15-min rest."""
-    try:
-        COOLDOWN_FILE.write_text(json.dumps(cooldown))
-    except Exception:
-        pass
+    """Async save cooldown timestamps (queued for background thread)."""
+    _file_save_queue.put((COOLDOWN_FILE, cooldown, "cooldown"))
 
 
 def _load_streaks() -> dict:
@@ -281,17 +292,16 @@ def _load_streaks() -> dict:
     try:
         if STREAKS_FILE.exists():
             return json.loads(STREAKS_FILE.read_text())
+    except json.JSONDecodeError:
+        log.warning(f"Corrupted streaks file, starting fresh")
     except Exception:
         pass
     return {}
 
 
 def _save_streaks(streaks: dict):
-    """Persist consecutive loss counts so circuit breaker survives restarts."""
-    try:
-        STREAKS_FILE.write_text(json.dumps(streaks))
-    except Exception:
-        pass
+    """Async save consecutive loss counts (queued for background thread)."""
+    _file_save_queue.put((STREAKS_FILE, streaks, "streaks"))
 
 
 def is_forex_market_open() -> tuple[bool, str]:
@@ -300,18 +310,18 @@ def is_forex_market_open() -> tuple[bool, str]:
     if wd == 5:
         return False, "MARKET_CLOSED"  # Saturday
     if wd == 4 and h >= 22:
-        return False, "MARKET_CLOSED"  # Fri night
+        return False, "MARKET_CLOSED"  # Friday 22:00 onwards
     if wd == 6 and h < 22:
-        return False, "MARKET_CLOSED"  # Sunday
+        return False, "MARKET_CLOSED"  # Sunday before 22:00
     # ── Correct Forex/Gold session boundaries (UTC) ───────────────────────────
-    # ASIAN:              22:00–07:59  (Sydney 22:00, Tokyo 00:00, SGX 01:00)
+    # ASIAN:              22:00–07:59  (Sunday 22:00 UTC → Monday-Friday 07:59)
     # LONDON:             08:00–12:59  (LSE open, pre-NY)
     # LONDON_NY_OVERLAP:  13:00–16:59  (PEAK — both centres open)
     # NEW_YORK:           17:00–21:59  (NY afternoon, London closed)
     if  8 <= h < 13: return True, "LONDON"
     if 13 <= h < 17: return True, "LONDON_NY_OVERLAP"
     if 17 <= h < 22: return True, "NEW_YORK"
-    return True, "ASIAN"
+    return True, "ASIAN"  # 22:00–23:59 or 00:00–07:59
 
 
 def fmt_profit(p: float) -> str:
@@ -425,8 +435,35 @@ def get_positions_by_symbol(bridge) -> dict:
     return by_sym
 
 
+# ── Background file I/O queue (prevents blocking main thread) ──────────────
+_file_save_queue = queue.Queue()
+
+
+def _background_file_writer():
+    """Background thread: async file saves. Processes queue continuously."""
+    while True:
+        try:
+            file_path, data, label = _file_save_queue.get(timeout=1)
+            try:
+                _atomic_save(file_path, data, label)
+            except Exception as e:
+                log.warning(f"Background save error ({label}): {e}")
+        except queue.Empty:
+            continue
+        except Exception as e:
+            log.error(f"Background writer crashed: {e}")
+            break
+
+
+# Start background file writer thread (daemon, exits with main process)
+_writer_thread = threading.Thread(target=_background_file_writer, daemon=True)
+_writer_thread.start()
+log.debug("[IO] Background file writer started")
+
+
 # ── Per-ticket peak profit tracking (persistent trailing SL) ────────────────
 _PEAK_FILE = ROOT_DIR / "peak_profits.json"
+_peak_profit_lock = threading.Lock()  # Protect against concurrent access
 
 
 def _load_peaks() -> dict:
@@ -439,10 +476,8 @@ def _load_peaks() -> dict:
 
 
 def _save_peaks(d: dict):
-    try:
-        _PEAK_FILE.write_text(json.dumps(d))
-    except Exception:
-        pass
+    """Async save peak profits (queued for background thread)."""
+    _file_save_queue.put((_PEAK_FILE, d, "peak_profits"))
 
 
 _peak_profit: dict = _load_peaks()  # ticket → peak profit seen
@@ -480,11 +515,12 @@ def check_and_close_positions(
             direction = "BUY" if getattr(pos, "type", 1) == 0 else "SELL"
 
             # Track peak profit for trailing SL (persisted to disk)
-            prev_peak = _peak_profit.get(ticket, 0)
-            if profit > prev_peak:
-                _peak_profit[ticket] = profit
-                _save_peaks(_peak_profit)
-            peak = _peak_profit.get(ticket, 0)
+            with _peak_profit_lock:
+                prev_peak = _peak_profit.get(ticket, 0)
+                if profit > prev_peak:
+                    _peak_profit[ticket] = profit
+                    _save_peaks(_peak_profit)
+                peak = _peak_profit.get(ticket, 0)
 
             should_close = False
             reason = ""
@@ -523,8 +559,9 @@ def check_and_close_positions(
                             log.info(f"   [COOLDOWN] {broker_sym}: 15-min cooldown after loss (saved)")
 
                         # Cleanup peak profit tracking
-                        _peak_profit.pop(ticket, None)
-                        _save_peaks(_peak_profit)
+                        with _peak_profit_lock:
+                            _peak_profit.pop(ticket, None)
+                            _save_peaks(_peak_profit)
 
                         # Record outcome in trade memory
                         try:
@@ -537,7 +574,11 @@ def check_and_close_positions(
                             open_price = getattr(pos, "price_open", 0)
                             _vol = getattr(pos, "volume", 0.01)
                             _pip_val = pip_size * contract_size * _vol
-                            pips = profit / _pip_val if _pip_val > 0 else 0
+                            if _pip_val > 0:
+                                pips = profit / _pip_val
+                            else:
+                                log.warning(f"Invalid pip value calculation: pip={pip_size} size={contract_size} vol={_vol}")
+                                pips = 0
                             current_price = getattr(pos, "price_current", getattr(pos, "price_open", 0))
                             # Pass symbol/direction to avoid UNKNOWN records in learning loop
                             mem.record_outcome(
@@ -592,26 +633,45 @@ def build_order_params(
     lot_reduction: float = 1.0,
     regime_data: dict = None,
 ) -> dict:
+    """Build order parameters with validation. Returns None if parameters invalid."""
+    import math
+    import pandas as pd
+
+    # Validate tick freshness (prevent stale price orders)
+    tick_time = getattr(tick, 'time', 0)
+    if tick_time > 0:
+        tick_age_s = (time.time() - tick_time / 1000.0)  # MT5 time in ms
+        if tick_age_s > 30:
+            log.warning(f"Stale tick ({tick_age_s:.1f}s old) for {sym_cfg['display']} — rejecting order")
+            return None
+
     pip = sym_cfg["pip"]
     price = tick.ask if direction == "BUY" else tick.bid
+    if price <= 0:
+        log.warning(f"Invalid price {price} for {sym_cfg['display']} — rejecting order")
+        return None
     digits = 2 if pip >= 0.01 else 5
 
     # ── ATR-based SL/TP (per-symbol multipliers + regime adjustment) ──────
-    # 2026-04-30: Removed min() cap on sl_pips/tp_pips — fixed caps were
-    # truncating ATR-based stops, causing R:R compression in high vol.
-    sl_mult = sym_cfg.get("sl_atr_mult", 1.5)
-    tp_mult = sym_cfg.get("tp_atr_mult", 4.5)
+    # Validate ATR: must be positive number (not NaN, 0, or negative)
+    if pd.isna(atr) or atr <= 0:
+        log.debug(f"Invalid ATR ({atr}) for {sym_cfg['display']} — using fallback fixed stops")
+        sl_pips = sym_cfg["sl_pips"]
+        tp_pips = sym_cfg["tp_pips"]
+    else:
+        # ATR is valid — use it with regime-aware multipliers
+        sl_mult = sym_cfg.get("sl_atr_mult", 1.5)
+        tp_mult = sym_cfg.get("tp_atr_mult", 4.5)
 
-    if regime_data:
-        vol_state = regime_data.get('volatility_state', 'NORMAL')
-        if vol_state in ("EXPANDING", "HIGH"):
-            sl_mult *= 1.10   # +10% wider stops
-            tp_mult *= 1.10
-        elif vol_state == "COMPRESSED":
-            sl_mult *= 0.85   # -15% tighter stops
-            tp_mult *= 0.85
+        if regime_data:
+            vol_state = regime_data.get('volatility_state', 'NORMAL')
+            if vol_state in ("EXPANDING", "HIGH"):
+                sl_mult *= 1.10   # +10% wider stops
+                tp_mult *= 1.10
+            elif vol_state == "COMPRESSED":
+                sl_mult *= 0.85   # -15% tighter stops
+                tp_mult *= 0.85
 
-    if atr > 0:
         # Pure ATR-based (no cap from fixed sl_pips — let vol regime drive size)
         sl_pips = max(int(atr * sl_mult / pip), 15 if pip >= 0.10 else 5)
         tp_pips = max(int(atr * tp_mult / pip), 35 if pip >= 0.10 else 10)
@@ -619,10 +679,6 @@ def build_order_params(
         min_rr = 2.5
         if tp_pips < sl_pips * min_rr:
             tp_pips = int(sl_pips * min_rr)
-    else:
-        # Fallback if ATR unavailable
-        sl_pips = sym_cfg["sl_pips"]
-        tp_pips = sym_cfg["tp_pips"]
 
     if direction == "BUY":
         sl = round(price - sl_pips * pip, digits)
@@ -689,15 +745,26 @@ class ContinuousTrader:
         self._stop = False
         self._last_analysis = 0  # epoch seconds
 
+        # Test bridge connection at startup (fail fast if unavailable)
+        if not connect_with_retry(self.bridge, max_attempts=CONFIG["max_reconnect_attempts"]):
+            raise RuntimeError(
+                f"Cannot connect to trading bridge. "
+                f"Check MetaTrader/webhook server configuration."
+            )
+        self.connected = True
+
         # ── Self-improving systems ──────────────────────────────────────
         try:
             from learning.memory import TradeMemory
 
             self.memory = TradeMemory()
+            # Validate that memory system works by checking DB path exists
+            if not self.memory.db_path.exists():
+                raise RuntimeError(f"Memory database not created at {self.memory.db_path}")
             log.info("  [MEMORY] Trade memory system initialized")
         except Exception as e:
-            log.warning(f"  [MEMORY] Failed to init: {e}")
-            self.memory = None
+            log.error(f"  [MEMORY] CRITICAL: Cannot start without working memory system: {e}")
+            raise RuntimeError(f"Memory system initialization failed: {e}") from e
 
         try:
             from learning.skill_manager import SkillManager
