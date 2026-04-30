@@ -8,10 +8,15 @@ from socketserver import ThreadingMixIn
 from pathlib import Path
 
 PORT         = 8889
-BASE_DIR     = Path(__file__).resolve().parent.parent
+BASE_DIR     = Path(__file__).resolve().parent.parent.parent   # src/dashboard/ -> src/ -> project root
 DB_FILE      = BASE_DIR / "data" / "trades.db"
 STATUS_FILE  = BASE_DIR / "state" / "bot_status.json"
 CANDLES_FILE = BASE_DIR / "state" / "candles_cache.json"
+
+# Log files — check PM2 log first (primary), fall back to logs/bot.log
+_PM2_LOG     = Path("/home/ubuntu/.pm2/logs/metatradeXM-bot-out.log")
+_BOT_LOG     = BASE_DIR / "logs" / "bot.log"
+LOG_FILE     = _PM2_LOG if _PM2_LOG.exists() else _BOT_LOG
 
 def _current_session() -> str:
     h = datetime.now(timezone.utc).hour
@@ -1212,54 +1217,111 @@ LOGS_HTML = r"""<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Trading Logs — MetatradeXM</title>
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-:root{--bg:#06090f;--bg1:#0b1017;--border:rgba(255,255,255,.08);--cyan:#00e5ff;--text:#e2e8f0;--muted:#64748b}
-body{background:var(--bg);color:var(--text);font-family:'JetBrains Mono','Courier New',monospace;font-size:12px;padding:20px}
-h1{color:var(--cyan);margin-bottom:15px;font-size:18px}
-.controls{margin-bottom:15px}
-button{padding:8px 16px;margin-right:10px;background:var(--cyan);border:none;border-radius:4px;cursor:pointer;font-family:inherit;font-size:12px}
-button:hover{opacity:.8}
-#logs{background:var(--bg1);border:1px solid var(--border);border-radius:6px;padding:12px;max-height:85vh;overflow-y:auto;font-size:11px;line-height:1.4}
-.log-line{margin:3px 0;padding:3px 6px}
-.info{color:#00ff88}
-.warning{color:#fbbf24}
-.error{color:#ff3b5c}
+:root{
+  --bg:#06090f;--bg1:#0b1017;--bg2:rgba(255,255,255,.04);
+  --border:rgba(255,255,255,.08);--border2:rgba(255,255,255,.13);
+  --cyan:#00e5ff;--green:#00ff88;--amber:#fbbf24;--red:#ff3b5c;
+  --text:#e2e8f0;--muted:#64748b;
+  --font:'Inter',system-ui,sans-serif;--mono:'JetBrains Mono','Fira Code',monospace;
+}
+body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:13px;height:100vh;display:flex;flex-direction:column;
+  background-image:radial-gradient(ellipse 90% 55% at 50% -10%,rgba(0,229,255,.05) 0%,transparent 100%);}
+header{background:rgba(6,9,15,.9);backdrop-filter:blur(14px);border-bottom:1px solid var(--border);
+  padding:0 20px;height:52px;display:flex;align-items:center;gap:14px;flex-shrink:0}
+.logo{color:var(--cyan);font-family:var(--mono);font-size:14px;font-weight:500}
+.back{color:var(--muted);text-decoration:none;font-size:12px;margin-left:12px;transition:color .2s}
+.back:hover{color:var(--cyan)}
+.hdr-r{margin-left:auto;display:flex;align-items:center;gap:10px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 7px var(--green);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+#lastUpdate{font-family:var(--mono);font-size:11px;color:var(--muted)}
+.toolbar{display:flex;align-items:center;gap:10px;padding:10px 20px;background:var(--bg1);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap}
+.btn{padding:6px 14px;border:1px solid var(--border2);border-radius:6px;background:var(--bg2);
+  color:var(--text);font-family:var(--mono);font-size:12px;cursor:pointer;transition:all .2s}
+.btn:hover{border-color:var(--cyan);color:var(--cyan)}
+.filter-btns{display:flex;gap:6px;margin-left:auto}
+.fbtn{padding:4px 10px;border-radius:12px;font-size:11px;font-family:var(--mono);cursor:pointer;
+  border:1px solid var(--border2);background:var(--bg2);color:var(--muted);transition:all .2s}
+.fbtn.active{border-color:var(--cyan);color:var(--cyan);background:rgba(0,229,255,.1)}
+.fbtn.warn.active{border-color:var(--amber);color:var(--amber);background:rgba(251,191,36,.1)}
+.fbtn.err.active{border-color:var(--red);color:var(--red);background:rgba(255,59,92,.1)}
+#source{font-family:var(--mono);font-size:10px;color:var(--muted);padding:4px 20px;flex-shrink:0;background:var(--bg1);border-bottom:1px solid var(--border)}
+#logs{flex:1;overflow-y:auto;padding:10px 20px;font-family:var(--mono);font-size:12px;line-height:1.6}
+.line{padding:2px 8px;border-radius:3px;white-space:pre-wrap;word-break:break-all}
+.line:hover{background:var(--bg2)}
+.info{color:#94a3b8}.success{color:var(--green)}.warning{color:var(--amber)}.error{color:var(--red)}
+#status-bar{padding:6px 20px;background:var(--bg1);border-top:1px solid var(--border);
+  font-family:var(--mono);font-size:11px;color:var(--muted);flex-shrink:0;display:flex;gap:20px}
+::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:var(--bg1)}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
 </style>
 </head>
 <body>
-<h1>📊 Trading Logs</h1>
-<div class="controls">
-  <button onclick="loadLogs()">🔄 Refresh</button>
-  <button onclick="downloadLogs()">⬇️ Download</button>
-  <button onclick="clearLogs()">🗑️ Clear</button>
+<header>
+  <div class="logo">MetatradeXM | Trading Logs<a class="back" href="/">← Dashboard</a></div>
+  <div class="hdr-r"><span id="lastUpdate">Loading...</span><div class="dot"></div></div>
+</header>
+<div class="toolbar">
+  <button class="btn" onclick="loadLogs()">⟳ Refresh</button>
+  <button class="btn" onclick="toggleScroll()">📌 <span id="scrollLabel">Scroll: ON</span></button>
+  <button class="btn" onclick="downloadLogs()">⬇ Download</button>
+  <div class="filter-btns">
+    <button class="fbtn active" onclick="setFilter('all',this)">ALL</button>
+    <button class="fbtn warn" onclick="setFilter('warn',this)">WARN</button>
+    <button class="fbtn err" onclick="setFilter('error',this)">ERROR</button>
+  </div>
 </div>
-<div id="logs">Loading...</div>
+<div id="source">Loading source...</div>
+<div id="logs">Loading logs...</div>
+<div id="status-bar">
+  <span id="count">0 lines</span>
+  <span id="warn-count" style="color:var(--amber)">0 warnings</span>
+  <span id="err-count" style="color:var(--red)">0 errors</span>
+</div>
 <script>
-async function loadLogs() {
-  try {
-    const r = await fetch('/api/logs');
-    const {logs} = await r.json();
-    const html = logs.map(line => {
-      let cls = 'info';
-      if (line.includes('ERROR') || line.includes('❌') || line.includes('error')) cls = 'error';
-      else if (line.includes('WARNING') || line.includes('⚠️')) cls = 'warning';
-      return `<div class="log-line ${cls}">${line.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>`;
-    }).join('');
-    document.getElementById('logs').innerHTML = html || 'No logs';
-  } catch(e) {
-    document.getElementById('logs').innerHTML = `<div class="error">Error: ${e.message}</div>`;
+let autoScroll=true, filter='all', allLines=[];
+const esc=t=>t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+function classify(l){
+  if(l.includes('ERROR')||l.includes('❌')||l.includes('Traceback')||l.includes('Exception')) return 'error';
+  if(l.includes('WARNING')||l.includes('⚠️')||l.includes('Stale')) return 'warning';
+  if(l.includes('✅')||l.includes('[INFO')||l.includes('ACTION')||l.includes('STATUS')||l.includes('POSITION')) return 'success';
+  return 'info';
+}
+function renderLines(){
+  const vis=allLines.filter(({cls})=>filter==='all'||(filter==='warn'&&cls==='warning')||(filter==='error'&&cls==='error'));
+  document.getElementById('logs').innerHTML=vis.map(({line,cls})=>`<div class="line ${cls}">${esc(line)}</div>`).join('')||'<div class="line info">No lines match filter.</div>';
+  if(autoScroll){const el=document.getElementById('logs');el.scrollTop=el.scrollHeight;}
+}
+async function loadLogs(){
+  try{
+    const r=await fetch('/api/logs');
+    const {logs,source}=await r.json();
+    allLines=(logs||[]).map(line=>({line,cls:classify(line)}));
+    const warns=allLines.filter(l=>l.cls==='warning').length;
+    const errs=allLines.filter(l=>l.cls==='error').length;
+    document.getElementById('count').textContent=`${allLines.length} lines`;
+    document.getElementById('warn-count').textContent=`${warns} warnings`;
+    document.getElementById('err-count').textContent=`${errs} errors`;
+    document.getElementById('source').textContent=`Log source: ${source||'unknown'}`;
+    document.getElementById('lastUpdate').textContent=new Date().toLocaleTimeString();
+    renderLines();
+  }catch(e){
+    document.getElementById('logs').innerHTML=`<div class="line error">Failed: ${e.message}</div>`;
   }
 }
-function downloadLogs() {
-  window.location.href = '/api/logs/download';
+function setFilter(f,btn){
+  filter=f;
+  document.querySelectorAll('.fbtn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  renderLines();
 }
-function clearLogs() {
-  if(confirm('Clear logs?')) location.href='/api/logs/clear';
-}
+function toggleScroll(){autoScroll=!autoScroll;document.getElementById('scrollLabel').textContent=`Scroll: ${autoScroll?'ON':'OFF'}`;}
+function downloadLogs(){window.location.href='/api/logs/download';}
 loadLogs();
-setInterval(loadLogs, 5000);
+setInterval(loadLogs,5000);
 </script>
 </body>
 </html>"""
@@ -1378,17 +1440,15 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(body)
 
         elif path == '/api/logs':
-            # ── API: Last 100 trading log lines ────────────────────────────────
+            # ── API: Last 150 trading log lines from PM2 or bot.log ─────────
             logs = []
-            log_path = BASE_DIR / 'logs' / 'trading.log'
-            if log_path.exists():
-                try:
-                    with open(log_path, 'r') as f:
-                        lines = f.readlines()[-100:]
-                    logs = [l.rstrip('\n') for l in lines]
-                except Exception:
-                    logs = ['Error reading logs']
-            self._json({'logs': logs})
+            try:
+                with open(LOG_FILE, 'r', errors='replace') as f:
+                    lines = f.readlines()[-150:]
+                logs = [l.rstrip('\n') for l in lines]
+            except Exception as e:
+                logs = [f'Error reading {LOG_FILE}: {e}']
+            self._json({'logs': logs, 'source': str(LOG_FILE)})
 
         else:
             self.send_response(404)
