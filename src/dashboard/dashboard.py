@@ -1298,43 +1298,131 @@ header{background:rgba(6,9,15,.92);backdrop-filter:blur(14px);border-bottom:1px 
 </div>
 <script>
 let allLogs=[], symbolFilter='all';
-async function parseSignals(logs){
-  const signals={};
-  const sigRegex=/SIGNAL.*?\|\s*(\w+)\s*\|\s*(BUY|SELL|HOLD)\s*([\d.]+)%/;
-  const priceRegex=/Price\s+([\d.]+).*?Change\s*([\+\-][\d.]+)%/;
-  const riskRegex=/gate\s*([\d.]+)%/;
-  const adxRegex=/ADX\s*([\d.]+)/;
-  const macdRegex=/MACD\s*(\w+)/;
-  const rsiRegex=/RSI\s*([\d.]+)/;
-  const stochRegex=/Stoch\s*([\d.]+)\/([\d.]+)/;
-  const scoreRegex=/score\s*([\+\-][\d.]+)/;
-  const actionRegex=/ACTION.*?\|\s*(\w+)\s*\|\s*(.+?)(?:\||$)/;
-  const timeRegex=/(\d{2}:\d{2}:\d{2})/;
 
-  for(let i=logs.length-1;i>=Math.max(0,logs.length-50);i--){
+function parseSignals(logs){
+  // Walk backwards, build latest state per symbol by grouping nearby lines
+  const signals={};
+  for(let i=logs.length-1;i>=0;i--){
     const line=logs[i];
-    if(!line.includes('SIGNAL')) continue;
-    const match=sigRegex.exec(line);
-    if(!match) continue;
-    const symbol=match[1], signal=match[2], conf=parseFloat(match[3]);
-    const key=symbol;
-    if(!signals[key]||parseFloat(signals[key].conf)<conf){
-      const priceMatch=priceRegex.exec(line);
-      const price=priceMatch?parseFloat(priceMatch[1]):null;
-      const change=priceMatch?parseFloat(priceMatch[2]):null;
-      const riskMatch=riskRegex.exec(line);
-      const gate=riskMatch?parseFloat(riskMatch[1]):null;
-      const adxMatch=adxRegex.exec(line);
-      const adx=adxMatch?parseFloat(adxMatch[1]):null;
-      const scoreMatch=scoreRegex.exec(line);
-      const score=scoreMatch?parseFloat(scoreMatch[1]):null;
-      const timeMatch=timeRegex.exec(line);
-      const time=timeMatch?timeMatch[1]:'--:--:--';
-      signals[key]={symbol,signal,conf,price,change,gate,adx,score,time,fullLine:line};
+    // Only process SIGNAL lines as anchors
+    const sm=/SIGNAL.*?\|\s*([\w]+)\s*\|\s*(BUY|SELL|HOLD)\s*([\d.]+)%.*?score\s*([\+\-]?[\d.]+)/i.exec(line);
+    if(!sm) continue;
+    const symbol=sm[1], signal=sm[2], conf=parseFloat(sm[3]), score=parseFloat(sm[4]);
+    if(signals[symbol]) continue; // already have latest for this symbol
+
+    // Extract timestamp from this line
+    const ts=/(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})/.exec(line);
+    const time=ts?ts[1].split(' ')[1]:'--:--:--';
+    const mtf=/\[MTF\s*[×x]([\d.]+)/.exec(line);
+    const mtfMult=mtf?parseFloat(mtf[1]):null;
+
+    // Scan nearby lines (within ±10) for same symbol's DETAIL/RISK/ACTION
+    let adx=null,rsi=null,macd=null,bb=null,price=null,change=null,stoch=null,
+        gate=null,regime=null,action=null,actionTxt=null,trend=null,atr=null,factors=null;
+
+    for(let j=Math.max(0,i-1);j<=Math.min(logs.length-1,i+12);j++){
+      const l=logs[j];
+      if(!l.includes(symbol)) continue;
+
+      // DETAIL line 1: trend
+      if(l.includes('DETAIL')&&l.includes('trend ')){
+        const m=/trend\s+([\w=,\s]+?)(?:\||\n|$)/.exec(l);
+        if(m) trend=m[1].trim();
+      }
+      // DETAIL line 2: ADX, RSI, MACD, BB, ATR
+      if(l.includes('DETAIL')&&l.includes('ADX')){
+        const ma=/ADX\s*([\d.]+)\s*(\w+)?/.exec(l); if(ma){adx=parseFloat(ma[1]);adrStatus=ma[2];}
+        const mr=/RSI\s*([\d.]+)/.exec(l); if(mr)rsi=parseFloat(mr[1]);
+        const mm=/MACD\s+(\w+)/.exec(l); if(mm)macd=mm[1];
+        const mb=/BB\s+([\w_]+)/.exec(l); if(mb)bb=mb[1];
+        const mat=/ATR\s*([\d.]+)/.exec(l); if(mat)atr=parseFloat(mat[1]);
+      }
+      // DETAIL line 3: Price, Change, Stoch, Factors
+      if(l.includes('DETAIL')&&l.includes('Price')){
+        const mp=/Price\s+([\d.]+)/.exec(l); if(mp)price=parseFloat(mp[1]);
+        const mc=/Change\s*([\+\-][\d.]+)%/.exec(l); if(mc)change=parseFloat(mc[1]);
+        const ms=/Stoch\s*([\d.]+)\/([\d.]+)/.exec(l); if(ms)stoch=`${ms[1]}/${ms[2]}`;
+        const mf=/Factors\s+(.+)$/.exec(l); if(mf)factors=mf[1].trim();
+      }
+      // RISK line
+      if(l.includes('RISK')){
+        const mg=/gate\s*([\d.]+)%/.exec(l); if(mg)gate=parseFloat(mg[1]);
+        const mre=/regime\(([^)]+)\)\s*([\+\-][\d]+)%/.exec(l); if(mre)regime=`${mre[1]} ${mre[2]}%`;
+      }
+      // ACTION line
+      if(l.includes('ACTION')){
+        const mact=/ACTION.*?\|\s*[\w]+\s*\|\s*(.+?)(?:\||$)/.exec(l);
+        if(mact){
+          actionTxt=mact[1].trim();
+          action=actionTxt.includes('placing')||actionTxt.includes('order')?'trade':'skip';
+        }
+      }
     }
+    signals[symbol]={symbol,signal,conf,score,time,mtfMult,adx,rsi,macd,bb,price,change,stoch,gate,regime,action,actionTxt,trend,atr,factors};
   }
   return Object.values(signals);
 }
+
+function renderCard(s){
+  const confPct=Math.round(s.conf);
+  const sigColor=s.signal==='BUY'?'#00ff88':s.signal==='SELL'?'#ff3b5c':'#fbbf24';
+  const scoreColor=s.score>0?'var(--green)':s.score<0?'var(--red)':'var(--muted)';
+  const macdColor=s.macd==='BULLISH'?'var(--green)':s.macd==='BEARISH'?'var(--red)':'var(--amber)';
+  const changeUp=s.change>=0;
+  const adxStatus=s.adx?s.adx>=25?`<span style="color:var(--green)">TREND</span>`:`<span style="color:var(--amber)">RANGE</span>`:'—';
+  const rsiColor=s.rsi?s.rsi>=70?'var(--red)':s.rsi<=30?'var(--green)':'var(--text)':'var(--muted)';
+  const actionHtml=s.actionTxt?`<div style="margin-top:8px;padding:6px 8px;border-radius:4px;font-size:9px;font-family:var(--mono);
+    background:${s.action==='trade'?'rgba(0,255,136,.1)':'rgba(100,116,139,.08)'};
+    border-left:2px solid ${s.action==='trade'?'var(--green)':'var(--muted)'};
+    color:${s.action==='trade'?'var(--green)':'var(--muted)'}">
+    ${s.action==='trade'?'▶ TRADE':'⏸ SKIP'} — ${s.actionTxt.slice(0,60)}${s.actionTxt.length>60?'…':''}</div>`:'';
+  const trendBadges=s.trend?s.trend.split(/\s+/).filter(t=>t.includes('=')).map(t=>{
+    const[tf,dir]=t.split('=');
+    const c=dir.includes('BULL')?'rgba(0,255,136,.15)':dir.includes('BEAR')?'rgba(255,59,92,.12)':'rgba(251,191,36,.12)';
+    const tc=dir.includes('BULL')?'var(--green)':dir.includes('BEAR')?'var(--red)':'var(--amber)';
+    return`<span style="font-size:8px;font-family:var(--mono);padding:1px 5px;border-radius:3px;background:${c};color:${tc}">${tf}</span>`;
+  }).join(''):'';
+
+  return`<div class="signal-card">
+<div class="card-header">
+  <div class="symbol">${s.symbol}</div>
+  <div class="time">${s.time}</div>
+</div>
+
+<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+  <div class="signal-badge ${s.signal}">${s.signal}</div>
+  <span style="font-size:20px;font-family:var(--mono);font-weight:700;color:${sigColor}">${confPct}%</span>
+  ${s.mtfMult?`<span style="font-size:9px;font-family:var(--mono);color:var(--muted);margin-left:auto">MTF ×${s.mtfMult}</span>`:''}
+</div>
+
+<div class="conf-bar" style="margin-bottom:10px">
+  <div class="conf-fill" style="width:${confPct}%;background:${confPct>=70?'linear-gradient(90deg,var(--green),#00c853)':confPct>=50?'linear-gradient(90deg,var(--cyan),var(--purple))':'linear-gradient(90deg,#f59e0b,var(--red))'}"></div>
+</div>
+
+${s.price?`<div style="display:flex;justify-content:space-between;margin-bottom:8px;padding:6px 8px;background:rgba(0,229,255,.04);border-radius:4px;border-left:2px solid rgba(0,229,255,.3)">
+  <span style="font-family:var(--mono);font-size:12px;font-weight:600">${s.price.toFixed(s.price>100?2:4)}</span>
+  <span style="font-family:var(--mono);font-size:11px;color:${changeUp?'var(--green)':'var(--red)'};font-weight:500">${changeUp?'▲':'▼'} ${Math.abs(s.change).toFixed(3)}%</span>
+</div>`:''}
+
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;margin-bottom:8px">
+  <div class="ind-item"><div class="ind-label">SCORE</div><div class="ind-value" style="color:${scoreColor}">${s.score>=0?'+':''}${s.score.toFixed(1)}</div></div>
+  <div class="ind-item"><div class="ind-label">RSI</div><div class="ind-value" style="color:${rsiColor}">${s.rsi?s.rsi.toFixed(1):'—'}</div></div>
+  <div class="ind-item"><div class="ind-label">ADX</div><div class="ind-value">${s.adx?s.adx.toFixed(1):'—'}</div></div>
+  <div class="ind-item"><div class="ind-label">MACD</div><div class="ind-value" style="color:${macdColor}">${s.macd||'—'}</div></div>
+  <div class="ind-item"><div class="ind-label">BB</div><div class="ind-value" style="font-size:8px">${s.bb?s.bb.replace('_',' '):'—'}</div></div>
+  <div class="ind-item"><div class="ind-label">TREND</div><div class="ind-value">${adxStatus}</div></div>
+</div>
+
+${s.gate||s.regime?`<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:8px">
+  ${s.gate?`<div class="ind-item"><div class="ind-label">GATE</div><div class="ind-value">${s.gate.toFixed(0)}%</div></div>`:''}
+  ${s.regime?`<div class="ind-item"><div class="ind-label">REGIME</div><div class="ind-value" style="font-size:8px">${s.regime}</div></div>`:''}
+</div>`:''}
+
+${trendBadges?`<div style="display:flex;gap:3px;flex-wrap:wrap;margin-bottom:6px">${trendBadges}</div>`:''}
+${actionHtml}
+</div>`;
+}
+
 function renderSignals(sigs){
   const filtered=symbolFilter==='all'?sigs:sigs.filter(s=>s.symbol===symbolFilter);
   const buyCount=filtered.filter(x=>x.signal==='BUY').length;
@@ -1342,45 +1430,18 @@ function renderSignals(sigs){
   document.getElementById('count').textContent=`${filtered.length} signals`;
   document.getElementById('buy-count').textContent=`${buyCount} BUY`;
   document.getElementById('sell-count').textContent=`${sellCount} SELL`;
-  const html=filtered.length?filtered.map(s=>{
-    const confPct=Math.round(s.conf);
-    const color=s.signal==='BUY'?'#00ff88':s.signal==='SELL'?'#ff3b5c':'#fbbf24';
-    return`<div class="signal-card">
-<div class="card-header">
-  <div class="symbol">${s.symbol}</div>
-  <div class="time">${s.time}</div>
-</div>
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-  <div class="signal-badge ${s.signal}">${s.signal}</div>
-  <span style="font-family:var(--mono);font-size:11px;color:${color};font-weight:600">${confPct}%</span>
-</div>
-<div class="confidence-section">
-  <div class="conf-label"><span>CONFIDENCE</span><span>${confPct}%</span></div>
-  <div class="conf-bar"><div class="conf-fill" style="width:${confPct}%"></div></div>
-</div>
-${s.price?`<div class="price-section">
-  <div class="price-row"><span class="label">Price</span><span class="value">${s.price.toFixed(2)}</span></div>
-  <div class="price-row"><span class="label">Change</span><span class="value ${s.change>=0?'up':'down'}">${s.change>=0?'+':''}${s.change.toFixed(3)}%</span></div>
-</div>`:''}
-${s.score!==null?`<div class="indicators">
-  <div class="ind-item"><div class="ind-label">SCORE</div><div class="ind-value">${s.score>=0?'+':''}${s.score.toFixed(1)}</div></div>
-  <div class="ind-item"><div class="ind-label">GATE</div><div class="ind-value">${s.gate?s.gate.toFixed(0)+'%':'-'}</div></div>
-  <div class="ind-item"><div class="ind-label">ADX</div><div class="ind-value">${s.adx?s.adx.toFixed(0):'-'}</div></div>
-  <div class="ind-item"><div class="ind-label">STATUS</div><div class="ind-value">${s.adx>25?'TREND':'RANGE'}</div></div>
-</div>`:''}
-</div>`;
-  }).join(''):`<div style="grid-column:1/-1;padding:20px;text-align:center;color:var(--muted)">No signals yet</div>`;
-  document.getElementById('logs').innerHTML=html;
-  document.getElementById('count').textContent=`${filtered.length} signals`;
+  document.getElementById('logs').innerHTML=filtered.length
+    ?filtered.map(renderCard).join('')
+    :`<div style="grid-column:1/-1;padding:40px;text-align:center;color:var(--muted);font-family:var(--mono)">No signals in last 150 log lines</div>`;
 }
+
 async function loadLogs(){
   try{
     const r=await fetch('/api/logs',{credentials:'same-origin'});
-    if(!r.ok)throw new Error(`HTTP ${r.status} — check credentials`);
+    if(!r.ok)throw new Error(`HTTP ${r.status}`);
     const data=await r.json();
     allLogs=data.logs||[];
-    const sigs=await parseSignals(allLogs);
-    renderSignals(sigs);
+    renderSignals(parseSignals(allLogs));
     document.getElementById('lastUpdate').textContent=new Date().toLocaleTimeString();
   }catch(e){
     document.getElementById('logs').innerHTML=`<div style="grid-column:1/-1;color:var(--red);padding:20px;font-family:var(--mono)">Error: ${e.message}</div>`;
@@ -1390,12 +1451,7 @@ function setSymbol(sym,btn){
   symbolFilter=sym;
   document.querySelectorAll('.fbtn').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
-  const sigs=[];
-  for(let i=allLogs.length-1;i>=0;i--){
-    const m=/SIGNAL.*?\|\s*(\w+)/.exec(allLogs[i]);
-    if(m&&(sym==='all'||m[1]===sym))sigs.push(allLogs[i]);
-  }
-  parseSignals(allLogs).then(renderSignals);
+  renderSignals(parseSignals(allLogs));
 }
 function downloadLogs(){window.location.href='/api/logs/download';}
 loadLogs();
