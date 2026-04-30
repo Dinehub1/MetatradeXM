@@ -1244,7 +1244,9 @@ header{background:rgba(6,9,15,.92);backdrop-filter:blur(14px);border-bottom:1px 
 .filter-btns{display:flex;gap:4px;margin-left:auto}
 .fbtn{padding:3px 8px;border-radius:10px;font-size:10px;font-family:var(--mono);cursor:pointer;border:1px solid var(--border2);background:var(--bg2);color:var(--muted);transition:all .2s}
 .fbtn.active{border-color:var(--cyan);color:var(--cyan);background:rgba(0,229,255,.1)}
-#logs{flex:1;overflow-y:auto;padding:8px 16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:8px;align-content:start}
+#logs{flex:1;overflow-y:auto;padding:8px 16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px;align-content:start}
+@media(max-width:768px){#logs{grid-template-columns:1fr}}
+@media(max-width:480px){#logs{grid-template-columns:1fr;padding:6px 12px}}
 .signal-card{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px;backdrop-filter:blur(6px)}
 .signal-card:hover{border-color:var(--border2);box-shadow:0 0 12px rgba(0,229,255,.1)}
 .card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;border-bottom:1px solid var(--border);padding-bottom:6px}
@@ -1290,9 +1292,9 @@ header{background:rgba(6,9,15,.92);backdrop-filter:blur(14px);border-bottom:1px 
     <button class="fbtn" onclick="setSymbol('XAGUSD',this)">XAGUSD</button>
   </div>
 </div>
-<div id="positions-banner" style="background:rgba(0,229,255,.08);border-bottom:1px solid var(--border);padding:12px 16px;display:none">
-  <div style="font-size:11px;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.08em">📍 Open Position</div>
-  <div id="position-content" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px">Loading...</div>
+<div id="positions-banner" style="background:linear-gradient(135deg,rgba(0,229,255,.1) 0%,rgba(168,85,247,.05) 100%);border-bottom:2px solid rgba(0,229,255,.3);padding:14px 16px;display:none;backdrop-filter:blur(8px)">
+  <div style="font-size:10px;color:#64748b;margin-bottom:10px;text-transform:uppercase;letter-spacing:.12em;font-weight:600">📍 Market Entry Parameters</div>
+  <div id="position-content" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;grid-auto-rows:max-content">Loading...</div>
 </div>
 <div id="logs">Loading signals...</div>
 <div id="status-bar">
@@ -1465,39 +1467,48 @@ async function loadPositions(){
     if(!r.ok)throw new Error(`HTTP ${r.status}`);
     const data=await r.json();
     const positions=data.positions||[];
-    console.log('Positions loaded:',positions);
+    console.log('✓ Positions loaded:',positions);
 
-    if(positions.length>0&&!positions[0].error){
-      const banner=document.getElementById('positions-banner');
-      const content=document.getElementById('position-content');
+    const banner=document.getElementById('positions-banner');
+    const content=document.getElementById('position-content');
+
+    if(positions.length>0){
       banner.style.display='block';
-
       content.innerHTML=positions.map(p=>{
-        const d1Color=p.trend_d1.includes('BULL')?'var(--green)':p.trend_d1.includes('BEAR')?'var(--red)':'var(--amber)';
-        const h4Color=p.trend_h4.includes('BULL')?'var(--green)':p.trend_h4.includes('BEAR')?'var(--red)':'var(--amber)';
-        const h1Color=p.trend_h1.includes('BULL')?'var(--green)':p.trend_h1.includes('BEAR')?'var(--red)':'var(--amber)';
-        const m15Color=p.trend_m15.includes('BULL')?'var(--green)':p.trend_m15.includes('BEAR')?'var(--red)':'var(--amber)';
-        return`<div style="background:rgba(0,229,255,.04);border:1px solid rgba(0,229,255,.2);border-radius:6px;padding:10px">
-          <div style="font-weight:600;margin-bottom:8px;color:var(--cyan);font-size:12px">${p.symbol}</div>
-          <div style="font-size:9px;line-height:1.7;font-family:var(--mono);color:var(--muted)">
-            <div><strong>Price:</strong> <span style="color:var(--text)">${p.price.toFixed(p.price>100?2:4)}</span></div>
-            <div style="margin-top:6px;border-top:1px solid rgba(255,255,255,.1);padding-top:6px">
-              <div><strong style="color:var(--amber)">D1:</strong> <span style="color:${d1Color}">${p.trend_d1}</span></div>
-              <div><strong style="color:var(--amber)">H4:</strong> <span style="color:${h4Color}">${p.trend_h4}</span> (ADX ${p.adx_h4.toFixed(1)})</div>
-              <div><strong style="color:var(--amber)">H1:</strong> <span style="color:${h1Color}">${p.trend_h1}</span> (ADX ${p.adx_h1.toFixed(1)})</div>
-              <div><strong style="color:var(--amber)">M15:</strong> <span style="color:${m15Color}">${p.trend_m15}</span></div>
+        const d1Trend=String(p.trend_d1||'?');
+        const h4Trend=String(p.trend_h4||'?');
+        const h1Trend=String(p.trend_h1||'?');
+        const m15Trend=String(p.trend_m15||'?');
+
+        const d1Col=d1Trend.toUpperCase().includes('BULL')?'#00ff88':d1Trend.toUpperCase().includes('BEAR')?'#ff3b5c':'#fbbf24';
+        const h4Col=h4Trend.toUpperCase().includes('BULL')?'#00ff88':h4Trend.toUpperCase().includes('BEAR')?'#ff3b5c':'#fbbf24';
+        const h1Col=h1Trend.toUpperCase().includes('BULL')?'#00ff88':h1Trend.toUpperCase().includes('BEAR')?'#ff3b5c':'#fbbf24';
+        const m15Col=m15Trend.toUpperCase().includes('BULL')?'#00ff88':m15Trend.toUpperCase().includes('BEAR')?'#ff3b5c':'#fbbf24';
+
+        return`<div style="background:rgba(0,229,255,.06);border:1px solid rgba(0,229,255,.25);border-radius:8px;padding:12px;font-size:9px;font-family:var(--mono)">
+          <div style="font-weight:700;color:#00e5ff;margin-bottom:10px;font-size:11px">${p.symbol}</div>
+          <div style="line-height:1.8;color:#e2e8f0">
+            <div><span style="color:#64748b">Price:</span> ${p.price.toFixed(p.price>100?2:4)}</div>
+            <div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.08)">
+              <div><span style="color:#fbbf24">D1:</span> <span style="color:${d1Col}">${d1Trend}</span></div>
+              <div><span style="color:#fbbf24">H4:</span> <span style="color:${h4Col}">${h4Trend}</span> <span style="color:#64748b">(ADX ${Number(p.adx_h4).toFixed(1)})</span></div>
+              <div><span style="color:#fbbf24">H1:</span> <span style="color:${h1Col}">${h1Trend}</span> <span style="color:#64748b">(ADX ${Number(p.adx_h1).toFixed(1)})</span></div>
+              <div><span style="color:#fbbf24">M15:</span> <span style="color:${m15Col}">${m15Trend}</span></div>
             </div>
-            <div style="margin-top:6px;border-top:1px solid rgba(255,255,255,.1);padding-top:6px">
-              <div><strong>RSI:</strong> <span style="color:${p.rsi>70?'var(--red)':p.rsi<30?'var(--green)':'var(--text)'}">${p.rsi.toFixed(1)}</span></div>
-              <div><strong>BB:</strong> <span style="color:var(--text)">${p.bb_position}</span></div>
-              <div><strong>MACD:</strong> <span style="color:${p.macd_signal==='BULLISH'?'var(--green)':'var(--red)'}">${p.macd_signal}</span></div>
+            <div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.08)">
+              <div><span style="color:#64748b">RSI:</span> <span style="color:${p.rsi>70?'#ff3b5c':p.rsi<30?'#00ff88':'#e2e8f0'}">${Number(p.rsi).toFixed(1)}</span></div>
+              <div><span style="color:#64748b">BB:</span> ${p.bb_position}</div>
+              <div><span style="color:#64748b">MACD:</span> <span style="color:${String(p.macd_signal).toUpperCase().includes('BULLISH')?'#00ff88':'#ff3b5c'}">${p.macd_signal}</span></div>
             </div>
           </div>
         </div>`;
       }).join('');
+    } else {
+      banner.style.display='none';
     }
   }catch(e){
-    console.log('Position load error:',e);
+    console.error('✗ Position load error:',e);
+    document.getElementById('positions-banner').innerHTML=`<div style="color:#ff3b5c">⚠ Error loading positions: ${e.message}</div>`;
   }
 }
 
