@@ -302,7 +302,7 @@ class PerformanceAnalyzer:
             })
             # Keep last 30 adjustments
             weights["adjustment_history"] = history[-30:]
-            weights["version"] = weights.get("version", 1) + 1
+            weights["version"] = int(weights.get("version", 1)) + 1
 
             WEIGHTS_PATH.write_text(json.dumps(weights, indent=4))
             log.info(f"[SELF-IMPROVE] Applied weight adjustments: {changes}")

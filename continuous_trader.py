@@ -96,7 +96,7 @@ SYMBOLS = [
         "lot": 0.01,
         # 2026-04-30 per-symbol gating (silver more volatile, needs higher bar)
         "score_threshold": 15,    # min score magnitude to consider trade
-        "min_confidence":  0.65,  # AI confidence floor
+        "min_confidence":  0.50,  # Lowered from 0.65 → 0.50 (50%) to capture more signals
         "adx_min":         22,    # min ADX for trend trades
         "rsi_oversold":    25,    # tightened from 30
         "rsi_overbought":  75,    # tightened from 70
@@ -115,7 +115,7 @@ SYMBOLS = [
         "lot": 0.01,
         # Silver-specific gating (higher bar — historically choppy 27% WR)
         "score_threshold": 18,    # +18 vs gold's +15
-        "min_confidence":  0.72,  # 72% vs gold's 65%
+        "min_confidence":  0.50,  # Lowered from 0.72 → 0.50 (50%) to capture more signals
         "adx_min":         28,    # silver only trades strongest trends
         "rsi_oversold":    25,
         "rsi_overbought":  75,

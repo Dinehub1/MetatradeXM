@@ -197,7 +197,9 @@ class TradeMemory:
 
     # ── Prefetch context for AI reasoning ────────────────────────────────────
 
-    def prefetch_context(self, symbol: str, current_conditions: dict = None) -> str:
+    def prefetch_context(self, symbol: str, current_conditions: dict = None,
+                         direction: str = None, adx: float = 0.0,
+                         rsi: float = 50.0) -> str:
         """
         Returns memory context block for AI reasoning.
         Inspired by Hermes prefetch_all() pattern.
@@ -327,10 +329,104 @@ class TradeMemory:
                 for ins in insights:
                     parts.append(f"  [{ins['insight_type']}] {ins['insight_text']}")
 
+        # ── SIMILAR SETUP RECALL (new — AI sees past outcomes for this exact setup) ──
+        if direction and adx > 0:
+            now_session = self._get_session_name(datetime.now(timezone.utc).hour)
+            similar = self.get_similar_setups(symbol, direction, adx, rsi, now_session, limit=5)
+            if similar:
+                wins   = sum(1 for s in similar if s['outcome'] == 'WIN')
+                losses = sum(1 for s in similar if s['outcome'] == 'LOSS')
+                avg_p  = sum(s['pips'] or 0 for s in similar) / len(similar)
+                parts.append(f"\n⚡ SIMILAR PAST SETUPS ({direction}, ADX≈{adx:.0f}, RSI≈{rsi:.0f}, {now_session}):")
+                parts.append(f"  Found {len(similar)} matches → {wins}W/{losses}L | avg {avg_p:+.1f} pips")
+                for s in similar:
+                    icon = '✅' if s['outcome'] == 'WIN' else '❌'
+                    parts.append(f"  {icon} {s['direction']} → {s['outcome']} "
+                                 f"{(s['pips'] or 0):+.1f}p conf={s['confidence'] or 0:.0%} "
+                                 f"({s['duration_min'] or 0:.0f}min)")
+                if wins == 0 and len(similar) >= 3:
+                    parts.append(f"  ⛔ 0/{len(similar)} similar {direction} setups won — strongly consider HOLD or opposite direction")
+                elif wins > losses:
+                    parts.append(f"  ✅ {wins}/{len(similar)} similar setups WON — this pattern is working")
+
         if not parts:
             return ""  # No memory yet
 
         return "\n".join(parts)
+
+    # ── Similar-setup recall ─────────────────────────────────────────────────
+
+    def get_similar_setups(self, symbol: str, direction: str,
+                           adx: float, rsi: float, session: str,
+                           limit: int = 5) -> list:
+        """
+        Find past trades with similar market conditions to give the AI
+        concrete pattern memory ("last time this happened, X occurred").
+        Matches: same symbol + direction + session, ADX within ±8, RSI within ±12.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute("""
+                SELECT o.direction, o.outcome, o.pips_result, o.confidence,
+                       o.duration_min, o.conditions_json, o.factors_json
+                FROM trade_outcomes o
+                WHERE o.symbol=? AND o.direction=?
+                ORDER BY o.id DESC LIMIT 50
+            """, (symbol, direction)).fetchall()
+
+        matches = []
+        for r in rows:
+            try:
+                cond = json.loads(r['conditions_json'] or '{}')
+                fac  = json.loads(r['factors_json']   or '{}')
+                r_adx = cond.get('adx') or fac.get('f5_adx_strength', 0)
+                r_rsi = cond.get('rsi') or 50
+                r_sess = cond.get('session', '')
+
+                adx_match  = abs((r_adx or 0) - adx)  < 8
+                rsi_match  = abs((r_rsi or 50) - rsi) < 12
+                sess_match = (not r_sess) or r_sess == session
+
+                if adx_match and rsi_match and sess_match:
+                    matches.append({
+                        "direction":    r['direction'],
+                        "outcome":      r['outcome'],
+                        "pips":         r['pips_result'],
+                        "confidence":   r['confidence'],
+                        "duration_min": r['duration_min'],
+                    })
+                    if len(matches) >= limit:
+                        break
+            except Exception:
+                continue
+        return matches
+
+    def get_session_win_rate(self, symbol: str, session: str,
+                             min_trades: int = 5) -> dict | None:
+        """
+        Return win-rate stats for this symbol in the current session.
+        Returns None if fewer than min_trades recorded (not enough data).
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute("""
+                SELECT
+                    COUNT(*) as total,
+                    SUM(CASE WHEN outcome='WIN' THEN 1 ELSE 0 END) as wins,
+                    AVG(pips_result) as avg_pips
+                FROM trade_outcomes
+                WHERE symbol=? AND conditions_json LIKE ?
+            """, (symbol, f'%{session}%')).fetchone()
+
+        if not row or (row['total'] or 0) < min_trades:
+            return None
+        total = row['total']
+        wins  = row['wins'] or 0
+        return {
+            "total":    total,
+            "win_rate": round(wins / total, 3),
+            "avg_pips": round(row['avg_pips'] or 0, 1),
+        }
 
     # ── Statistics for self-improvement ───────────────────────────────────────
 
