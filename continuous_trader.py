@@ -640,7 +640,7 @@ def build_order_params(
     # Validate tick freshness (prevent stale price orders)
     tick_time = getattr(tick, 'time', 0)
     if tick_time > 0:
-        tick_age_s = (time.time() - tick_time / 1000.0)  # MT5 time in ms
+        tick_age_s = (time.time() - tick_time)  # MetaApi provides time in seconds
         if tick_age_s > 30:
             log.warning(f"Stale tick ({tick_age_s:.1f}s old) for {sym_cfg['display']} — rejecting order")
             return None
