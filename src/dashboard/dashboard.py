@@ -1205,6 +1205,66 @@ setInterval(()=>{Object.keys(latest).forEach(sym=>{
 </html>"""
 
 
+# ── Trading Logs Viewer (/logs) ────────────────────────────────────────────────
+LOGS_HTML = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Trading Logs — MetatradeXM</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#06090f;--bg1:#0b1017;--border:rgba(255,255,255,.08);--cyan:#00e5ff;--text:#e2e8f0;--muted:#64748b}
+body{background:var(--bg);color:var(--text);font-family:'JetBrains Mono','Courier New',monospace;font-size:12px;padding:20px}
+h1{color:var(--cyan);margin-bottom:15px;font-size:18px}
+.controls{margin-bottom:15px}
+button{padding:8px 16px;margin-right:10px;background:var(--cyan);border:none;border-radius:4px;cursor:pointer;font-family:inherit;font-size:12px}
+button:hover{opacity:.8}
+#logs{background:var(--bg1);border:1px solid var(--border);border-radius:6px;padding:12px;max-height:85vh;overflow-y:auto;font-size:11px;line-height:1.4}
+.log-line{margin:3px 0;padding:3px 6px}
+.info{color:#00ff88}
+.warning{color:#fbbf24}
+.error{color:#ff3b5c}
+</style>
+</head>
+<body>
+<h1>📊 Trading Logs</h1>
+<div class="controls">
+  <button onclick="loadLogs()">🔄 Refresh</button>
+  <button onclick="downloadLogs()">⬇️ Download</button>
+  <button onclick="clearLogs()">🗑️ Clear</button>
+</div>
+<div id="logs">Loading...</div>
+<script>
+async function loadLogs() {
+  try {
+    const r = await fetch('/api/logs');
+    const {logs} = await r.json();
+    const html = logs.map(line => {
+      let cls = 'info';
+      if (line.includes('ERROR') || line.includes('❌') || line.includes('error')) cls = 'error';
+      else if (line.includes('WARNING') || line.includes('⚠️')) cls = 'warning';
+      return `<div class="log-line ${cls}">${line.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>`;
+    }).join('');
+    document.getElementById('logs').innerHTML = html || 'No logs';
+  } catch(e) {
+    document.getElementById('logs').innerHTML = `<div class="error">Error: ${e.message}</div>`;
+  }
+}
+function downloadLogs() {
+  window.location.href = '/api/logs/download';
+}
+function clearLogs() {
+  if(confirm('Clear logs?')) location.href='/api/logs/clear';
+}
+loadLogs();
+setInterval(loadLogs, 5000);
+</script>
+</body>
+</html>"""
+
+
 # ── HTTP Handler ───────────────────────────────────────────────────────────────
 class DashHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
@@ -1307,6 +1367,28 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
                 except Exception:
                     pass
             self._json(snap)
+
+        elif path in ('/logs', '/logs.html'):
+            # ── Trading Logs Viewer ────────────────────────────────────────────
+            body = LOGS_HTML.encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.send_header('Content-Length', len(body))
+            self.end_headers()
+            self.wfile.write(body)
+
+        elif path == '/api/logs':
+            # ── API: Last 100 trading log lines ────────────────────────────────
+            logs = []
+            log_path = BASE_DIR / 'logs' / 'trading.log'
+            if log_path.exists():
+                try:
+                    with open(log_path, 'r') as f:
+                        lines = f.readlines()[-100:]
+                    logs = [l.rstrip('\n') for l in lines]
+                except Exception:
+                    logs = ['Error reading logs']
+            self._json({'logs': logs})
 
         else:
             self.send_response(404)
