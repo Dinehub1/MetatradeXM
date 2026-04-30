@@ -88,19 +88,38 @@ SYMBOLS = [
         "broker": "GOLD.i#",
         "display": "XAUUSD",
         "pip": 0.10,
-        "contract_size": 100,   # 100 oz/lot → pip_value = pip * contract_size = $10/pip/lot
-        "sl_pips": 35,          # was 80 — tightened caps to reduce per-trade risk
-        "tp_pips": 70,          # was 160 — tightened to match tighter SL
+        "contract_size": 100,
+        "sl_pips": 35,           # fallback if ATR unavailable
+        "tp_pips": 70,
         "lot": 0.01,
+        # 2026-04-30 per-symbol gating (silver more volatile, needs higher bar)
+        "score_threshold": 15,    # min score magnitude to consider trade
+        "min_confidence":  0.65,  # AI confidence floor
+        "adx_min":         22,    # min ADX for trend trades
+        "rsi_oversold":    25,    # tightened from 30
+        "rsi_overbought":  75,    # tightened from 70
+        # ATR-based dynamic stops (preferred over fixed pips)
+        "sl_atr_mult":     1.5,   # SL = 1.5 × M15 ATR
+        "tp_atr_mult":     4.5,   # TP = 4.5 × M15 ATR (R:R 3.0)
+        "trail_atr_mult":  1.0,   # trail distance = 1.0 × ATR
     },
     {
         "broker": "SILVER.i#",
         "display": "XAGUSD",
         "pip": 0.01,
         "contract_size": 5000,
-        "sl_pips": 15,
-        "tp_pips": 30,
+        "sl_pips": 25,           # 15→25 (silver moves 1.7x more)
+        "tp_pips": 80,           # 30→80 (R:R 3.2)
         "lot": 0.01,
+        # Silver-specific gating (higher bar — historically choppy 27% WR)
+        "score_threshold": 18,    # +18 vs gold's +15
+        "min_confidence":  0.72,  # 72% vs gold's 65%
+        "adx_min":         28,    # silver only trades strongest trends
+        "rsi_oversold":    25,
+        "rsi_overbought":  75,
+        "sl_atr_mult":     1.5,
+        "tp_atr_mult":     4.5,
+        "trail_atr_mult":  1.2,   # silver trails wider (more breathing room)
     },
 ]
 
@@ -577,37 +596,31 @@ def build_order_params(
     price = tick.ask if direction == "BUY" else tick.bid
     digits = 2 if pip >= 0.01 else 5
 
-    # ── Regime-aware ATR multipliers ──────────────────────────────────────
-    sl_mult = 1.2
-    tp_mult = 2.0
+    # ── ATR-based SL/TP (per-symbol multipliers + regime adjustment) ──────
+    # 2026-04-30: Removed min() cap on sl_pips/tp_pips — fixed caps were
+    # truncating ATR-based stops, causing R:R compression in high vol.
+    sl_mult = sym_cfg.get("sl_atr_mult", 1.5)
+    tp_mult = sym_cfg.get("tp_atr_mult", 4.5)
 
     if regime_data:
         vol_state = regime_data.get('volatility_state', 'NORMAL')
-        strat = regime_data.get('recommended_strategy', '')
-
-        # In highly volatile markets, widen SL to avoid getting whipped out
-        if vol_state == "EXPANDING" or vol_state == "HIGH":
-            sl_mult = 1.5
-            tp_mult = 2.5  # Let runners run in high vol
+        if vol_state in ("EXPANDING", "HIGH"):
+            sl_mult *= 1.10   # +10% wider stops
+            tp_mult *= 1.10
         elif vol_state == "COMPRESSED":
-            sl_mult = 1.0  # Tight stops for breakouts
-            tp_mult = 1.8
+            sl_mult *= 0.85   # -15% tighter stops
+            tp_mult *= 0.85
 
-    # ── ATR-based dynamic SL/TP (capped for scalping) ─────────────────────
     if atr > 0:
-        sl_pips = min(int(atr * sl_mult / pip), sym_cfg["sl_pips"])
-        tp_pips = min(int(atr * tp_mult / pip), sym_cfg["tp_pips"])
-        # Floor: minimum viable SL/TP
-        sl_floor = 20 if pip >= 0.10 else 5
-        tp_floor = 35 if pip >= 0.10 else 10
-        sl_pips = max(sl_pips, sl_floor)
-        tp_pips = max(tp_pips, tp_floor)
-
-        # Regime-based R:R Enforcement
-        min_rr = 1.5 if (regime_data and "MEAN_REVERSION" in regime_data.get('recommended_strategy', '')) else 1.8
+        # Pure ATR-based (no cap from fixed sl_pips — let vol regime drive size)
+        sl_pips = max(int(atr * sl_mult / pip), 15 if pip >= 0.10 else 5)
+        tp_pips = max(int(atr * tp_mult / pip), 35 if pip >= 0.10 else 10)
+        # Enforce minimum R:R 2.5 (was 1.8 — too low for 49% WR)
+        min_rr = 2.5
         if tp_pips < sl_pips * min_rr:
             tp_pips = int(sl_pips * min_rr)
     else:
+        # Fallback if ATR unavailable
         sl_pips = sym_cfg["sl_pips"]
         tp_pips = sym_cfg["tp_pips"]
 
@@ -618,18 +631,38 @@ def build_order_params(
         sl = round(price + sl_pips * pip, digits)
         tp = round(price - tp_pips * pip, digits)
 
-    # ── Kelly Criterion Position Sizing ───────────────────────────────────
-    # f* = p - (1-p)/b  (half-Kelly for risk management)
+    # ── Kelly Criterion + Risk-Based Position Sizing ─────────────────────
+    # 2026-04-30: Balance-aware sizing.
+    # Risk 1% per trade × quarter-Kelly multiplier (conservative).
+    # f* = p - (1-p)/b   where p=confidence, b=R:R
     p = min(confidence, 0.85)
     b = tp_pips / sl_pips if sl_pips > 0 else 2.0
     kelly_f = max(0.0, p - ((1 - p) / b))
-    half_kelly = kelly_f / 2.0
-    conf_mult = min(half_kelly / 0.35, 1.0)
-    if confidence >= 0.55:
-        conf_mult = max(conf_mult, 0.3)
-    log.info(f"   [KELLY] p={p:.2f} b={b:.2f} | Half-Kelly={half_kelly:.3f} | Mult={conf_mult:.2f}")
+    quarter_kelly = kelly_f / 4.0   # quarter-Kelly = much safer than half
 
-    lot = round(max(sym_cfg["lot"] * conf_mult * lot_reduction, 0.01), 2)
+    # Base risk: 1% of balance (capped if no balance available)
+    balance = sym_cfg.get("_account_balance", 0) or 1000.0
+    risk_pct = 0.01 * (1 + quarter_kelly)   # 1.0%–1.25% scaling
+    risk_dollars = balance * risk_pct
+
+    # Pip value per lot ($10/pip for gold, $50/pip for silver)
+    pip_value_per_lot = pip * sym_cfg["contract_size"]
+    sl_dollars_per_lot = sl_pips * pip_value_per_lot
+
+    if sl_dollars_per_lot > 0:
+        kelly_lot = risk_dollars / sl_dollars_per_lot
+    else:
+        kelly_lot = sym_cfg["lot"]
+
+    # Apply confidence multiplier on top (favors higher-conviction trades)
+    conf_mult = max(0.3, min((confidence - 0.5) / 0.35, 1.0))
+    lot = round(max(kelly_lot * conf_mult * lot_reduction, 0.01), 2)
+    # Hard cap at 0.50 (safety brake until live track record proves the system)
+    lot = min(lot, 0.50)
+    log.info(
+        f"   [KELLY] p={p:.2f} b={b:.2f} | qK={quarter_kelly:.3f} | risk={risk_pct:.1%} "
+        f"(${risk_dollars:.2f}) | sl=${sl_dollars_per_lot:.2f}/lot | lot={lot}"
+    )
 
     return {
         "symbol": sym_cfg["broker"],
@@ -756,10 +789,14 @@ class ContinuousTrader:
         # Not persisted — a clean restart resets the marker while streak counts survive.
         self._circuit_break_until: dict = {}  # display_symbol -> cycle number
 
-        # Post-trade cooldown: prevents churn re-entries within 5 min of ANY exit.
-        # Analysis showed 463 churn trades (re-entered <2 min) = -$1,756.
-        self._last_trade_time: dict = {}  # broker_symbol -> epoch time of last trade
-        self._TRADE_COOLDOWN_SECS = 300  # 5 minutes between trades on same symbol
+        # Post-trade cooldown: prevents churn re-entries.
+        # 2026-04-30: Split into same-dir (5min) vs any-dir (90s) for flexibility:
+        #   - Same direction within 5min = likely chasing/revenge — BLOCK
+        #   - Opposite direction within 90s = legit reversal at level — ALLOW
+        self._last_trade_time: dict = {}      # broker_symbol -> epoch time
+        self._last_trade_dir:  dict = {}      # broker_symbol -> "BUY"/"SELL"
+        self._TRADE_COOLDOWN_SAME_DIR = 300   # same direction: 5 min
+        self._TRADE_COOLDOWN_ANY_DIR  = 90    # any direction: 90s
 
         # Set up signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._handle_stop)
@@ -1283,12 +1320,21 @@ class ContinuousTrader:
                         log.info(f"ACTION | {disp} | cooldown after loss | wait {int(_cooldown_remaining)}s")
                         can_open_new = False
 
-                    # Post-trade cooldown: no re-entry within 5 min of ANY trade (win or loss)
-                    # This alone would have prevented 400+ of the 463 churn trades = saved $1,756
-                    _trade_cd_remaining = self._TRADE_COOLDOWN_SECS - (time.time() - self._last_trade_time.get(broker_sym, 0))
-                    if can_open_new and _trade_cd_remaining > 0:
-                        log.info(f"ACTION | {disp} | post-trade cooldown | wait {int(_trade_cd_remaining)}s")
-                        can_open_new = False
+                    # Post-trade cooldown: split same-direction vs any-direction
+                    # Same direction = chasing/revenge → 5min block
+                    # Opposite direction = legit reversal → 90s block only
+                    _last_t   = self._last_trade_time.get(broker_sym, 0)
+                    _last_dir = self._last_trade_dir.get(broker_sym, None)
+                    _elapsed  = time.time() - _last_t
+                    if can_open_new and _last_t > 0:
+                        if direction == _last_dir and _elapsed < self._TRADE_COOLDOWN_SAME_DIR:
+                            _wait = int(self._TRADE_COOLDOWN_SAME_DIR - _elapsed)
+                            log.info(f"ACTION | {disp} | same-dir cooldown ({direction}) | wait {_wait}s")
+                            can_open_new = False
+                        elif _elapsed < self._TRADE_COOLDOWN_ANY_DIR:
+                            _wait = int(self._TRADE_COOLDOWN_ANY_DIR - _elapsed)
+                            log.info(f"ACTION | {disp} | post-trade cooldown | wait {_wait}s")
+                            can_open_new = False
 
                     # ── ADX: advisory not exclusionary ───────────────────────
                     # ADX tells us trend STRENGTH — not whether to trade.
@@ -1384,27 +1430,52 @@ class ContinuousTrader:
                     # 4. Loss-streak modifier removed from gate — circuit breaker handles it
                     _streak_mod = 0.0
 
-                    # Calculate final adaptive gate
+                    # Calculate final adaptive gate (per-symbol minimum)
+                    # 2026-04-30: silver requires 0.72 floor vs gold's 0.65
+                    _per_sym_min = sym_cfg.get("min_confidence", 0.65)
                     _conf_gate = round(_base_conf + _regime_mod + _sess_wr_mod + _streak_mod, 3)
-                    _conf_gate = max(0.65, min(0.85, _conf_gate))  # 0.35→0.65: filter noise; 0.82→0.85: cap higher
+                    _conf_gate = max(_per_sym_min, min(0.85, _conf_gate))
                     log.info(
                         f"RISK | {disp} | gate {_conf_gate:.0%} | base {_base_conf:.0%} | "
-                        f"regime({_regime_label}) {_regime_mod:+.0%} | sess_wr {_sess_wr_mod:+.0%}"
+                        f"per_sym_floor {_per_sym_min:.0%} | regime({_regime_label}) {_regime_mod:+.0%} | sess_wr {_sess_wr_mod:+.0%}"
                     )
 
+                    # Per-symbol score threshold check (silver needs ±18 vs gold ±15)
+                    _sym_score_min = sym_cfg.get("score_threshold", 15)
+                    _sig_score_now = abs(signal_data.get("score", 0))
+                    if _sig_score_now < _sym_score_min:
+                        log.info(
+                            f"ACTION | {disp} | skip entry | score {_sig_score_now:.1f} below "
+                            f"per-symbol threshold {_sym_score_min}"
+                        )
+                        continue
+
+                    # Per-symbol ADX minimum (gold 22, silver 28)
+                    _sym_adx_min = sym_cfg.get("adx_min", 22)
+                    _sig_adx = signal_data.get("indicators", {}).get("adx", 0)
+                    if _sig_adx < _sym_adx_min:
+                        log.info(
+                            f"ACTION | {disp} | skip entry | ADX {_sig_adx:.1f} below "
+                            f"per-symbol min {_sym_adx_min}"
+                        )
+                        continue
+
                     # ── Regime direction block ─────────────────────────────────────
-                    # NEVER sell into a strong uptrend or buy into a strong downtrend
-                    # unless confidence is extremely high (>=0.88 with AI confirmation)
+                    # 2026-04-30: Tightened threshold 0.88→0.78. Anti-fade rule:
+                    # never short a strong uptrend / long a strong downtrend
+                    # unless confidence is genuinely high (78%+ vs old 88%).
+                    # 88% was effectively unreachable, making rule cosmetic.
                     _regime_label_now = signal_data.get("factor_scores", {}).get("adx_regime", "")
                     _regime_blocked = False
+                    _REGIME_OVERRIDE_CONF = 0.78
                     if direction == "SELL" and "STRONG_TREND_UP" in _regime_label_now:
-                        if confidence < 0.88:
+                        if confidence < _REGIME_OVERRIDE_CONF:
                             _regime_blocked = True
-                            log.info(f"ACTION | {disp} | regime_block | SELL blocked in STRONG_TREND_UP (conf {confidence:.0%} < 88%)")
+                            log.info(f"ACTION | {disp} | regime_block | SELL blocked in STRONG_TREND_UP (conf {confidence:.0%} < {_REGIME_OVERRIDE_CONF:.0%})")
                     elif direction == "BUY" and "STRONG_TREND_DOWN" in _regime_label_now:
-                        if confidence < 0.88:
+                        if confidence < _REGIME_OVERRIDE_CONF:
                             _regime_blocked = True
-                            log.info(f"ACTION | {disp} | regime_block | BUY blocked in STRONG_TREND_DOWN (conf {confidence:.0%} < 88%)")
+                            log.info(f"ACTION | {disp} | regime_block | BUY blocked in STRONG_TREND_DOWN (conf {confidence:.0%} < {_REGIME_OVERRIDE_CONF:.0%})")
 
                     if (
                         can_open_new
@@ -1428,11 +1499,22 @@ class ContinuousTrader:
                                     _atr_history = _tr.tail(50).tolist()
                             except Exception:
                                 pass
+                            # Compute spread + ATR (pips) for SpreadFilter
+                            _atr_raw = signal_data.get("indicators", {}).get("atr", 0) or 0
+                            _atr_pips = (_atr_raw / sym_cfg["pip"]) if sym_cfg["pip"] > 0 else 0
+                            try:
+                                _tick_now = self.bridge.get_tick(broker_sym)
+                                _spread_pips = (_tick_now.ask - _tick_now.bid) / sym_cfg["pip"]
+                            except Exception:
+                                _spread_pips = 0
                             filter_ctx = {
                                 "session": session,
+                                "confidence": confidence,
                                 "indicators": signal_data.get("indicators", {}),
                                 "hour_utc": datetime.now(timezone.utc).hour,
                                 "atr_history": _atr_history,
+                                "atr_pips": _atr_pips,
+                                "spread_pips": _spread_pips,
                                 "other_symbol_signal": self._get_other_signal(disp),
                                 "xau_xag_correlation": 0,
                             }
@@ -1493,6 +1575,12 @@ class ContinuousTrader:
 
                         # ── Build order with ATR-based SL/TP ─────────────
                         atr = signal_data.get("indicators", {}).get("atr", 0)
+                        # Inject balance for Kelly sizing (1% risk per trade)
+                        try:
+                            _acct_info = self.bridge.get_account_info()
+                            sym_cfg["_account_balance"] = float(getattr(_acct_info, "balance", 0))
+                        except Exception:
+                            sym_cfg["_account_balance"] = 0
                         order = build_order_params(
                             sym_cfg,
                             tick,
@@ -1597,8 +1685,9 @@ class ContinuousTrader:
 
                                 self.state["total_trades"] += 1
                                 _save_state(self.state)
-                                # Record trade time for post-trade cooldown
+                                # Record trade time + direction for split cooldown
                                 self._last_trade_time[broker_sym] = time.time()
+                                self._last_trade_dir[broker_sym] = direction
                                 time.sleep(0.5)
                                 positions_by_sym = get_positions_by_symbol(self.bridge)
                             else:

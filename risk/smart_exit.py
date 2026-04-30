@@ -36,47 +36,52 @@ DB_PATH = DATA_DIR / "trade_memory.db"
 #   - Tiny wins ($0.08, $0.10) from breakeven SL closing on micro-pullbacks
 #   - Single position lost -$533 (no per-position stop)
 EXIT_CFG = {
-    # Profit taking — partial close at 80 pips (backtest avg win = 100 pips)
+    # ═══════════════════════════════════════════════════════════════
+    # TRAIL-ONLY MODE (2026-04-30)
+    # Backtest data: 511 TRAIL exits = +51,179 pips (100% of profit)
+    #                138 BE exits   = -138 pips (USELESS, removed)
+    #                131 SL exits   = -4,192 pips (acceptable losses)
+    # Removed all exit overrides that capped winners at 8-15 pips.
+    # Only: trailing stop, hard SL, USD cap, emergency time cut.
+    # ═══════════════════════════════════════════════════════════════
+
+    # Profit taking — partial close at 80 pips (let big wins compound)
     "partial_close_pips":      80,
     "partial_close_fraction":  0.33,
 
-    # Breakeven — trigger later so micro-pullbacks don't close at +1 pip
-    # Backtest BE exits averaged -1 pip — they were useless. Trigger later.
-    "breakeven_trigger_pips":  20,       # 8→20: wait for real profit before moving BE
-    "breakeven_buffer_pips":   10.0,     # lock 10 pips (not 12)
+    # Breakeven — DISABLED (backtest avg -1 pip per BE exit = useless)
+    "breakeven_trigger_pips":  999,      # effectively disabled
+    "breakeven_buffer_pips":   10.0,
 
-    # Momentum reversal — disabled, AI is too slow for live reversals
+    # Momentum reversal — DISABLED (AI too slow for live exit decisions)
     "reversal_check_enabled":  False,
     "reversal_min_factors":    3,
 
-    # Time decay — backtest showed winners can run 6-12 hours. Don't kill them.
-    "max_trade_age_hours":     8,        # 3→8: give trades room to develop
-    "stale_min_profit_pips":   30,       # 22→30: only close stale if meaningful profit
-    "stale_check_hours":       4.0,      # 1.5→4.0: don't rush stale check
+    # Time decay — DISABLED (backtest showed winners run 6-24+ hours)
+    "max_trade_age_hours":     72,       # 8→72: 3 days max
+    "stale_min_profit_pips":   999,      # disabled
+    "stale_check_hours":       12.0,
 
-    # Trailing stop — start LATER so trades can breathe to 100-pip target
-    # Backtest TRAIL exits: avg +100 pips. Start trail at 35 so trades reach target.
-    "trailing_start_pips":     35,       # 15→35: let trade develop before trailing
-    "trailing_distance_pips":  20,       # 10→20: wider trail in gold's ATR range
+    # Trailing stop — THE PROFIT ENGINE (backtest avg +100 pips per trail exit)
+    "trailing_start_pips":     35,       # let trade develop to 35p before trailing
+    "trailing_distance_pips":  20,       # ATR-adaptive in code (15-25p range)
 
-    # AI confirmation — off (too slow for exit decisions)
+    # AI confirmation — disabled (slow + adds variance)
     "ai_confirm_exits":        False,
     "ai_timeout":              10,
 
-    # Loss cut — give gold breathing room (ATR ~30-50 pips per M15 candle)
-    # loss_time_cut at 5 min was closing trades before natural price action completed
-    "loss_cut_pips":           30,       # 20→30: match initial SL distance
+    # Loss cut — emergency only, NOT proactive cutting
+    "loss_cut_pips":           30,       # close half if -30 pips
     "loss_cut_fraction":       0.5,
-    "loss_time_cut_minutes":   25,       # 5→25: gold needs 20-30 min breathing room
-    "max_position_loss_usd":   30,       # KEEP: hard $30 cap (prevents -$533 disasters)
+    "loss_time_cut_minutes":   60,       # 25→60: only kill after 1hr of pure pain
+    "max_position_loss_usd":   30,       # KEEP: hard $30 cap (anti-disaster)
 
-    # Winner protection — backtest avg win 100 pips. Don't close at 15→8.
-    # Raise to 50→25: protect trades that went big but not micro-winners.
-    "winner_peak_pips":        50,       # 15→50: don't kill a 15-pip trade, let it run
-    "winner_floor_pips":       25,       # 8→25: meaningful protection floor
+    # Winner protection — DISABLED (was killing 100-pip trades at 15→8)
+    "winner_peak_pips":        999,      # disabled — let trail handle profit
+    "winner_floor_pips":       25,
 
-    # Profit floor — raised to match new winner threshold
-    "min_lock_pips":           15,       # 5→15: lock real profit, not $0.50
+    # Profit floor — DISABLED (let trail do the work)
+    "min_lock_pips":           999,
 }
 
 

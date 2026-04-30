@@ -35,44 +35,21 @@ class StrategyFilter:
 
 class TimeOfDayFilter(StrategyFilter):
     """
-    Session-aware activity filter — DATA-DRIVEN from 30-day live trade analysis.
-
-    Hourly WR/P&L breakdown (UTC) showed:
-      05–07: 71% WR  +$48    ✅ London open — best window
-      14:    62% WR  +$102   ✅ NY morning
-      08–13: 47–64% WR -$1,206 ⚠️  Mixed (allow with conf gate)
-      15–17: 36–46% WR -$835  ❌ NY mid — block
-      18–04: 23–32% WR -$2,007 ❌ NY late + Asian — block (worst)
-
-    Total: 18:00–04:59 UTC accounts for $1,963 of the $3,707 30-day loss.
+    2026-04-30: NON-BLOCKING. All hours allowed.
+    Spread cost is the real issue (handled by SpreadFilter), not the clock.
+    Adds lot reduction during historically weak windows but never vetoes.
     """
     name = "time_of_day"
-
-    # Hours where the bot historically loses money (UTC)
-    # 2026-04-30: Relaxed to require high confidence instead of hard block
-    # 18-04 UTC had 23-32% WR but new 0.65 conf gate + smart exit may help
-    # premium window:  5–7, 14 (trade freely)
-    # caution window:  8–13, 15–17, 18–04 (need 72%+ conf)
-    PREMIUM_HOURS = {5, 6, 7, 14}
-    CAUTION_HOURS = set(range(8, 18)) | {18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4}
+    PREMIUM_HOURS = {5, 6, 7, 14}        # London open + NY morning
 
     def should_trade(self, symbol, direction, context):
-        now = datetime.now(timezone.utc)
-        h   = now.hour
-
-        # Premium hours: trade freely
+        h = datetime.now(timezone.utc).hour
+        # Boost during premium windows: no lot reduction, just allow
         if h in self.PREMIUM_HOURS:
             return True, ""
-
-        # Caution hours (8-13, 15-17, 18-04): require higher confidence
-        # Previous hard block at 18-04 removed. Rely on confidence gate instead.
-        if h in self.CAUTION_HOURS:
-            conf = context.get("confidence", 1.0)
-            if conf < 0.72:
-                return False, (
-                    f"Session filter: hour {h:02d} UTC needs 72%+ confidence "
-                    f"(got {conf:.0%}) — caution window (hist 23-64% WR)"
-                )
+        # All other hours: allow but reduce position size by 20%
+        # (size adjustment is non-blocking — high-confidence trades still go through)
+        context["_lot_reduction"] = min(context.get("_lot_reduction", 1.0), 0.80)
 
         # Reduce lot 30% during mixed hours
         context["_lot_reduction"] = min(context.get("_lot_reduction", 1.0), 0.7)
@@ -183,8 +160,8 @@ class SilverADXFilter(StrategyFilter):
     """
     name = "silver_adx"
 
-    SILVER_ADX_MIN  = 30   # was 22 — raised after 27% WR
-    SILVER_CONF_MIN = 0.80 # raise from 0.75
+    SILVER_ADX_MIN  = 28   # 30→28: aligns with per-symbol adx_min in SYMBOLS
+    SILVER_CONF_MIN = 0.72 # 0.80→0.72: matches per-symbol min_confidence floor
 
     def should_trade(self, symbol, direction, context):
         sym_upper = symbol.upper()
@@ -210,6 +187,38 @@ class SilverADXFilter(StrategyFilter):
         # Always halve silver lot size until WR improves
         context["_lot_reduction"] = min(context.get("_lot_reduction", 1.0), 0.5)
         return True, "Silver — lot halved until WR improves"
+
+
+class SpreadFilter(StrategyFilter):
+    """
+    2026-04-30: Spread-aware filter (replaces hour-based blocking).
+
+    Real cost of trading 18-04 UTC isn't the time — it's the spread.
+    Gold spread normally ~20¢ (2 pips); during off-hours it can be $1.00 (10 pips).
+    A 35 pip TP with 10 pip spread = your effective TP is only 25 pips
+    while SL still costs full 35 = R:R compresses to 0.71 (loses money).
+
+    Rule: if current spread > 30% of M15 ATR, require very high conviction.
+    """
+    name = "spread_aware"
+
+    def should_trade(self, symbol, direction, context):
+        spread = context.get("spread_pips", 0)
+        atr_pips = context.get("atr_pips", 0)
+        if atr_pips <= 0 or spread <= 0:
+            return True, ""  # no data = pass
+
+        spread_pct = spread / atr_pips
+        if spread_pct > 0.30:
+            conf = context.get("confidence", 0)
+            if conf < 0.78:
+                return False, (
+                    f"Spread filter: {spread:.1f}p ({spread_pct:.0%} of ATR) — "
+                    f"need 78%+ conf to overcome spread cost (got {conf:.0%})"
+                )
+            # High-conviction trades still go through but with lot reduction
+            context["_lot_reduction"] = min(context.get("_lot_reduction", 1.0), 0.7)
+        return True, ""
 
 
 class CorrelationFilter(StrategyFilter):
@@ -241,13 +250,16 @@ class FilterChain:
     """Runs all filters. Trade is blocked if ANY filter vetoes."""
 
     def __init__(self, filters=None):
+        # 2026-04-30: SpreadFilter replaces hour-based blocking
+        # Order: cheapest checks first, expensive last
         self.filters = filters or [
-            TimeOfDayFilter(),
-            DayOfWeekFilter(),
-            VolatilityFilter(),
-            NYLateSessionFilter(),
-            SilverADXFilter(),
-            CorrelationFilter(),
+            DayOfWeekFilter(),       # only blocks 30min Mon open / Fri close
+            VolatilityFilter(),      # ATR percentile (size adjustment)
+            TimeOfDayFilter(),       # NON-BLOCKING — premium hours boost
+            SpreadFilter(),          # NEW: real cost of off-hours
+            NYLateSessionFilter(),   # ADX-based check during NY late
+            SilverADXFilter(),       # silver-specific (ADX 28+)
+            CorrelationFilter(),     # XAU/XAG divergence
         ]
 
     def evaluate(self, symbol: str, direction: str, context: dict) -> tuple:

@@ -5,9 +5,9 @@
   "ranging_penalty": 0.65,
   "f1_h4_trend": 1.0,
   "f2_h1_trend": 1.0,
-  "f3_rsi": 1.0,
+  "f3_rsi": 1.1,
   "f4_macd": 1.0,
-  "f5_adx": 1.0,
+  "f5_adx": 1.1,
   "f6_stoch": 1.0,
   "f7_bb": 1.0,
   "f8_h1_rsi": 0.5,
@@ -15,7 +15,7 @@
   "f10_d1": 0.7,
   "f11_candle": 0.8,
   "f12_fibonacci": 0.9,
-  "last_adjusted": "2026-04-29",
+  "last_adjusted": "2026-04-30",
   "adjustment_history": [
     {
       "date": "2026-04-15",
@@ -40,6 +40,10 @@
     {
       "date": "2026-04-29",
       "change": "Threshold 12->15 (require stronger confluence). ranging_penalty 0.70->0.65 (harder to trade choppy market). Backtest shows 65.5% WR achievable \u2014 noise from sub-threshold signals was causing losses."
+    },
+    {
+      "date": "2026-04-30",
+      "change": "PHASE 2 OPTIMIZE: f3_rsi 1.0->1.1, f5_adx 1.0->1.1 (boost reliable factors). Per-symbol thresholds (silver +18) handled in code."
     }
   ]
 }

@@ -702,19 +702,19 @@ class MarketAnalyzer:
                   'MILD_BEAR': -4, 'BEARISH': -8}
         f2 = h1_map.get(h1['ema_trend'], 0)
 
-        # F3: RSI zone — NOW DIRECTIONALLY SIGNED
-        # RSI < 30 = oversold = bullish (+), RSI > 70 = overbought = bearish (-)
+        # F3: RSI zone — TIGHTENED 2026-04-30 (25/75 vs old 30/70)
+        # Stricter levels = fewer false reversal signals = higher quality entries
         rsi = m15['rsi']
-        if rsi < 30:
-            f3 = min((50 - rsi) / 2, 10)     # +10 at RSI 30, +12.5 at RSI 25
-        elif rsi > 70:
-            f3 = -min((rsi - 50) / 2, 10)    # -10 at RSI 70, -12.5 at RSI 75
-        elif rsi < 40:
-            f3 = (50 - rsi) / 5              # mild bullish +2 at RSI 40
-        elif rsi > 60:
-            f3 = -(rsi - 50) / 5             # mild bearish -2 at RSI 60
+        if rsi < 25:
+            f3 = min((50 - rsi) / 2, 12)     # +12 at RSI 25, +12.5 at RSI 25
+        elif rsi > 75:
+            f3 = -min((rsi - 50) / 2, 12)    # -12 at RSI 75
+        elif rsi < 35:
+            f3 = (50 - rsi) / 5              # mild bullish (was at 40)
+        elif rsi > 65:
+            f3 = -(rsi - 50) / 5             # mild bearish (was at 60)
         else:
-            f3 = 0                            # neutral zone 40-60
+            f3 = 0                            # neutral zone 35-65 (was 40-60)
 
         # F4: MACD momentum — NOW DIRECTIONALLY SIGNED
         macd_sig = m15['macd_signal']
