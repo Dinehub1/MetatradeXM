@@ -1659,6 +1659,11 @@ class ContinuousTrader:
                             regime_data=signal_data.get("factor_scores"),
                         )
 
+                        # Validate order was built successfully
+                        if order is None:
+                            log.warning(f"[ORDER] Failed to build order for {disp} - skipping signal")
+                            continue
+
                         # ── PYRAMID SYSTEM: Force 0.01 lot for tranche 1 ──
                         # Pyramid manager controls all lot sizing across tranches
                         order["lot"] = 0.01
