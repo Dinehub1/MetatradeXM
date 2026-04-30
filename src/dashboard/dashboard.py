@@ -1290,6 +1290,10 @@ header{background:rgba(6,9,15,.92);backdrop-filter:blur(14px);border-bottom:1px 
     <button class="fbtn" onclick="setSymbol('XAGUSD',this)">XAGUSD</button>
   </div>
 </div>
+<div id="positions-banner" style="background:rgba(0,229,255,.08);border-bottom:1px solid var(--border);padding:12px 16px;display:none">
+  <div style="font-size:11px;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.08em">📍 Open Position</div>
+  <div id="position-content" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px">Loading...</div>
+</div>
 <div id="logs">Loading signals...</div>
 <div id="status-bar">
   <span id="count">0 signals</span>
@@ -1454,8 +1458,40 @@ function setSymbol(sym,btn){
   renderSignals(parseSignals(allLogs));
 }
 function downloadLogs(){window.location.href='/api/logs/download';}
+
+async function loadPositions(){
+  try{
+    const r=await fetch('/api/open-positions',{credentials:'same-origin'});
+    const data=await r.json();
+    const positions=data.positions||[];
+
+    if(positions.length>0&&!positions[0].error){
+      const banner=document.getElementById('positions-banner');
+      const content=document.getElementById('position-content');
+      banner.style.display='block';
+
+      content.innerHTML=positions.map(p=>`
+        <div style="background:rgba(0,229,255,.04);border:1px solid rgba(0,229,255,.2);border-radius:6px;padding:10px">
+          <div style="font-weight:600;margin-bottom:8px;color:var(--cyan)">${p.symbol}</div>
+          <div style="font-size:10px;line-height:1.6;font-family:var(--mono)">
+            <div><span style="color:var(--muted)">Price:</span> <span style="color:var(--text)">${p.price.toFixed(p.price>100?2:4)}</span></div>
+            <div><span style="color:var(--muted)">D1:</span> <span style="color:${p.trend_d1.includes('BULL')?'var(--green)':'var(--red)'}">${p.trend_d1}</span></div>
+            <div><span style="color:var(--muted)">H4:</span> <span style="color:${p.trend_h4.includes('BULL')?'var(--green)':'var(--red)'}">${p.trend_h4}</span></div>
+            <div><span style="color:var(--muted)">H1:</span> <span style="color:${p.trend_h1.includes('BULL')?'var(--green)':'var(--red)'}">${p.trend_h1}</span></div>
+            <div><span style="color:var(--muted)">ADX:</span> <span style="color:${p.adx_h4>=25?'var(--green)':'var(--amber)'}">${p.adx_h4.toFixed(1)}</span></div>
+            <div><span style="color:var(--muted)">RSI:</span> <span style="color:${p.rsi>70?'var(--red)':p.rsi<30?'var(--green)':'var(--text)'}">${p.rsi.toFixed(1)}</span></div>
+          </div>
+        </div>
+      `).join('');
+    }
+  }catch(e){
+    console.log('Position load error:',e);
+  }
+}
+
 loadLogs();
-setInterval(loadLogs,5000);
+loadPositions();
+setInterval(()=>{loadLogs();loadPositions();},5000);
 </script>
 </body>
 </html>"""
@@ -1583,6 +1619,48 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
             except Exception as e:
                 logs = [f'Error reading {LOG_FILE}: {e}']
             self._json({'logs': logs, 'source': str(LOG_FILE)})
+
+        elif path == '/api/open-positions':
+            # ── API: Current open positions with entry parameters ────────────
+            positions = []
+            try:
+                import json as j
+                # Get live snapshot for current market data
+                snapshot_file = BASE_DIR / "state" / "live_snapshot.json"
+                if snapshot_file.exists():
+                    snapshot = j.loads(snapshot_file.read_text())
+                    symbols_data = snapshot.get('symbols', {})
+
+                    for sym, data in symbols_data.items():
+                        # Check if we have timeframes (means there's data)
+                        timeframes = data.get('timeframes', {})
+                        if timeframes:
+                            d1 = timeframes.get('D1', {})
+                            h4 = timeframes.get('H4', {})
+                            h1 = timeframes.get('H1', {})
+                            m15 = timeframes.get('M15', {})
+
+                            positions.append({
+                                'symbol': sym,
+                                'price': data.get('indicators', {}).get('price', 0),
+                                'trend_m15': m15.get('ema_trend', '?'),
+                                'trend_h1': h1.get('ema_trend', '?'),
+                                'trend_h4': h4.get('ema_trend', '?'),
+                                'trend_d1': d1.get('ema_trend', '?'),
+                                'adx_m15': m15.get('adx', 0),
+                                'adx_h1': h1.get('adx', 0),
+                                'adx_h4': h4.get('adx', 0),
+                                'adx_d1': d1.get('adx', 0),
+                                'rsi': data.get('indicators', {}).get('rsi', 0),
+                                'bb_position': data.get('indicators', {}).get('bb_position', 'MID'),
+                                'macd_signal': data.get('indicators', {}).get('macd_signal', '?'),
+                                'atr': data.get('indicators', {}).get('atr', 0),
+                                'last_update': data.get('_last_update', 0),
+                            })
+            except Exception as e:
+                positions = [{'error': str(e)}]
+
+            self._json({'positions': positions})
 
         else:
             self.send_response(404)
