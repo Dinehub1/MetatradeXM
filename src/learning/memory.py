@@ -470,6 +470,8 @@ class TradeMemory:
                     for factor_name, value in factors.items():
                         if factor_name == 'adx_regime' or factor_name == 'bb_squeeze':
                             continue
+                        if not isinstance(value, (int, float)) or isinstance(value, bool):
+                            continue
                         if factor_name not in stats:
                             stats[factor_name] = {'win_vals': [], 'loss_vals': []}
                         if outcome == 'WIN':

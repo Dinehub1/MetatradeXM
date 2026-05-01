@@ -174,7 +174,7 @@ class PerformanceAnalyzer:
             if len(trades) >= 3:
                 wins = sum(1 for t in trades if t.get("outcome") == "WIN")
                 wr = wins / len(trades)
-                avg_pips = sum(t.get("pips_result", 0) for t in trades) / len(trades)
+                avg_pips = sum(t.get("pips_result") or 0 for t in trades) / len(trades)
                 if wr >= 0.7 or wr <= 0.3:
                     patterns.append({
                         "type": "session_bias",
@@ -207,8 +207,8 @@ class PerformanceAnalyzer:
                     })
 
         # Pattern 3: Confidence-calibration check
-        high_conf = [o for o in outcomes if o.get("confidence", 0) >= 0.70]
-        low_conf = [o for o in outcomes if 0.55 <= o.get("confidence", 0) < 0.70]
+        high_conf = [o for o in outcomes if (o.get("confidence") or 0) >= 0.70]
+        low_conf = [o for o in outcomes if 0.55 <= (o.get("confidence") or 0) < 0.70]
 
         if len(high_conf) >= 3:
             hc_wr = sum(1 for o in high_conf if o.get("outcome") == "WIN") / len(high_conf)
@@ -240,7 +240,7 @@ class PerformanceAnalyzer:
         adjustments = {}
 
         # 1. Calculate baseline win rate to contextualize factor performance
-        total_wins = sum(1 for o in outcomes if o.get("profit", 0) > 0)
+        total_wins = sum(1 for o in outcomes if (o.get("pips_result") or 0) > 0)
         baseline_wr = total_wins / len(outcomes) if outcomes else 0.5
 
         for factor_name, stats in factor_stats.items():
@@ -325,7 +325,7 @@ class PerformanceAnalyzer:
         total = len(outcomes)
         wins = sum(1 for o in outcomes if o.get("outcome") == "WIN")
         losses = sum(1 for o in outcomes if o.get("outcome") == "LOSS")
-        total_pips = sum(o.get("pips_result", 0) for o in outcomes)
+        total_pips = sum(o.get("pips_result") or 0 for o in outcomes)
         avg_pips = total_pips / total if total > 0 else 0
 
         report = [

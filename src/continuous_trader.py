@@ -1404,16 +1404,45 @@ class ContinuousTrader:
                         # RSI > 75 on BUY  = extreme euphoria (continuation likely)
                         _is_capitulation_sell = direction == "SELL" and rsi_val < 25
                         _is_capitulation_buy  = direction == "BUY"  and rsi_val > 75
+                        # RSI exhaustion check — shared across all exceptions to prevent bounce risk
+                        _rsi_not_exhausted = (
+                            (direction == "SELL" and rsi_val >= 28) or
+                            (direction == "BUY"  and rsi_val <= 72)
+                        )
                         # Full-stack alignment exception: overwhelming evidence across all factors
-                        _is_overwhelm = abs(_sig_score_raw) >= 20 and confidence >= 0.78
+                        # CRITICAL: Even overwhelming signals must avoid exhaustion zones (RSI < 28 on SELL)
+                        _is_overwhelm = abs(_sig_score_raw) >= 20 and confidence >= 0.78 and _rsi_not_exhausted
+                        # Strong trend continuation exception: in exceptional trends, oversold/overbought
+                        # RSI is a feature not a bug — the trend is strong enough to stay extended.
+                        # Requires: STRONG_TREND regime + ADX > 45 + score > 1.8× threshold
+                        # CRITICAL GUARD: RSI must NOT be at exhaustion level (< 28 sell / > 72 buy).
+                        # RSI 20–27 after a 100-pip drop = exhaustion bounce risk, NOT continuation.
+                        # Only bypass fade block if RSI is in the 28–50 zone (pullback within trend).
+                        _fb_regime = signal_data.get("factor_scores", {}).get("adx_regime", "")
+                        _fb_thresh = sym_cfg.get("score_threshold", 15)
+                        _is_trend_continuation = (
+                            "STRONG_TREND" in _fb_regime
+                            and adx_val > 45
+                            and abs(_sig_score_raw) > _fb_thresh * 1.8
+                            and _rsi_not_exhausted
+                            and (
+                                (direction == "SELL" and "DOWN" in _fb_regime)
+                                or (direction == "BUY"  and "UP"   in _fb_regime)
+                            )
+                        )
 
-                        if not (_is_capitulation_sell or _is_capitulation_buy or _is_overwhelm):
+                        if not (_is_capitulation_sell or _is_capitulation_buy or _is_overwhelm or _is_trend_continuation):
                             if direction == "SELL" and adx_val > 40 and rsi_val < 30 and bb_pos in ("BELOW_MID", "BELOW_LOW"):
                                 log.info(f"ACTION | {disp} | fade block | SELL vs exhausted downtrend (ADX={adx_val:.1f} RSI={rsi_val:.1f} BB={bb_pos})")
                                 fade_blocked = True
                             elif direction == "BUY" and adx_val > 40 and rsi_val > 70 and bb_pos in ("ABOVE_MID", "ABOVE_HIGH"):
                                 log.info(f"ACTION | {disp} | fade block | BUY vs exhausted uptrend (ADX={adx_val:.1f} RSI={rsi_val:.1f} BB={bb_pos})")
                                 fade_blocked = True
+                        elif _is_trend_continuation:
+                            log.info(
+                                f"ACTION | {disp} | fade block bypassed | "
+                                f"trend continuation (ADX={adx_val:.1f} RSI={rsi_val:.1f} regime={_fb_regime} score={_sig_score_raw:.1f})"
+                            )
 
                     # Loss cooldown: 10 min rest after a loss (was 3 min — too short, caused churn)
                     _LOSS_COOLDOWN_SECS = 600  # 10 minutes — prevents revenge trading
@@ -1425,14 +1454,32 @@ class ContinuousTrader:
                     # Post-trade cooldown: split same-direction vs any-direction
                     # Same direction = chasing/revenge → 5min block
                     # Opposite direction = legit reversal → 90s block only
+                    # Exception: in exceptional trends (ADX > 35, score > 1.5× threshold,
+                    # STRONG_TREND regime), allow same-direction continuation — riding
+                    # a strong trend is the OPPOSITE of revenge trading.
                     _last_t   = self._last_trade_time.get(broker_sym, 0)
                     _last_dir = self._last_trade_dir.get(broker_sym, None)
                     _elapsed  = time.time() - _last_t
+                    _cd_regime = signal_data.get("factor_scores", {}).get("adx_regime", "")
+                    _cd_adx    = signal_data.get("indicators", {}).get("adx", 0)
+                    _cd_score  = abs(signal_data.get("score", 0))
+                    _cd_thresh = sym_cfg.get("score_threshold", 15)
+                    _exceptional_trend = (
+                        "STRONG_TREND" in _cd_regime
+                        and _cd_adx > 35
+                        and _cd_score > _cd_thresh * 1.5
+                    )
                     if can_open_new and _last_t > 0:
                         if direction == _last_dir and _elapsed < self._TRADE_COOLDOWN_SAME_DIR:
-                            _wait = int(self._TRADE_COOLDOWN_SAME_DIR - _elapsed)
-                            log.info(f"ACTION | {disp} | same-dir cooldown ({direction}) | wait {_wait}s")
-                            can_open_new = False
+                            if _exceptional_trend:
+                                log.info(
+                                    f"ACTION | {disp} | bypass same-dir cooldown | "
+                                    f"exceptional trend (ADX {_cd_adx:.1f}, score {_cd_score:.1f}, regime {_cd_regime})"
+                                )
+                            else:
+                                _wait = int(self._TRADE_COOLDOWN_SAME_DIR - _elapsed)
+                                log.info(f"ACTION | {disp} | same-dir cooldown ({direction}) | wait {_wait}s")
+                                can_open_new = False
                         elif _elapsed < self._TRADE_COOLDOWN_ANY_DIR:
                             _wait = int(self._TRADE_COOLDOWN_ANY_DIR - _elapsed)
                             log.info(f"ACTION | {disp} | post-trade cooldown | wait {_wait}s")
@@ -1507,6 +1554,15 @@ class ContinuousTrader:
                         _regime_mod = -0.05
                     elif _adx_val < 15:
                         _regime_mod = +0.05
+
+                    # ── ADX-adaptive boost: exceptional trends deserve looser gates ──
+                    # ADX > 40 = strong trend (top 20% of conditions)
+                    # ADX > 60 = exceptional trend (top 5% of conditions, rare)
+                    # Stacks on top of regime modifier to capture rare high-edge setups
+                    if _adx_val > 60:
+                        _regime_mod -= 0.05   # additional -5% (total -12% w/ STRONG_TREND)
+                    elif _adx_val > 40:
+                        _regime_mod -= 0.03   # additional -3% (total -10% w/ STRONG_TREND)
 
                     # 3. Session historical win-rate modifier
                     #    If this symbol historically underperforms in this session,
@@ -1675,6 +1731,24 @@ class ContinuousTrader:
                             )
                             skills_used = skill_result["skills_used"]
 
+                        # ── #4: Mathematical Confluence Confidence Boost ──────────
+                        # When score + ADX + MACD all strongly agree, AI tends to
+                        # understate confidence. Apply a calibrated +5% boost.
+                        _cb_score = abs(signal_data.get("score", 0))
+                        _cb_adx   = signal_data.get("indicators", {}).get("adx", 0)
+                        _cb_macd  = signal_data.get("indicators", {}).get("macd_signal", "")
+                        _cb_macd_aligned = (
+                            (direction == "SELL" and "BEAR" in _cb_macd.upper()) or
+                            (direction == "BUY"  and "BULL" in _cb_macd.upper())
+                        )
+                        if _cb_score > 18 and _cb_adx > 40 and _cb_macd_aligned:
+                            _cb_boost = 0.05
+                            confidence = min(confidence + _cb_boost, 0.95)
+                            log.info(
+                                f"ACTION | {disp} | confluence boost +{_cb_boost:.0%} → {confidence:.0%} "
+                                f"(score={_cb_score:.1f} ADX={_cb_adx:.1f} MACD={_cb_macd})"
+                            )
+
                         # ── Build order with ATR-based SL/TP ─────────────
                         atr = signal_data.get("indicators", {}).get("atr", 0)
                         # Inject balance for Kelly sizing (1% risk per trade)
@@ -1698,9 +1772,29 @@ class ContinuousTrader:
                             log.warning(f"[ORDER] Failed to build order for {disp} - skipping signal")
                             continue
 
-                        # ── PYRAMID SYSTEM: Force 0.01 lot for tranche 1 ──
-                        # Pyramid manager controls all lot sizing across tranches
-                        order["lot"] = 0.01
+                        # ── #5: Regime-Aware Position Sizing ─────────────────────
+                        # STRONG_TREND = high edge, scale up initial tranche
+                        # RANGING      = low edge, stay minimal
+                        # Default (WEAK_TREND / unknown) = 0.01 standard
+                        # RSI EXHAUSTION GUARD: Never use 2× lot when RSI is extreme
+                        # (RSI < 28 on SELL / RSI > 72 on BUY = market extended, bounce risk high)
+                        _ps_regime = signal_data.get("factor_scores", {}).get("adx_regime", "")
+                        _ps_rsi    = signal_data.get("indicators", {}).get("rsi", 50)
+                        _ps_rsi_safe = (
+                            (direction == "SELL" and _ps_rsi >= 28) or
+                            (direction == "BUY"  and _ps_rsi <= 72)
+                        )
+                        if "STRONG_TREND" in _ps_regime and _ps_rsi_safe:
+                            _tranche_lot = 0.02   # 2× — strong trend, RSI not exhausted
+                        elif "RANGING" in _ps_regime:
+                            _tranche_lot = 0.01   # stay minimal in choppy conditions
+                        else:
+                            _tranche_lot = 0.01   # WEAK_TREND, exhausted RSI, or unknown
+                        order["lot"] = _tranche_lot
+                        log.info(
+                            f"ACTION | {disp} | regime sizing | lot={_tranche_lot} "
+                            f"regime={_ps_regime or 'UNKNOWN'} rsi={_ps_rsi:.1f}"
+                        )
 
                         # Cache indicators for pyramid tranche checks
                         if self.pyramid:
