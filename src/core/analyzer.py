@@ -1323,6 +1323,23 @@ Williams%R={tv_ind.get('williams_r','?')} Stoch_K={tv_ind.get('stoch_k','?')} St
                 data["confidence"] = max(old_conf * penalty, 0.20)
                 data["reason"] = f"[MTF ×{penalty} ({disagree_count} TFs disagree)] {data.get('reason', '')}"
 
+        # ── WEAK SCORE PENALTY (CRITICAL FIX) ──────────────────────────────
+        # AI model was generating 70-90% confidence on weak scores (8-11).
+        # Score < 12 is genuinely borderline; score < 8 is noise.
+        # Apply confidence penalty based on score strength to prevent
+        # AI from overconfidently overriding weak deterministic signals.
+        _score_abs = abs(ind_score)
+        if ai_direction in ("BUY", "SELL"):
+            if _score_abs < 8:
+                # Score is pure noise (< 8) — cap confidence at 45%
+                data["confidence"] = min(float(data.get("confidence", 0.40)), 0.45)
+                log.info(f"AI-NOTE | {symbol} | weak score {ind_score:+.1f} (< 8) — confidence capped 45%")
+            elif _score_abs < 12:
+                # Score is weak (8-12) — apply 25% penalty to AI confidence
+                old_conf = float(data.get("confidence", 0.65))
+                data["confidence"] = max(old_conf * 0.75, 0.50)  # ×0.75 penalty, floor 50%
+                log.info(f"AI-NOTE | {symbol} | weak score {ind_score:+.1f} (< 12) — confidence ×0.75 penalty")
+
         # Build AI context summary for trace logging (Stage 3)
         bull = sum(1 for v in base_signal.get("factor_scores", {}).values()
                    if isinstance(v, (int, float)) and v > 0)
