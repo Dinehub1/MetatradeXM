@@ -6,6 +6,7 @@ import http.server, json, sqlite3, base64, os
 from datetime import datetime, timezone
 from socketserver import ThreadingMixIn
 from pathlib import Path
+import sys
 
 PORT         = 8889
 BASE_DIR     = Path(__file__).resolve().parent.parent.parent   # src/dashboard/ -> src/ -> project root
@@ -17,6 +18,23 @@ CANDLES_FILE = BASE_DIR / "state" / "candles_cache.json"
 _PM2_LOG     = Path("/home/ubuntu/.pm2/logs/metatradeXM-bot-out.log")
 _BOT_LOG     = BASE_DIR / "logs" / "bot.log"
 LOG_FILE     = _PM2_LOG if _PM2_LOG.exists() else _BOT_LOG
+
+# ── MT5 Bridge initialization ────────────────────────────────────────────────────
+sys.path.insert(0, str(BASE_DIR / "src"))
+try:
+    from bridges.mt5_bridge import MT5Bridge
+    _bridge = None
+    def get_bridge():
+        global _bridge
+        if _bridge is None:
+            _bridge = MT5Bridge()
+            if not _bridge.connect():
+                _bridge = None
+        return _bridge
+except ImportError:
+    _bridge = None
+    def get_bridge():
+        return None
 
 def _current_session() -> str:
     h = datetime.now(timezone.utc).hour
@@ -945,10 +963,12 @@ function updateClock() {
 // ── Poll ──────────────────────────────────────────────────────────────────────
 async function poll() {
   try {
+    const auth='Basic '+btoa('admin:mt5bot2026!');
+    const opts={headers:{Authorization:auth}};
     const [status, history, candles] = await Promise.all([
-      fetch('/api/status').then(r => r.ok ? r.json() : null).catch(() => null),
-      fetch('/api/history').then(r => r.ok ? r.json() : []).catch(() => []),
-      fetch('/api/candles').then(r => r.ok ? r.json() : {}).catch(() => ({}))
+      fetch('/api/status',opts).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch('/api/history',opts).then(r => r.ok ? r.json() : []).catch(() => []),
+      fetch('/api/candles',opts).then(r => r.ok ? r.json() : {}).catch(() => ({}))
     ]);
     if (candles && Object.keys(candles).length) lastCandles = candles;
     if (status) {
@@ -1293,7 +1313,7 @@ header{background:rgba(6,9,15,.92);backdrop-filter:blur(14px);border-bottom:1px 
   </div>
 </div>
 <div id="positions-banner" style="background:linear-gradient(135deg,rgba(0,229,255,.1) 0%,rgba(168,85,247,.05) 100%);border-bottom:2px solid rgba(0,229,255,.3);padding:14px 16px;display:none;backdrop-filter:blur(8px)">
-  <div style="font-size:10px;color:#64748b;margin-bottom:10px;text-transform:uppercase;letter-spacing:.12em;font-weight:600">📍 Market Entry Parameters</div>
+  <div style="font-size:10px;color:#64748b;margin-bottom:10px;text-transform:uppercase;letter-spacing:.12em;font-weight:600">💰 Open Trades</div>
   <div id="position-content" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;grid-auto-rows:max-content">Loading...</div>
 </div>
 <div id="logs">Loading signals...</div>
@@ -1443,7 +1463,8 @@ function renderSignals(sigs){
 
 async function loadLogs(){
   try{
-    const r=await fetch('/api/logs',{credentials:'same-origin'});
+    const auth='Basic '+btoa('admin:mt5bot2026!');
+    const r=await fetch('/api/logs',{headers:{Authorization:auth}});
     if(!r.ok)throw new Error(`HTTP ${r.status}`);
     const data=await r.json();
     allLogs=data.logs||[];
@@ -1463,7 +1484,8 @@ function downloadLogs(){window.location.href='/api/logs/download';}
 
 async function loadPositions(){
   try{
-    const r=await fetch('/api/open-positions',{credentials:'same-origin'});
+    const auth='Basic '+btoa('admin:mt5bot2026!');
+    const r=await fetch('/api/open-positions',{headers:{Authorization:auth}});
     if(!r.ok)throw new Error(`HTTP ${r.status}`);
     const data=await r.json();
     const positions=data.positions||[];
@@ -1475,30 +1497,25 @@ async function loadPositions(){
     if(positions.length>0){
       banner.style.display='block';
       content.innerHTML=positions.map(p=>{
-        const d1Trend=String(p.trend_d1||'?');
-        const h4Trend=String(p.trend_h4||'?');
-        const h1Trend=String(p.trend_h1||'?');
-        const m15Trend=String(p.trend_m15||'?');
-
-        const d1Col=d1Trend.toUpperCase().includes('BULL')?'#00ff88':d1Trend.toUpperCase().includes('BEAR')?'#ff3b5c':'#fbbf24';
-        const h4Col=h4Trend.toUpperCase().includes('BULL')?'#00ff88':h4Trend.toUpperCase().includes('BEAR')?'#ff3b5c':'#fbbf24';
-        const h1Col=h1Trend.toUpperCase().includes('BULL')?'#00ff88':h1Trend.toUpperCase().includes('BEAR')?'#ff3b5c':'#fbbf24';
-        const m15Col=m15Trend.toUpperCase().includes('BULL')?'#00ff88':m15Trend.toUpperCase().includes('BEAR')?'#ff3b5c':'#fbbf24';
+        const pnlColor=p.profit_loss_usd>=0?'#00ff88':'#ff3b5c';
+        const dirColor=p.direction==='BUY'?'#00e5ff':'#ff3b5c';
+        const entryTime=p.entry_time?new Date(p.entry_time).toLocaleString():'N/A';
 
         return`<div style="background:rgba(0,229,255,.06);border:1px solid rgba(0,229,255,.25);border-radius:8px;padding:12px;font-size:9px;font-family:var(--mono)">
-          <div style="font-weight:700;color:#00e5ff;margin-bottom:10px;font-size:11px">${p.symbol}</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+            <div style="font-weight:700;color:#00e5ff;font-size:11px">${p.symbol} #${p.ticket}</div>
+            <div style="font-weight:700;color:${dirColor};font-size:11px">${p.direction}</div>
+          </div>
           <div style="line-height:1.8;color:#e2e8f0">
-            <div><span style="color:#64748b">Price:</span> ${p.price.toFixed(p.price>100?2:4)}</div>
+            <div><span style="color:#64748b">Entry:</span> ${Number(p.entry_price).toFixed(5)}</div>
+            <div><span style="color:#64748b">Current:</span> ${Number(p.current_price).toFixed(5)}</div>
             <div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.08)">
-              <div><span style="color:#fbbf24">D1:</span> <span style="color:${d1Col}">${d1Trend}</span></div>
-              <div><span style="color:#fbbf24">H4:</span> <span style="color:${h4Col}">${h4Trend}</span> <span style="color:#64748b">(ADX ${Number(p.adx_h4).toFixed(1)})</span></div>
-              <div><span style="color:#fbbf24">H1:</span> <span style="color:${h1Col}">${h1Trend}</span> <span style="color:#64748b">(ADX ${Number(p.adx_h1).toFixed(1)})</span></div>
-              <div><span style="color:#fbbf24">M15:</span> <span style="color:${m15Col}">${m15Trend}</span></div>
+              <div><span style="color:#64748b">P&L:</span> <span style="color:${pnlColor};font-weight:700">$${Number(p.profit_loss_usd).toFixed(2)}</span> <span style="color:${pnlColor};font-weight:700">(${p.profit_loss_pct>0?'+':''}${Number(p.profit_loss_pct).toFixed(2)}%)</span></div>
             </div>
             <div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.08)">
-              <div><span style="color:#64748b">RSI:</span> <span style="color:${p.rsi>70?'#ff3b5c':p.rsi<30?'#00ff88':'#e2e8f0'}">${Number(p.rsi).toFixed(1)}</span></div>
-              <div><span style="color:#64748b">BB:</span> ${p.bb_position}</div>
-              <div><span style="color:#64748b">MACD:</span> <span style="color:${String(p.macd_signal).toUpperCase().includes('BULLISH')?'#00ff88':'#ff3b5c'}">${p.macd_signal}</span></div>
+              <div><span style="color:#64748b">Lot Size:</span> ${Number(p.lot_size).toFixed(2)}</div>
+              <div><span style="color:#64748b">Entry Time:</span> ${entryTime}</div>
+              <div><span style="color:#64748b">Status:</span> <span style="color:#00ff88">${p.status}</span></div>
             </div>
           </div>
         </div>`;
@@ -1644,44 +1661,59 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
             self._json({'logs': logs, 'source': str(LOG_FILE)})
 
         elif path == '/api/open-positions':
-            # ── API: Current open positions with entry parameters ────────────
+            # ── API: Current open positions from MT5 account ────────────────────
             positions = []
             try:
-                import json as j
-                # Get live snapshot for current market data
-                snapshot_file = BASE_DIR / "state" / "live_snapshot.json"
-                if snapshot_file.exists():
-                    snapshot = j.loads(snapshot_file.read_text())
-                    symbols_data = snapshot.get('symbols', {})
+                bridge = get_bridge()
+                if bridge is None:
+                    positions = []
+                else:
+                    open_pos = bridge.get_open_positions()
+                    for p in open_pos:
+                        try:
+                            direction = "BUY" if getattr(p, "type", 0) == 0 else "SELL"
+                            price_open = getattr(p, "price_open", 0.0)
+                            profit = getattr(p, "profit", 0.0)
+                            volume = getattr(p, "volume", 0.0)
+                            symbol = getattr(p, "symbol", "")
+                            ticket = getattr(p, "ticket", 0)
 
-                    for sym, data in symbols_data.items():
-                        # Check if we have timeframes (means there's data)
-                        timeframes = data.get('timeframes', {})
-                        if timeframes:
-                            d1 = timeframes.get('D1', {})
-                            h4 = timeframes.get('H4', {})
-                            h1 = timeframes.get('H1', {})
-                            m15 = timeframes.get('M15', {})
+                            # Get current price from tick
+                            tick = bridge.get_tick(symbol)
+                            if tick:
+                                current_price = tick.bid if direction == "BUY" else tick.ask
+                            else:
+                                current_price = price_open
+
+                            # Calculate P&L percentage
+                            if direction == "BUY":
+                                pnl_pct = ((current_price - price_open) / price_open * 100) if price_open > 0 else 0
+                            else:
+                                pnl_pct = ((price_open - current_price) / price_open * 100) if price_open > 0 else 0
+
+                            # Get entry time from position (MT5 provides time_setup)
+                            entry_time = getattr(p, "time_setup", 0)
+                            if entry_time:
+                                entry_dt = datetime.fromtimestamp(entry_time, tz=timezone.utc).isoformat()
+                            else:
+                                entry_dt = ""
 
                             positions.append({
-                                'symbol': sym,
-                                'price': data.get('indicators', {}).get('price', 0),
-                                'trend_m15': m15.get('ema_trend', '?'),
-                                'trend_h1': h1.get('ema_trend', '?'),
-                                'trend_h4': h4.get('ema_trend', '?'),
-                                'trend_d1': d1.get('ema_trend', '?'),
-                                'adx_m15': m15.get('adx', 0),
-                                'adx_h1': h1.get('adx', 0),
-                                'adx_h4': h4.get('adx', 0),
-                                'adx_d1': d1.get('adx', 0),
-                                'rsi': data.get('indicators', {}).get('rsi', 0),
-                                'bb_position': data.get('indicators', {}).get('bb_position', 'MID'),
-                                'macd_signal': data.get('indicators', {}).get('macd_signal', '?'),
-                                'atr': data.get('indicators', {}).get('atr', 0),
-                                'last_update': data.get('_last_update', 0),
+                                'ticket': ticket,
+                                'symbol': symbol,
+                                'direction': direction,
+                                'entry_price': round(price_open, 5),
+                                'current_price': round(current_price, 5),
+                                'profit_loss_usd': round(profit, 2),
+                                'profit_loss_pct': round(pnl_pct, 2),
+                                'lot_size': volume,
+                                'entry_time': entry_dt,
+                                'status': 'OPEN'
                             })
+                        except Exception as e:
+                            pass
             except Exception as e:
-                positions = [{'error': str(e)}]
+                positions = []
 
             self._json({'positions': positions})
 
