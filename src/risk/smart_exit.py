@@ -134,7 +134,7 @@ def _record_exit(ticket, symbol, direction, exit_type, pips, usd, reason):
 
     # Also record in trade memory so self-improver has complete data
     try:
-        from memory import TradeMemory
+        from learning.memory import TradeMemory
         mem = TradeMemory()
         outcome = "WIN" if (usd or 0) > 0 else "LOSS"
         mem.record_outcome(str(ticket), 0.0, round(pips, 1), outcome)
@@ -158,6 +158,9 @@ class SmartExitManager:
         self._peak_pips      = {}      # ticket -> peak profit in pips
         self._last_reversal_check = {}  # ticket -> last reversal check time
         self._negative_since = {}      # ticket -> datetime when we first saw it negative
+        # Tickets closed by smart exit — exposed so continuous_trader can skip
+        # double-counting in external-close detection
+        self.closed_tickets  = set()
         log.info("[SMART EXIT] Smart exit manager initialized")
 
     def evaluate_exits(self, bridge, positions_by_sym: dict, symbols: dict,
@@ -204,7 +207,7 @@ class SmartExitManager:
                     profit, profit_pips, volume, dry_run
                 )
                 if lc_action:
-                    self._update_stats(state, profit, profit_pips)
+                    self._update_stats(state, profit, profit_pips, ticket)
                     actions.append(lc_action)
                     # Any loss cut action fully closes the position — skip all other checks
                     if "dry" in lc_action.get("action", "") or lc_action.get("action") in (
@@ -218,7 +221,7 @@ class SmartExitManager:
                     profit, profit_pips, dry_run
                 )
                 if wp_action:
-                    self._update_stats(state, profit, profit_pips)
+                    self._update_stats(state, profit, profit_pips, ticket)
                     actions.append(wp_action)
                     continue  # position closed
 
@@ -237,7 +240,7 @@ class SmartExitManager:
                     open_price=open_price, current_sl=current_sl, pip=pip
                 )
                 if td_action:
-                    self._update_stats(state, profit, profit_pips)
+                    self._update_stats(state, profit, profit_pips, ticket)
                     actions.append(td_action)
                     continue  # position closed, skip other checks
 
@@ -248,7 +251,7 @@ class SmartExitManager:
                         profit, profit_pips, sym_cfg, dry_run
                     )
                     if rev_action:
-                        self._update_stats(state, profit, profit_pips)
+                        self._update_stats(state, profit, profit_pips, ticket)
                         actions.append(rev_action)
                         continue
 
@@ -670,13 +673,20 @@ Respond with ONLY JSON (no markdown):
 
     # ── Stats Helper ─────────────────────────────────────────────────────────
 
-    def _update_stats(self, state: dict, profit: float, profit_pips: float):
-        """Update win/loss counters after a smart exit."""
+    def _update_stats(self, state: dict, profit: float, profit_pips: float,
+                      ticket: str = ""):
+        """Update win/loss counters after a smart exit.
+
+        Also registers the ticket in self.closed_tickets so the main loop's
+        external-close detection can skip it (prevents double-counting).
+        """
         state["total_trades"] = state.get("total_trades", 0) + 1
         if profit > 0 or profit_pips > 0:
             state["wins"] = state.get("wins", 0) + 1
         else:
             state["losses"] = state.get("losses", 0) + 1
+        if ticket:
+            self.closed_tickets.add(ticket)
 
     # ── Performance Report ───────────────────────────────────────────────────
 

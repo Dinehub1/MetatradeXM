@@ -678,10 +678,13 @@ def build_order_params(
     import pandas as pd
 
     # Validate tick freshness (prevent stale price orders)
+    # NOTE: tick.time comes from the MT5 server clock which may differ from
+    # the local (Mac/Ubuntu) clock. Only reject if the age is egregiously old
+    # (>120s) to avoid false positives from minor clock drift.
     tick_time = getattr(tick, 'time', 0)
     if tick_time > 0:
-        tick_age_s = (time.time() - tick_time)  # MetaApi provides time in seconds
-        if tick_age_s > 30:
+        tick_age_s = abs(time.time() - tick_time)
+        if tick_age_s > 120:
             log.warning(f"Stale tick ({tick_age_s:.1f}s old) for {sym_cfg['display']} — rejecting order")
             return None
 
@@ -1149,8 +1152,15 @@ class ContinuousTrader:
 
             # Detect tickets that vanished since last cycle (closed by broker SL/TP)
             if _prev_tickets:
+                # Get tickets already counted by SmartExitManager (prevents double-counting)
+                _smart_closed = getattr(self.exit_mgr, "closed_tickets", set()) if hasattr(self, "exit_mgr") and self.exit_mgr else set()
                 for tk, info in _prev_tickets.items():
                     if tk not in _cur_tickets and not self.dry_run:
+                        # Skip if smart exit already counted this ticket's stats
+                        if tk in _smart_closed:
+                            _smart_closed.discard(tk)
+                            log.debug(f"   [EXTERNAL CLOSE] #{tk} already counted by SmartExit — skipping stats")
+                            continue
                         pr = info["profit"]
                         outcome = "WIN" if pr > 0 else "LOSS"
                         _sc = info["sym_cfg"]

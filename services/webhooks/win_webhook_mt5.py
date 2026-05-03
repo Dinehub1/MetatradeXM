@@ -444,8 +444,14 @@ def handle_webhook():
             elif action == "CLOSE":
                 return _close_positions(symbol, ticket)
 
+            elif action == "CLOSE_PARTIAL":
+                close_volume = data.get("close_volume", 0)
+                if not ticket or close_volume <= 0:
+                    return jsonify({"status": "error", "message": "ticket and close_volume required for CLOSE_PARTIAL"}), 400
+                return _close_position_partial(int(ticket), float(close_volume))
+
             else:
-                return jsonify({"status": "error", "message": "Invalid action. Use BUY, SELL, LIMIT_BUY, LIMIT_SELL, or CLOSE"}), 400
+                return jsonify({"status": "error", "message": "Invalid action. Use BUY, SELL, LIMIT_BUY, LIMIT_SELL, CLOSE, or CLOSE_PARTIAL"}), 400
 
             # Build order request
             order_request = {
@@ -532,6 +538,58 @@ def _close_positions(symbol, ticket=None):
             log.error("Close failed: ticket=%s retcode=%s", pos.ticket, result.retcode)
 
     return jsonify({"status": "success", "message": f"Closed {closed_count} positions", "closed": closed_count}), 200
+
+
+def _close_position_partial(ticket: int, close_volume: float):
+    """Partially close a position by reducing its volume. Called inside mt5_lock.
+
+    Sends a counter-trade for only `close_volume` lots against the existing
+    position. MT5 will reduce the position volume rather than open a new one
+    because we reference the position ticket.
+    """
+    positions = mt5.positions_get(ticket=ticket)
+    if positions is None or len(positions) == 0:
+        return jsonify({"status": "error", "message": f"Position {ticket} not found"}), 404
+
+    pos = positions[0]
+    actual_volume = min(close_volume, pos.volume)
+    if actual_volume <= 0:
+        return jsonify({"status": "error", "message": f"Invalid close_volume {close_volume}"}), 400
+
+    tick = mt5.symbol_info_tick(pos.symbol)
+    if tick is None:
+        return jsonify({"status": "error", "message": f"No tick for {pos.symbol}"}), 500
+
+    close_type = mt5.ORDER_TYPE_SELL if pos.type == 0 else mt5.ORDER_TYPE_BUY
+    close_price = tick.bid if pos.type == 0 else tick.ask
+
+    close_request = {
+        "action": mt5.TRADE_ACTION_DEAL,
+        "symbol": pos.symbol,
+        "volume": round(actual_volume, 2),
+        "type": close_type,
+        "position": pos.ticket,
+        "price": close_price,
+        "deviation": 20,
+        "magic": 100,
+        "comment": "Webhook Partial Close",
+        "type_time": mt5.ORDER_TIME_GTC,
+        "type_filling": mt5.ORDER_FILLING_IOC,
+    }
+    result = mt5.order_send(close_request)
+    if result.retcode == mt5.TRADE_RETCODE_DONE:
+        log.info("Partial close: ticket=%s vol=%.2f/%.2f profit=%.2f",
+                 pos.ticket, actual_volume, pos.volume, pos.profit)
+        return jsonify({
+            "status": "success",
+            "message": f"Partially closed {actual_volume} of {pos.volume}",
+            "ticket": pos.ticket,
+            "closed_volume": actual_volume,
+            "remaining_volume": round(pos.volume - actual_volume, 2),
+        }), 200
+    else:
+        log.error("Partial close failed: ticket=%s retcode=%s", pos.ticket, result.retcode)
+        return jsonify({"status": "error", "message": f"Partial close failed, retcode={result.retcode}"}), 500
 
 
 @app.route('/modify', methods=['POST'])

@@ -359,9 +359,47 @@ class WebhookBridge:
             return False
 
     def close_position_partial(self, ticket, volume):
-        """Partial close not supported via webhook — close full position."""
-        log.warning("[WEBHOOK] Partial close not supported — closing full position")
-        return self.close_position(ticket)
+        """Partially close a position by the specified volume.
+
+        Sends CLOSE_PARTIAL to the Windows webhook server.
+        Falls back to full close if the server doesn't support partial closes.
+        """
+        try:
+            # Find the position to get its symbol
+            positions = self.get_open_positions()
+            pos = None
+            for p in (positions or []):
+                if str(getattr(p, "ticket", "")) == str(ticket):
+                    pos = p
+                    break
+            if pos is None:
+                log.warning(f"[WEBHOOK] Position {ticket} not found for partial close")
+                return False
+
+            payload = {
+                "action": "CLOSE_PARTIAL",
+                "symbol": pos.symbol,
+                "ticket": int(ticket),
+                "close_volume": round(float(volume), 2),
+            }
+            resp = self._session.post(f"{self.url}/webhook", json=payload, timeout=_TIMEOUT)
+            data = resp.json()
+
+            if data.get("status") == "success":
+                log.info(f"[WEBHOOK] Partial close OK: #{ticket} vol={volume}")
+                return True
+
+            # Fall back to full close if server doesn't support partial
+            if resp.status_code == 400 and "CLOSE_PARTIAL" in data.get("message", ""):
+                log.warning("[WEBHOOK] Server doesn't support CLOSE_PARTIAL — falling back to full close")
+                return self.close_position(ticket)
+
+            log.warning(f"[WEBHOOK] Partial close failed: {data.get('message')}")
+            return False
+
+        except Exception as e:
+            log.error(f"[WEBHOOK] close_position_partial error: {e}")
+            return False
 
     def modify_position(self, ticket, sl=None, tp=None) -> bool:
         """Modify SL/TP of an open position."""
