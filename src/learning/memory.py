@@ -299,21 +299,105 @@ class TradeMemory:
                     parts.append(f"  {ps['direction']} {ps['outcome']}: "
                                  f"{ps['cnt']} trades, avg {ps['avg_pips']:+.1f}pips")
 
-            # Best/worst factor combinations from wins vs losses
+            # ── CONFIDENCE CALIBRATION (AI sees if its confidence predicts outcomes) ──
+            conf_bands = conn.execute("""
+                SELECT
+                    CASE
+                        WHEN confidence >= 0.80 THEN 'HIGH (80%+)'
+                        WHEN confidence >= 0.65 THEN 'MEDIUM (65-80%)'
+                        WHEN confidence >= 0.55 THEN 'LOW (55-65%)'
+                        ELSE 'MARGINAL (<55%)'
+                    END as band,
+                    COUNT(*) as total,
+                    SUM(CASE WHEN outcome='WIN' THEN 1 ELSE 0 END) as wins,
+                    AVG(pips_result) as avg_pips
+                FROM trade_outcomes WHERE symbol=?
+                GROUP BY band
+                ORDER BY confidence DESC
+            """, (symbol,)).fetchall()
+
+            if conf_bands and any(cb['total'] >= 3 for cb in conf_bands):
+                parts.append("\n🎯 CONFIDENCE CALIBRATION (is your confidence accurate?):")
+                for cb in conf_bands:
+                    if cb['total'] >= 3:
+                        wr = (cb['wins'] or 0) / cb['total'] * 100
+                        icon = '✅' if wr >= 55 else '⚠️' if wr >= 40 else '❌'
+                        parts.append(f"  {icon} {cb['band']}: {wr:.0f}% WR ({cb['wins']}/{cb['total']}) "
+                                     f"avg {(cb['avg_pips'] or 0):+.1f}p")
+                        if cb['band'] == 'HIGH (80%+)' and wr < 55:
+                            parts.append(f"     ⛔ High confidence signals are NOT performing — reduce confidence or add more filters")
+                        elif cb['band'] == 'LOW (55-65%)' and wr >= 55:
+                            parts.append(f"     💡 Low confidence signals ARE winning — consider raising confidence for these setups")
+
+            # ── FACTOR FINGERPRINT (which factors correlate with wins vs losses) ──
             wins = conn.execute("""
                 SELECT factors_json FROM trade_outcomes
-                WHERE symbol=? AND outcome='WIN'
-                ORDER BY id DESC LIMIT 10
+                WHERE symbol=? AND outcome='WIN' AND factors_json IS NOT NULL
+                ORDER BY id DESC LIMIT 20
             """, (symbol,)).fetchall()
 
             losses = conn.execute("""
                 SELECT factors_json FROM trade_outcomes
-                WHERE symbol=? AND outcome='LOSS'
-                ORDER BY id DESC LIMIT 10
+                WHERE symbol=? AND outcome='LOSS' AND factors_json IS NOT NULL
+                ORDER BY id DESC LIMIT 20
             """, (symbol,)).fetchall()
 
-            if wins or losses:
-                parts.append(f"\nFactor analysis ({len(wins)} wins, {len(losses)} losses in memory)")
+            if len(wins) >= 5 and len(losses) >= 5:
+                # Parse factor values and compute average for each factor
+                win_factors = {}
+                loss_factors = {}
+                for w in wins:
+                    try:
+                        fj = json.loads(w['factors_json'] or '{}')
+                        for k, v in fj.items():
+                            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                                win_factors.setdefault(k, []).append(v)
+                    except: pass
+                for l in losses:
+                    try:
+                        fj = json.loads(l['factors_json'] or '{}')
+                        for k, v in fj.items():
+                            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                                loss_factors.setdefault(k, []).append(v)
+                    except: pass
+
+                parts.append(f"\n📊 FACTOR FINGERPRINT ({len(wins)} wins vs {len(losses)} losses):")
+                for factor in sorted(set(win_factors.keys()) & set(loss_factors.keys())):
+                    w_avg = sum(win_factors[factor]) / len(win_factors[factor])
+                    l_avg = sum(loss_factors[factor]) / len(loss_factors[factor])
+                    diff = abs(w_avg - l_avg)
+                    if diff >= 2.0:  # only show factors with meaningful difference
+                        better = "wins" if abs(w_avg) > abs(l_avg) else "losses"
+                        parts.append(f"  {factor}: win_avg={w_avg:+.1f} vs loss_avg={l_avg:+.1f} "
+                                     f"(stronger in {better})")
+            elif wins or losses:
+                parts.append(f"\nFactor analysis ({len(wins)} wins, {len(losses)} losses — need 5+ each for fingerprinting)")
+
+            # ── HOURLY EDGE MAP (which hours make/lose money) ──
+            hourly = conn.execute("""
+                SELECT hour_utc,
+                    COUNT(*) as total,
+                    SUM(CASE WHEN outcome='WIN' THEN 1 ELSE 0 END) as wins,
+                    SUM(pips) as total_pips
+                FROM market_patterns WHERE symbol=?
+                GROUP BY hour_utc
+                HAVING total >= 3
+                ORDER BY total_pips ASC
+            """, (symbol,)).fetchall()
+
+            if hourly:
+                worst = [h for h in hourly if (h['total_pips'] or 0) < -5]
+                best  = [h for h in hourly if (h['total_pips'] or 0) > 5]
+                if worst:
+                    parts.append("\n⏰ LOSING HOURS (avoid these):")
+                    for h in worst[:3]:
+                        wr = ((h['wins'] or 0) / h['total'] * 100) if h['total'] > 0 else 0
+                        parts.append(f"  {h['hour_utc']:02d}:00 UTC: {wr:.0f}% WR, {(h['total_pips'] or 0):+.1f} total pips ({h['total']} trades)")
+                if best:
+                    parts.append("⏰ WINNING HOURS (prefer these):")
+                    for h in sorted(best, key=lambda x: x['total_pips'] or 0, reverse=True)[:3]:
+                        wr = ((h['wins'] or 0) / h['total'] * 100) if h['total'] > 0 else 0
+                        parts.append(f"  {h['hour_utc']:02d}:00 UTC: {wr:.0f}% WR, {(h['total_pips'] or 0):+.1f} total pips ({h['total']} trades)")
 
             # Recent learning insights
             insights = conn.execute("""
@@ -330,22 +414,25 @@ class TradeMemory:
         # ── SIMILAR SETUP RECALL (new — AI sees past outcomes for this exact setup) ──
         if direction and adx > 0:
             now_session = self._get_session_name(datetime.now(timezone.utc).hour)
-            similar = self.get_similar_setups(symbol, direction, adx, rsi, now_session, limit=5)
+            similar = self.get_similar_setups(symbol, direction, adx, rsi, now_session, limit=10)
             if similar:
                 wins   = sum(1 for s in similar if s['outcome'] == 'WIN')
                 losses = sum(1 for s in similar if s['outcome'] == 'LOSS')
                 avg_p  = sum(s['pips'] or 0 for s in similar) / len(similar)
+                wr = wins / len(similar) * 100
                 parts.append(f"\n⚡ SIMILAR PAST SETUPS ({direction}, ADX≈{adx:.0f}, RSI≈{rsi:.0f}, {now_session}):")
-                parts.append(f"  Found {len(similar)} matches → {wins}W/{losses}L | avg {avg_p:+.1f} pips")
-                for s in similar:
+                parts.append(f"  Found {len(similar)} matches → {wins}W/{losses}L ({wr:.0f}% WR) | avg {avg_p:+.1f} pips")
+                for s in similar[:5]:  # show top 5 details, stats from all 10
                     icon = '✅' if s['outcome'] == 'WIN' else '❌'
                     parts.append(f"  {icon} {s['direction']} → {s['outcome']} "
                                  f"{(s['pips'] or 0):+.1f}p conf={s['confidence'] or 0:.0%} "
                                  f"({s['duration_min'] or 0:.0f}min)")
                 if wins == 0 and len(similar) >= 3:
                     parts.append(f"  ⛔ 0/{len(similar)} similar {direction} setups won — strongly consider HOLD or opposite direction")
-                elif wins > losses:
-                    parts.append(f"  ✅ {wins}/{len(similar)} similar setups WON — this pattern is working")
+                elif wr >= 65:
+                    parts.append(f"  ✅ {wr:.0f}% similar setups WON — this pattern has edge, increase confidence")
+                elif wr <= 35:
+                    parts.append(f"  ⚠️ Only {wr:.0f}% WR on similar setups — reduce confidence or HOLD")
 
         if not parts:
             return ""  # No memory yet
@@ -356,11 +443,12 @@ class TradeMemory:
 
     def get_similar_setups(self, symbol: str, direction: str,
                            adx: float, rsi: float, session: str,
-                           limit: int = 5) -> list:
+                           limit: int = 10) -> list:
         """
         Find past trades with similar market conditions to give the AI
         concrete pattern memory ("last time this happened, X occurred").
         Matches: same symbol + direction + session, ADX within ±8, RSI within ±12.
+        Searches last 100 trades (wider pool = more matches).
         """
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
@@ -369,7 +457,7 @@ class TradeMemory:
                        o.duration_min, o.conditions_json, o.factors_json
                 FROM trade_outcomes o
                 WHERE o.symbol=? AND o.direction=?
-                ORDER BY o.id DESC LIMIT 50
+                ORDER BY o.id DESC LIMIT 100
             """, (symbol, direction)).fetchall()
 
         matches = []

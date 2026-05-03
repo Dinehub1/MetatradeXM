@@ -13,11 +13,16 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 import requests
 from urllib.parse import quote
 import pandas as pd
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from dotenv import load_dotenv
+
+# Load .env from project root (two levels up from src/bridges/)
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 log = logging.getLogger("webhook_bridge")
 
@@ -43,6 +48,11 @@ class WebhookBridge:
         self.connected = False
         self._account_cache = None
         self._cache_ts = 0
+
+        # Auth session — all requests automatically include the Bearer token
+        auth_token = os.environ.get("WEBHOOK_AUTH_TOKEN", "super_secret_token_2026")
+        self._session = requests.Session()
+        self._session.headers.update({"Authorization": f"Bearer {auth_token}"})
 
     def _validate_url(self):
         """Validate webhook URL for SSRF prevention."""
@@ -76,7 +86,7 @@ class WebhookBridge:
             log.error("[WEBHOOK] WIN_WEBHOOK_URL not configured")
             return False
         try:
-            resp = requests.get(f"{self.url}/status", timeout=10)
+            resp = self._session.get(f"{self.url}/status", timeout=10)
             data = resp.json()
             if data.get("terminal_connected"):
                 login = data.get("login", "?")
@@ -104,9 +114,9 @@ class WebhookBridge:
         """Fetch historical OHLCV candles from MT5 via webhook."""
         tf = _TF_MAP.get(timeframe, timeframe)
         try:
-            resp = requests.get(
-                f"{self.url}/candles/{quote(symbol, safe='')}/{tf}",
-                params={"count": count},
+            resp = self._session.get(
+                f"{self.url}/candles",
+                params={"symbol": symbol, "tf": tf, "count": count},
                 timeout=_TIMEOUT,
             )
             if resp.status_code != 200:
@@ -139,7 +149,7 @@ class WebhookBridge:
     def get_tick(self, symbol: str):
         """Get current tick (ask/bid/last) for a symbol."""
         try:
-            resp = requests.get(f"{self.url}/tick/{quote(symbol, safe='')}", timeout=_TIMEOUT)
+            resp = self._session.get(f"{self.url}/tick", params={"symbol": symbol}, timeout=_TIMEOUT)
             if resp.status_code != 200:
                 return None
 
@@ -157,7 +167,7 @@ class WebhookBridge:
     def get_symbol_info(self, symbol: str):
         """Get symbol specifications."""
         try:
-            resp = requests.get(f"{self.url}/symbol/{quote(symbol, safe='')}", timeout=_TIMEOUT)
+            resp = self._session.get(f"{self.url}/symbol", params={"symbol": symbol}, timeout=_TIMEOUT)
             if resp.status_code != 200:
                 return None
 
@@ -179,7 +189,7 @@ class WebhookBridge:
     def get_account_info(self):
         """Get account info (balance, equity, margin, etc)."""
         try:
-            resp = requests.get(f"{self.url}/account", timeout=_TIMEOUT)
+            resp = self._session.get(f"{self.url}/account", timeout=_TIMEOUT)
             if resp.status_code != 200:
                 return None
 
@@ -215,7 +225,7 @@ class WebhookBridge:
         """Get all open positions (optionally filtered by symbol)."""
         try:
             url = f"{self.url}/positions/{quote(symbol, safe='')}" if symbol else f"{self.url}/positions"
-            resp = requests.get(url, timeout=_TIMEOUT)
+            resp = self._session.get(url, timeout=_TIMEOUT)
             if resp.status_code != 200:
                 return []
 
@@ -270,7 +280,7 @@ class WebhookBridge:
             if params.get("tp") is not None:
                 payload["tp"] = params["tp"]
 
-            resp = requests.post(
+            resp = self._session.post(
                 f"{self.url}/webhook",
                 json=payload,
                 timeout=_TIMEOUT,
@@ -305,7 +315,7 @@ class WebhookBridge:
             if params.get("tp") is not None:
                 payload["tp"] = params["tp"]
 
-            resp = requests.post(
+            resp = self._session.post(
                 f"{self.url}/webhook",
                 json=payload,
                 timeout=_TIMEOUT,
@@ -340,7 +350,7 @@ class WebhookBridge:
                 "symbol": pos.symbol,
                 "ticket": int(ticket),
             }
-            resp = requests.post(f"{self.url}/webhook", json=payload, timeout=_TIMEOUT)
+            resp = self._session.post(f"{self.url}/webhook", json=payload, timeout=_TIMEOUT)
             data = resp.json()
             return data.get("status") == "success"
 
@@ -362,7 +372,7 @@ class WebhookBridge:
             if tp is not None:
                 payload["tp"] = tp
 
-            resp = requests.post(f"{self.url}/modify", json=payload, timeout=_TIMEOUT)
+            resp = self._session.post(f"{self.url}/modify", json=payload, timeout=_TIMEOUT)
             data = resp.json()
             return data.get("status") == "success"
 
@@ -375,7 +385,7 @@ class WebhookBridge:
     def get_trade_history(self, days: int = 7) -> dict:
         """Get closed trade history for the past N days."""
         try:
-            resp = requests.get(
+            resp = self._session.get(
                 f"{self.url}/history",
                 params={"days": days},
                 timeout=_TIMEOUT,
@@ -404,9 +414,9 @@ class WebhookBridge:
             Empty dict on failure.
         """
         try:
-            resp = requests.get(
-                f"{self.url}/indicators/{quote(symbol, safe='')}",
-                params={"tf": timeframes},
+            resp = self._session.get(
+                f"{self.url}/indicators",
+                params={"symbol": symbol, "tf": timeframes},
                 timeout=_TIMEOUT + 5,  # indicator computation needs more time
             )
             if resp.status_code != 200:

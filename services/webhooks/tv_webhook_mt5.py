@@ -16,6 +16,14 @@ from bridges.metaapi_bridge import MetaApiBridge
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), ".env"))
 
 app = Flask(__name__)
+AUTH_TOKEN = os.getenv("WEBHOOK_AUTH_TOKEN", "super_secret_token_2026")
+
+@app.before_request
+def require_auth():
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or auth_header != f"Bearer {AUTH_TOKEN}":
+        return jsonify({"status": "error", "message": "Unauthorized"}), 401
+
 bridge = MetaApiBridge()
 
 def init_bridge():

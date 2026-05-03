@@ -25,9 +25,19 @@ from flask import Flask, request, jsonify
 import MetaTrader5 as mt5
 import threading
 import logging
+import os
+from pathlib import Path
 from datetime import datetime, timezone, timedelta
 import pandas as pd
 import numpy as np
+from dotenv import load_dotenv
+
+# Always load .env from the same directory as this script, regardless of CWD.
+# This fixes the "VM restart causes auth failure" issue when Windows Task Scheduler
+# launches the script from a different working directory.
+_SCRIPT_DIR = Path(__file__).resolve().parent
+load_dotenv(_SCRIPT_DIR / ".env")
+AUTH_TOKEN = os.getenv("WEBHOOK_AUTH_TOKEN", "super_secret_token_2026")
 
 # Configure logging
 logging.basicConfig(
@@ -37,6 +47,13 @@ logging.basicConfig(
 log = logging.getLogger("mt5_webhook")
 
 app = Flask(__name__)
+
+@app.before_request
+def require_auth():
+    # Allow /status to be public if desired, but we will secure it for now
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or auth_header != f"Bearer {AUTH_TOKEN}":
+        return jsonify({"status": "error", "message": "Unauthorized"}), 401
 
 # Lock for MT5 terminal interactions (MT5 is single-threaded)
 mt5_lock = threading.Lock()
@@ -144,6 +161,8 @@ def get_account():
 @app.route('/positions/<symbol>', methods=['GET'])
 def get_positions(symbol=None):
     """All open positions (optionally filtered by symbol)."""
+    if not symbol:
+        symbol = request.args.get('symbol')
     with mt5_lock:
         if symbol:
             _ensure_symbol(symbol)
@@ -182,9 +201,15 @@ def get_positions(symbol=None):
     }), 200
 
 
+@app.route('/tick', methods=['GET'])
 @app.route('/tick/<symbol>', methods=['GET'])
-def get_tick(symbol):
+def get_tick(symbol=None):
     """Current tick (ask/bid/last) for a symbol."""
+    if not symbol:
+        symbol = request.args.get('symbol')
+    if not symbol:
+        return jsonify({"status": "error", "message": "Missing symbol"}), 400
+
     with mt5_lock:
         _ensure_symbol(symbol)
         tick = mt5.symbol_info_tick(symbol)
@@ -203,9 +228,15 @@ def get_tick(symbol):
     }), 200
 
 
+@app.route('/symbol', methods=['GET'])
 @app.route('/symbol/<symbol>', methods=['GET'])
-def get_symbol_info(symbol):
+def get_symbol_info(symbol=None):
     """Symbol specifications (digits, contract size, volume limits, etc)."""
+    if not symbol:
+        symbol = request.args.get('symbol')
+    if not symbol:
+        return jsonify({"status": "error", "message": "Missing symbol"}), 400
+
     with mt5_lock:
         si = mt5.symbol_info(symbol)
 
@@ -233,15 +264,17 @@ def get_symbol_info(symbol):
     }), 200
 
 
+@app.route('/candles', methods=['GET'])
 @app.route('/candles/<symbol>/<tf>', methods=['GET'])
-def get_candles(symbol, tf):
-    """Historical OHLCV candle data.
-    
-    Args:
-        symbol: e.g. "XAUUSD" or "GOLD.i#"
-        tf: timeframe string — M1, M5, M15, M30, H1, H4, D1, W1, MN1
-        count: query param, number of bars (default 200, max 5000)
-    """
+def get_candles(symbol=None, tf=None):
+    """Historical OHLCV candle data."""
+    if not symbol:
+        symbol = request.args.get('symbol')
+    if not tf:
+        tf = request.args.get('tf')
+    if not symbol or not tf:
+        return jsonify({"status": "error", "message": "Missing symbol or tf"}), 400
+
     count = min(int(request.args.get('count', 200)), 5000)
     mt5_tf = TF_MAP.get(tf.upper())
     if mt5_tf is None:
@@ -714,17 +747,25 @@ def _compute_indicators_from_rates(df):
     return result
 
 
+@app.route('/indicators', methods=['GET'])
 @app.route('/indicators/<symbol>', methods=['GET'])
 @app.route('/indicators/<symbol>/<tf>', methods=['GET'])
-def get_indicators(symbol, tf=None):
+def get_indicators(symbol=None, tf=None):
     """Multi-timeframe technical indicators computed from MT5 candle data.
     
     Query params:
+        symbol: e.g. "GOLD.i#"
+        tf: comma-separated timeframes (default: M1,M15,H1,H4,D1)
         tf: comma-separated timeframes (default: M1,M15,H1,H4,D1)
         count: number of candles to fetch (default: 300)
     
     Returns RSI, MACD, ADX, Stochastic, Bollinger Bands, EMA, ATR, Williams %R.
     """
+    if not symbol:
+        symbol = request.args.get('symbol')
+    if not symbol:
+        return jsonify({"status": "error", "message": "Missing symbol"}), 400
+
     timeframes = tf.split(',') if tf else request.args.get('tf', 'M1,M15,H1,H4,D1').split(',')
     count = int(request.args.get('count', '300'))
     result_data = {"status": "ok", "symbol": symbol, "timeframes": {}}
@@ -842,19 +883,53 @@ def _gather_account():
 async def _ws_handler(websocket):
     """Handle a single WebSocket client connection."""
     client_addr = websocket.remote_address
+    
+    # Check Auth Header
+    # Support both newer websockets (websocket.request.headers) and older (websocket.request_headers)
+    try:
+        if hasattr(websocket, 'request') and hasattr(websocket.request, 'headers'):
+            auth_header = websocket.request.headers.get("Authorization")
+        else:
+            auth_header = websocket.request_headers.get("Authorization")
+    except Exception:
+        auth_header = None
+        
+    if not auth_header or auth_header != f"Bearer {AUTH_TOKEN}":
+        log.warning(f"[WS] Unauthorized connection attempt from {client_addr}")
+        await websocket.close(1008, "Unauthorized")
+        return
+        
     log.info(f"[WS] Client connected: {client_addr}")
 
     with _ws_lock:
         _ws_clients.add(websocket)
 
     try:
-        # Send initial account + positions snapshot
+        # Gather all initial data under the lock (no async I/O while lock is held)
         with mt5_lock:
             acct = _gather_account()
             positions = _gather_positions()
+            initial_msgs = []
+            for sym in WS_SYMBOLS:
+                _ensure_symbol(sym)
+                for tf in ["M1", "M5", "M15", "H1", "H4"]:
+                    rates = mt5.copy_rates_from_pos(sym, TF_MAP.get(tf), 0, 200)
+                    if rates is not None and len(rates) > 0:
+                        candles = [{"time": int(r['time']), "o": float(r['open']),
+                                    "h": float(r['high']), "l": float(r['low']),
+                                    "c": float(r['close']), "vol": int(r['tick_volume'])}
+                                   for r in rates]
+                        initial_msgs.append(json.dumps({
+                            "type": "candles", "symbol": sym,
+                            "timeframe": tf, "candles": candles
+                        }))
+
+        # Lock released — send all initial data asynchronously
         if acct:
             await websocket.send(json.dumps(acct))
         await websocket.send(json.dumps(positions))
+        for msg in initial_msgs:
+            await websocket.send(msg)
 
         # Keep connection alive and listen for client messages
         async for message in websocket:
@@ -905,6 +980,8 @@ async def _streaming_loop():
     last_position = 0
     last_account = 0
     last_heartbeat = 0
+    
+    last_candle_times = {} # Track last closed candle time
 
     log.info(f"[WS] Streaming loop started (tick={tick_interval}s, pos={position_interval}s)")
 
@@ -918,20 +995,52 @@ async def _streaming_loop():
             await asyncio.sleep(1.0)
             continue
 
-        # ── Tick data (high frequency) ──────────────────────────────────
+        # ── Tick data (high frequency) and Bar Close ────────────────────
         try:
             tick_messages = []
+            bar_close_messages = []
             with mt5_lock:
                 for sym in WS_SYMBOLS:
                     _ensure_symbol(sym)
                     tick_data = _gather_tick_data(sym)
                     if tick_data:
                         tick_messages.append(json.dumps(tick_data))
+                        
+                    if sym not in last_candle_times:
+                        last_candle_times[sym] = {}
+                        
+                    for tf in ["M1", "M5", "M15", "H1", "H4"]:
+                        mt5_tf = TF_MAP.get(tf)
+                        rates = mt5.copy_rates_from_pos(sym, mt5_tf, 0, 2)
+                        if rates is not None and len(rates) >= 2:
+                            # rates[0] is the last closed candle, rates[1] is the current open candle
+                            closed_candle = rates[0]
+                            closed_time = int(closed_candle['time'])
+                            
+                            if tf not in last_candle_times[sym]:
+                                last_candle_times[sym][tf] = closed_time
+                            elif closed_time > last_candle_times[sym][tf]:
+                                last_candle_times[sym][tf] = closed_time
+                                bar_close_messages.append(json.dumps({
+                                    "type": "bar_close",
+                                    "symbol": sym,
+                                    "timeframe": tf,
+                                    "candle": {
+                                        "time": closed_time,
+                                        "o": float(closed_candle['open']),
+                                        "h": float(closed_candle['high']),
+                                        "l": float(closed_candle['low']),
+                                        "c": float(closed_candle['close']),
+                                        "vol": int(closed_candle['tick_volume'])
+                                    }
+                                }))
 
             for msg in tick_messages:
                 await _broadcast(msg)
+            for msg in bar_close_messages:
+                await _broadcast(msg)
         except Exception as e:
-            log.debug(f"[WS] Tick broadcast error: {e}")
+            log.debug(f"[WS] Tick/Bar broadcast error: {e}")
 
         # ── Positions (medium frequency) ────────────────────────────────
         if now - last_position >= position_interval:
@@ -973,21 +1082,28 @@ async def _start_ws_server():
     )
     log.info(f"[WS] WebSocket server running on ws://0.0.0.0:{WS_PORT}")
 
-    # Run streaming loop alongside the WebSocket server
-    await asyncio.gather(
-        server.wait_closed() if hasattr(server, 'wait_closed') else asyncio.Future(),
-        _streaming_loop(),
-    )
+    # Run streaming loop forever — don't tie it to server.wait_closed()
+    # which can exit when all clients disconnect
+    await _streaming_loop()
 
 
 def _run_ws_server_thread():
-    """Run the async WebSocket server in its own event loop (for threading)."""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        loop.run_until_complete(_start_ws_server())
-    except Exception as e:
-        log.error(f"[WS] Server error: {e}")
+    """Run the async WebSocket server in its own event loop (for threading).
+    Auto-restarts on crash to keep streaming alive."""
+    while True:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(_start_ws_server())
+        except Exception as e:
+            log.error(f"[WS] Server crashed: {e} — restarting in 5s")
+            import time as _t
+            _t.sleep(5)
+        finally:
+            try:
+                loop.close()
+            except Exception:
+                pass
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1012,4 +1128,14 @@ if __name__ == '__main__':
         log.warning("WebSocket server DISABLED — install websockets: pip install websockets")
 
     # Start Flask HTTP server (main thread — blocking)
-    app.run(host='0.0.0.0', port=5001, threaded=True)
+    # Wrap in restart loop so the whole server never exits
+    while True:
+        try:
+            app.run(host='0.0.0.0', port=5001, threaded=True)
+        except KeyboardInterrupt:
+            log.info("Server stopped by user (Ctrl+C)")
+            break
+        except Exception as e:
+            log.error(f"Flask server crashed: {e} — restarting in 5s")
+            import time as _t
+            _t.sleep(5)

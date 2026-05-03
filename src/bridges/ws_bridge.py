@@ -23,8 +23,12 @@ from types import SimpleNamespace
 from typing import Dict, Optional
 
 import pandas as pd
+from pathlib import Path
+from dotenv import load_dotenv
 
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 log = logging.getLogger("ws_bridge")
+AUTH_TOKEN = os.environ.get("WEBHOOK_AUTH_TOKEN", "super_secret_token_2026")
 
 # Try to import websockets (async) — fall back to websocket-client (sync)
 try:
@@ -62,7 +66,7 @@ class WSBridge:
         self._ws_thread: Optional[threading.Thread] = None
         self._ws_connected = False
         self._ws_reconnect_count = 0
-        self._ws_max_reconnect = 10
+        self._ws_max_reconnect = 999999  # effectively unlimited — never give up
         self._ws_last_message_time = 0
         self._stop_event = threading.Event()
 
@@ -132,6 +136,7 @@ class WSBridge:
                 log.info(f"[WS_BRIDGE] Connecting to {self.ws_url}...")
                 self._ws = _ws_client.WebSocketApp(
                     self.ws_url,
+                    header=[f"Authorization: Bearer {AUTH_TOKEN}"],
                     on_open=self._on_ws_open,
                     on_message=self._on_ws_message,
                     on_error=self._on_ws_error,
@@ -163,7 +168,7 @@ class WSBridge:
     def _on_ws_open(self, ws):
         log.info("[WS_BRIDGE] ✅ WebSocket connection established")
         self._ws_connected = True
-        self._ws_reconnect_count = 0
+        self._ws_reconnect_count = 0  # reset on successful connection
 
     def _on_ws_message(self, ws, message):
         """Process incoming WebSocket messages and update caches."""

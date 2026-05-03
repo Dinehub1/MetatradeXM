@@ -1778,28 +1778,46 @@ class ContinuousTrader:
                             log.warning(f"[ORDER] Failed to build order for {disp} - skipping signal")
                             continue
 
-                        # ── #5: Regime-Aware Position Sizing ─────────────────────
-                        # STRONG_TREND = high edge, scale up initial tranche
-                        # RANGING      = low edge, stay minimal
-                        # Default (WEAK_TREND / unknown) = 0.01 standard
-                        # RSI EXHAUSTION GUARD: Never use 2× lot when RSI is extreme
-                        # (RSI < 28 on SELL / RSI > 72 on BUY = market extended, bounce risk high)
+                        # ── #5: Conviction-Scaled Position Sizing ─────────────────
+                        # The Kelly lot from build_order_params already factors in:
+                        #   balance × risk_pct × confidence × R:R × ATR
+                        # Now we SCALE it by regime + RSI instead of overriding.
+                        # This means a 90% confidence trade in a strong trend
+                        # will be 3-4× bigger than a 55% confidence ranging trade.
+                        _kelly_lot = order["lot"]  # preserve Kelly-computed lot
                         _ps_regime = signal_data.get("factor_scores", {}).get("adx_regime", "")
                         _ps_rsi    = signal_data.get("indicators", {}).get("rsi", 50)
                         _ps_rsi_safe = (
                             (direction == "SELL" and _ps_rsi >= 28) or
                             (direction == "BUY"  and _ps_rsi <= 72)
                         )
+
+                        # Regime multiplier: scales the Kelly lot
                         if "STRONG_TREND" in _ps_regime and _ps_rsi_safe:
-                            _tranche_lot = 0.02   # 2× — strong trend, RSI not exhausted
+                            _regime_mult = 1.5    # strong trend + safe RSI → scale up
+                        elif "STRONG_TREND" in _ps_regime:
+                            _regime_mult = 1.0    # strong trend but RSI exhausted → neutral
+                        elif "WEAK_TREND" in _ps_regime:
+                            _regime_mult = 0.8    # developing trend → slightly reduce
                         elif "RANGING" in _ps_regime:
-                            _tranche_lot = 0.01   # stay minimal in choppy conditions
+                            _regime_mult = 0.6    # ranging → significant reduction
+                        elif "SQUEEZE" in _ps_regime:
+                            _regime_mult = 0.7    # breakout pending → cautious size
                         else:
-                            _tranche_lot = 0.01   # WEAK_TREND, exhausted RSI, or unknown
-                        order["lot"] = _tranche_lot
+                            _regime_mult = 0.8    # unknown regime → conservative
+
+                        # RSI exhaustion penalty (catch trades going against momentum)
+                        if not _ps_rsi_safe:
+                            _regime_mult *= 0.5   # halve size when RSI is extreme
+
+                        _final_lot = round(max(_kelly_lot * _regime_mult, 0.01), 2)
+                        _final_lot = min(_final_lot, 0.10)  # hard ceiling for safety
+                        order["lot"] = _final_lot
                         log.info(
-                            f"ACTION | {disp} | regime sizing | lot={_tranche_lot} "
-                            f"regime={_ps_regime or 'UNKNOWN'} rsi={_ps_rsi:.1f}"
+                            f"ACTION | {disp} | conviction sizing | kelly={_kelly_lot} "
+                            f"× regime={_regime_mult:.1f} → lot={_final_lot} "
+                            f"regime={_ps_regime or 'UNKNOWN'} rsi={_ps_rsi:.1f} "
+                            f"conf={confidence:.0%}"
                         )
 
                         # Cache indicators for pyramid tranche checks

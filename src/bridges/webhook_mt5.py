@@ -22,14 +22,19 @@ import time
 import logging
 import requests
 import numpy as np
+from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import quote
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load .env from the project root (two levels up from src/bridges/)
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 log = logging.getLogger("webhook_mt5")
 
 # ── Server URL ────────────────────────────────────────────────────────────────
 WIN_WEBHOOK_URL = os.getenv("WIN_WEBHOOK_URL", "http://206.72.198.54:5001")
+AUTH_TOKEN = os.getenv("WEBHOOK_AUTH_TOKEN", "super_secret_token_2026")
+_HEADERS = {"Authorization": f"Bearer {AUTH_TOKEN}"}
 
 # ── MT5 Constants (match real MetaTrader5 package values) ─────────────────────
 TIMEFRAME_M1  = 1
@@ -71,11 +76,18 @@ def _get(path, timeout=_TIMEOUT_SHORT, retries=_MAX_RETRIES):
     url = f"{WIN_WEBHOOK_URL}{path}"
     for attempt in range(1, retries + 1):
         try:
-            r = requests.get(url, timeout=timeout)
+            r = requests.get(url, headers=_HEADERS, timeout=timeout)
             if r.ok:
                 _last_successful_call = time.time()
                 _consecutive_failures = 0
                 return r.json()
+            if r.status_code == 401:
+                log.error(
+                    "[WEBHOOK] ❌ 401 Unauthorized — WEBHOOK_AUTH_TOKEN mismatch. "
+                    "Make sure .env on both Mac and Windows has the same WEBHOOK_AUTH_TOKEN."
+                )
+                _consecutive_failures += 1
+                return None  # no point retrying auth failures
             log.warning(f"[WEBHOOK] GET {path} → HTTP {r.status_code}")
         except requests.exceptions.Timeout:
             log.warning(f"[WEBHOOK] GET {path} timeout ({timeout}s) attempt {attempt}/{retries}")
@@ -94,11 +106,18 @@ def _post(path, json_data, timeout=_TIMEOUT_MEDIUM):
     global _last_successful_call, _consecutive_failures
     url = f"{WIN_WEBHOOK_URL}{path}"
     try:
-        r = requests.post(url, json=json_data, timeout=timeout)
+        r = requests.post(url, json=json_data, headers=_HEADERS, timeout=timeout)
         if r.ok:
             _last_successful_call = time.time()
             _consecutive_failures = 0
             return r.json()
+        if r.status_code == 401:
+            log.error(
+                "[WEBHOOK] ❌ 401 Unauthorized — WEBHOOK_AUTH_TOKEN mismatch. "
+                "Make sure .env on both Mac and Windows has the same WEBHOOK_AUTH_TOKEN."
+            )
+            _consecutive_failures += 1
+            return None
         log.warning(f"[WEBHOOK] POST {path} → HTTP {r.status_code}")
     except requests.exceptions.Timeout:
         log.warning(f"[WEBHOOK] POST {path} timeout ({timeout}s)")
@@ -164,7 +183,7 @@ def terminal_info():
 
 def symbol_info(symbol: str):
     """Get symbol specifications (digits, contract size, volumes, point)."""
-    data = _get(f"/symbol/{symbol}", timeout=_TIMEOUT_SHORT)
+    data = _get(f"/symbol?symbol={quote(symbol, safe='')}", timeout=_TIMEOUT_SHORT)
     if not data or data.get("status") != "ok":
         return None
     return SimpleNamespace(**data)
@@ -172,7 +191,7 @@ def symbol_info(symbol: str):
 
 def symbol_info_tick(symbol: str):
     """Get current bid/ask/last tick for a symbol."""
-    data = _get(f"/tick/{symbol}", timeout=_TIMEOUT_SHORT)
+    data = _get(f"/tick?symbol={quote(symbol, safe='')}", timeout=_TIMEOUT_SHORT)
     if not data or data.get("status") != "ok":
         return None
     return SimpleNamespace(**data)
@@ -185,7 +204,7 @@ def symbol_info_tick(symbol: str):
 def copy_rates_from_pos(symbol: str, timeframe: int, pos: int, count: int):
     """Fetch OHLCV candles as numpy structured array (MT5-compatible format)."""
     tf_str = _TF_INT_TO_STR.get(timeframe, "M15")
-    data = _get(f"/candles/{symbol}/{tf_str}?count={count}", timeout=_TIMEOUT_MEDIUM)
+    data = _get(f"/candles?symbol={quote(symbol, safe='')}&tf={tf_str}&count={count}", timeout=_TIMEOUT_MEDIUM)
     if not data or data.get("status") != "ok":
         return None
 
@@ -231,7 +250,7 @@ def account_info():
 
 def positions_get(symbol: str = None, ticket: int = None):
     """Get open positions. Filter by symbol or ticket."""
-    path = f"/positions/{symbol}" if symbol else "/positions"
+    path = f"/positions/{quote(symbol, safe='')}" if symbol else "/positions"
     data = _get(path, timeout=_TIMEOUT_MEDIUM)
     if not data or data.get("status") != "ok":
         return None
@@ -323,7 +342,7 @@ def get_indicators(symbol: str, timeframes: str = "M1,M15,H1,H4,D1", count: int 
     computation needed. This is the primary data source for the smart bot.
     """
     data = _get(
-        f"/indicators/{symbol}?tf={timeframes}&count={count}",
+        f"/indicators?symbol={quote(symbol, safe='')}&tf={timeframes}&count={count}",
         timeout=_TIMEOUT_LONG,
         retries=2,
     )

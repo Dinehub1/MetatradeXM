@@ -1320,9 +1320,11 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
             try:
                 bridge = get_bridge()
                 if bridge:
-                    for sym in ('XAUUSD', 'XAGUSD'):
-                        tick = bridge.get_tick(sym)
-                        si   = bridge.get_symbol_info(sym)
+                    # Map display names to broker symbol names (XM Global uses GOLD.i# / SILVER.i#)
+                    _SYM_MAP = {'XAUUSD': 'GOLD.i#', 'XAGUSD': 'SILVER.i#'}
+                    for sym, broker_sym in _SYM_MAP.items():
+                        tick = bridge.get_tick(broker_sym)
+                        si   = bridge.get_symbol_info(broker_sym)
                         if tick:
                             sym_data = {
                                 'price': getattr(tick, 'bid', 0.0),
@@ -1339,7 +1341,7 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
                                 sym_data['digits'] = digits
                             # Compute ATR from last 14 H1 candles
                             try:
-                                candles = bridge.get_candles(sym, 'H1', 15)
+                                candles = bridge.get_candles(broker_sym, 'H1', 15)
                                 if candles is not None and len(candles) >= 2:
                                     highs = candles['h'].values
                                     lows  = candles['l'].values
@@ -1355,7 +1357,7 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
                                     if tr_vals:
                                         sym_data['atr'] = round(sum(tr_vals) / len(tr_vals), 5)
                                     # Also add daily high/low from D1
-                                    d1 = bridge.get_candles(sym, 'D1', 1)
+                                    d1 = bridge.get_candles(broker_sym, 'D1', 1)
                                     if d1 is not None and len(d1) >= 1:
                                         sym_data['daily_high'] = float(d1['h'].values[-1])
                                         sym_data['daily_low']  = float(d1['l'].values[-1])
