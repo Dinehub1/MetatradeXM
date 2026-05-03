@@ -12,7 +12,8 @@ from datetime import datetime
 if sys.platform == "win32":
     import MetaTrader5 as mt5
 else:
-    import bridges.mock_mt5 as mt5   # Linux/Mac: synthetic data mock
+    # Linux/Mac: Fetch real data via Webhook from the Windows MT5 Terminal
+    import bridges.webhook_mt5 as mt5
 
 TIMEFRAME_MAP = {
     "M1":  mt5.TIMEFRAME_M1,
@@ -186,3 +187,27 @@ class MT5Bridge:
         }
         result = mt5.order_send(request)
         return result.retcode == mt5.TRADE_RETCODE_DONE
+
+    # ── Smart Bot Data ───────────────────────────────────────────────────────
+
+    def get_indicators(self, symbol: str, timeframes: str = "M1,M15,H1,H4,D1") -> dict:
+        """Fetch multi-TF indicators (RSI, MACD, ADX, BB, Stoch, ATR, EMA, Williams%R).
+        
+        On Windows: computed locally from MT5 candles.
+        On Linux/Mac: fetched from the /indicators endpoint on the Windows server.
+        """
+        if hasattr(mt5, 'get_indicators'):
+            return mt5.get_indicators(symbol, timeframes)
+        return {}
+
+    def get_trade_history(self, days: int = 7) -> dict:
+        """Get closed trade history for past N days."""
+        if hasattr(mt5, 'get_trade_history'):
+            return mt5.get_trade_history(days)
+        return {}
+
+    def is_healthy(self) -> bool:
+        """Check if the MT5 connection is healthy."""
+        if hasattr(mt5, 'is_connected'):
+            return mt5.is_connected()
+        return self.connected
