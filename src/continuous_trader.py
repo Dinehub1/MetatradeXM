@@ -127,13 +127,13 @@ SYMBOLS = [
         "sl_pips": 35,           # fallback if ATR unavailable
         "tp_pips": 70,
         "lot": 0.01,
-        # 2026-05-01 trend-following recalibration: thresholds lowered now that
-        # F12 Fibonacci (which was producing -5 to -6 contradictory penalties) is removed.
-        "score_threshold": 9,     # min score magnitude to consider trade (was 15→10→9)
-        "min_confidence":  0.50,  # 50% AI confidence floor
-        "adx_min":         18,    # min ADX (was 22 — gold trades trends earlier than silver)
-        "rsi_oversold":    25,    # tightened from 30
-        "rsi_overbought":  75,    # tightened from 70
+        # 2026-05-03: Score threshold raised 9→12. At 9, too many marginal signals
+        # passed — every single hour was net-negative. Require 3+ confirming factors.
+        "score_threshold": 12,    # min score magnitude to consider trade (was 9)
+        "min_confidence":  0.55,  # 50→55% AI confidence floor
+        "adx_min":         20,    # min ADX (18→20: slight tightening for trend confirmation)
+        "rsi_oversold":    25,
+        "rsi_overbought":  75,
         # ATR-based dynamic stops (preferred over fixed pips)
         "sl_atr_mult":     1.5,   # SL = 1.5 × M15 ATR
         "tp_atr_mult":     4.5,   # TP = 4.5 × M15 ATR (R:R 3.0)
@@ -144,29 +144,32 @@ SYMBOLS = [
         "display": "XAGUSD",
         "pip": 0.01,
         "contract_size": 5000,
-        "sl_pips": 25,           # 15→25 (silver moves 1.7x more)
-        "tp_pips": 80,           # 30→80 (R:R 3.2)
+        "sl_pips": 25,
+        "tp_pips": 80,
         "lot": 0.01,
-        # Silver-specific gating (still higher bar than gold due to volatility)
-        "score_threshold": 12,    # +12 vs gold's +10 (was 18)
-        "min_confidence":  0.50,  # 50% AI confidence floor
-        "adx_min":         23,    # silver ADX threshold optimized (catch more trends)
-        "rsi_oversold":    25,
-        "rsi_overbought":  75,
+        # 2026-05-03: Silver EFFECTIVELY DISABLED.
+        # 30-day live: 33% WR, -$2,698 P&L, R:R 0.60.
+        # score_threshold=30 makes it nearly impossible to trigger.
+        # Combined with SilverADXFilter (ADX ≥ 30) this is a double gate.
+        "score_threshold": 30,    # 12→30: effectively disabled (max score ~23)
+        "min_confidence":  0.80,  # 50→80%: only ultra-high conviction
+        "adx_min":         30,    # 23→30: only strongest trends
+        "rsi_oversold":    20,
+        "rsi_overbought":  80,
         "sl_atr_mult":     1.5,
         "tp_atr_mult":     4.5,
-        "trail_atr_mult":  1.2,   # silver trails wider (more breathing room)
+        "trail_atr_mult":  1.2,
     },
 ]
 
 # ── Session-Aware Risk Configuration ─────────────────────────────────────────
-# Gold behaves differently in each session. Asian = range, London = breakout,
-# NY overlap = the kill zone. Adjust lot and confidence gates accordingly.
+# 2026-05-03: Aligned with live data. TimeOfDayFilter hard-blocks 17-01 UTC,
+# so ASIAN and NEW_YORK sessions will rarely execute. Kept for defence-in-depth.
 SESSION_CONFIG = {
-    "ASIAN":             {"lot_mult": 0.5,  "min_conf": 0.85},
-    "LONDON":            {"lot_mult": 0.7,  "min_conf": 0.82},
-    "LONDON_NY_OVERLAP": {"lot_mult": 1.0,  "min_conf": 0.80},
-    "NEW_YORK":          {"lot_mult": 0.7,  "min_conf": 0.82},
+    "ASIAN":             {"lot_mult": 0.3,  "min_conf": 0.75},  # 0.5→0.3 (thin markets)
+    "LONDON":            {"lot_mult": 0.8,  "min_conf": 0.60},  # 0.7→0.8 (best session)
+    "LONDON_NY_OVERLAP": {"lot_mult": 1.0,  "min_conf": 0.55},  # peak liquidity
+    "NEW_YORK":          {"lot_mult": 0.5,  "min_conf": 0.70},  # 0.7→0.5 (harder gate)
 }
 
 CONFIG = {
@@ -174,9 +177,12 @@ CONFIG = {
     "analysis_interval_s": int(os.getenv("ANALYSIS_INTERVAL_S", "60")),
     "profit_close_pct": 3.0,   # let broker TP at 160 pips be primary exit
     "loss_close_pct": 1.0,     # align with wider 80-pip SL
-    "min_confidence": 0.85,    # pyramid system: high-conviction entries only
-    "max_trades_per_sym": 6,   # 10→6: pyramid max_tranches reduced (whipsaw protection)
-    "max_total_positions": 6,  # 12→6: smaller blast radius if a pyramid goes wrong
+    # 2026-05-03 FIX: min_confidence was 0.85 — this blocked 80%+ of valid signals
+    # because the AI calibrates 0.55-0.70 as "good" and 0.85+ as "extreme conviction."
+    # Session-level gates (SESSION_CONFIG) handle per-session thresholds.
+    "min_confidence": 0.55,    # 0.85→0.55: stop blocking valid AI signals
+    "max_trades_per_sym": 3,   # 6→3: fewer concurrent positions = less churn
+    "max_total_positions": 4,  # 6→4: tighter blast radius
     "dry_run": False,
     "use_ai": True,
     "max_reconnect_attempts": 5,

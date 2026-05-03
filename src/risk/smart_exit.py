@@ -37,16 +37,16 @@ DB_PATH = DATA_DIR / "trade_memory.db"
 #   - Single position lost -$533 (no per-position stop)
 EXIT_CFG = {
     # ═══════════════════════════════════════════════════════════════
-    # TRAIL-ONLY MODE (2026-04-30)
-    # Backtest data: 511 TRAIL exits = +51,179 pips (100% of profit)
-    #                138 BE exits   = -138 pips (USELESS, removed)
-    #                131 SL exits   = -4,192 pips (acceptable losses)
-    # Removed all exit overrides that capped winners at 8-15 pips.
-    # Only: trailing stop, hard SL, USD cap, emergency time cut.
+    # R:R FIX (2026-05-03)
+    # 30-day live data: avg win $5.56 (5.6 pips) vs avg loss $11.19 (11.2 pips)
+    # = R:R 0.50 (need 67% WR to break even, have 57%).
+    # ROOT CAUSE: trailing_start at 35p never fires (avg win is 5.6p),
+    # so winners close early via other exits. Lowering to 20p.
+    # Also: USD cap ($30) fires before SL (35p=$35) → SL is irrelevant.
     # ═══════════════════════════════════════════════════════════════
 
-    # Profit taking — partial close at 80 pips (let big wins compound)
-    "partial_close_pips":      80,
+    # Profit taking — partial close at 60 pips (was 80 — too high)
+    "partial_close_pips":      60,
     "partial_close_fraction":  0.33,
 
     # Breakeven — DISABLED (backtest avg -1 pip per BE exit = useless)
@@ -57,27 +57,31 @@ EXIT_CFG = {
     "reversal_check_enabled":  False,
     "reversal_min_factors":    3,
 
-    # Time decay — DISABLED (backtest showed winners run 6-24+ hours)
-    "max_trade_age_hours":     72,       # 8→72: 3 days max
+    # Time decay — relaxed to let winners develop
+    "max_trade_age_hours":     72,       # 3 days max (unchanged)
     "stale_min_profit_pips":   999,      # disabled
     "stale_check_hours":       12.0,
 
-    # Trailing stop — THE PROFIT ENGINE (backtest avg +100 pips per trail exit)
-    "trailing_start_pips":     35,       # let trade develop to 35p before trailing
-    "trailing_distance_pips":  20,       # ATR-adaptive in code (15-25p range)
+    # Trailing stop — THE PROFIT ENGINE
+    # FIX: start was 35p but avg win was only 5.6p → trail NEVER activated.
+    # Lowered to 20p so more winners get trail protection.
+    "trailing_start_pips":     20,       # 35→20: activate trail much earlier
+    "trailing_distance_pips":  8,        # 20→8: default for ranging (ADX<22)
 
     # AI confirmation — disabled (slow + adds variance)
     "ai_confirm_exits":        False,
     "ai_timeout":              10,
 
-    # Loss cut — emergency only, NOT proactive cutting
-    "loss_cut_pips":           30,       # close half if -30 pips
+    # Loss cut — calibrated to not interfere with SL
+    # FIX: USD cap was $30 but SL is 35 pips = $35 on 0.01 lot gold.
+    # The USD cap was firing BEFORE the SL, negating it entirely.
+    "loss_cut_pips":           30,
     "loss_cut_fraction":       0.5,
-    "loss_time_cut_minutes":   60,       # 25→60: only kill after 1hr of pure pain
-    "max_position_loss_usd":   30,       # KEEP: hard $30 cap (anti-disaster)
+    "loss_time_cut_minutes":   180,      # 60→180: gold consolidates for hours before moving
+    "max_position_loss_usd":   50,       # 30→50: don't fire before SL (35p=$35 on 0.01 lot)
 
-    # Winner protection — DISABLED (was killing 100-pip trades at 15→8)
-    "winner_peak_pips":        999,      # disabled — let trail handle profit
+    # Winner protection — DISABLED (let trail handle profit)
+    "winner_peak_pips":        999,      # disabled
     "winner_floor_pips":       25,
 
     # Profit floor — DISABLED (let trail do the work)
@@ -437,11 +441,11 @@ class SmartExitManager:
             return None
 
         if adx >= 30:
-            trail_pips = 20   # strong trend — give room to breathe
+            trail_pips = 18   # strong trend — give room to breathe (was 20)
         elif adx >= 22:
-            trail_pips = 12   # normal trend
+            trail_pips = 12   # normal trend (unchanged)
         else:
-            trail_pips = EXIT_CFG["trailing_distance_pips"]   # default (ranging)
+            trail_pips = EXIT_CFG["trailing_distance_pips"]   # ranging: 8p (was 20)
 
         trail_distance = trail_pips * pip
         digits = 2 if pip >= 0.01 else 5

@@ -1,8 +1,8 @@
 {
   "_note": "buy_threshold HARD-CAPPED at 20 by analyzer._load_weights(). Valid range 8-20. Setting >20 halts all trading.",
-  "buy_threshold": 9,
-  "sell_threshold": -9,
-  "ranging_penalty": 0.85,
+  "buy_threshold": 12,
+  "sell_threshold": -12,
+  "ranging_penalty": 0.70,
   "f1_h4_trend": 1.0,
   "f2_h1_trend": 1.0,
   "f3_rsi": 0.9,
@@ -14,7 +14,7 @@
   "f9_h1_macd": 0.5,
   "f10_d1": 0.7,
   "f11_candle": 0.8,
-  "last_adjusted": "2026-05-01",
+  "last_adjusted": "2026-05-03",
   "adjustment_history": [
     {
       "date": "2026-04-15",
@@ -38,7 +38,7 @@
     },
     {
       "date": "2026-04-29",
-      "change": "Threshold 12->15 (require stronger confluence). ranging_penalty 0.70->0.65 (harder to trade choppy market). Backtest shows 65.5% WR achievable \u2014 noise from sub-threshold signals was causing losses."
+      "change": "Threshold 12->15 (require stronger confluence). ranging_penalty 0.70->0.65 (harder to trade choppy market). Backtest shows 65.5% WR achievable — noise from sub-threshold signals was causing losses."
     },
     {
       "date": "2026-04-30",
@@ -47,6 +47,10 @@
     {
       "date": "2026-05-01",
       "change": "STRATEGY REFINEMENT: RSI factor 1.1->0.9 (reduce overweight on mean-reversion). Silver ADX 25->23 (catch more early trends without sacrificing quality). Removed f12_fibonacci (was causing noise)."
+    },
+    {
+      "date": "2026-05-03",
+      "change": "PROFITABILITY FIX: Thresholds 9->12, sell -9->-12 (every hour was net-negative at 9). ranging_penalty 0.85->0.70 (ranging markets ADX<20 are where most losses occur). Based on 30-day live data: 1,366 trades, actual P&L -$4,167."
     }
   ]
 }

@@ -44,20 +44,20 @@ CAPITAL_CFG = {
     "drawdown_reduce_threshold": 3,  # 3 consecutive losses → reduce risk
     "drawdown_reduce_pct":    0.3,   # reduce to 0.3% risk on losing streak (was 0.5%)
 
-    # Profit Booking — calibrated to 160-pip TP (Senior Trader Overhaul 2026-04-23)
-    # OLD milestones: 3/6/10 pips (scalping) — fired immediately and killed the whole trade.
-    # On 0.01 lot (minimum) partial closes fail because you can't close a fraction.
-    # NEW milestones: let the trade breathe and book at 25%/50%/75% of the way to TP.
-    # At 160-pip TP: milestone 1 = 40 pips (25%), 2 = 80 pips (50%), 3 = 120 pips (75%)
+    # Profit Booking — calibrated to actual trade performance (2026-05-03)
+    # OLD milestones: 40/80/120 pips — NEVER triggered (avg win = 5.6 pips).
+    # NEW milestones: 15/30/50 pips — realistic for gold's actual moves.
+    # On 0.01 lot (minimum) partial closes book the full remaining position.
     "partial_book_enabled":   True,
     "book_levels": [
-        {"pips": 40,  "close_pct": 0.40},  # at +40 pips (25% of TP): book 40%
-        {"pips": 80,  "close_pct": 0.30},  # at +80 pips (50% of TP): book another 30%
-        {"pips": 120, "close_pct": 0.20},  # at +120 pips (75% of TP): book another 20%
-        # remaining 10% rides free to TP or SL — pure profit
+        {"pips": 15,  "close_pct": 0.40},  # at +15 pips: book 40%
+        {"pips": 30,  "close_pct": 0.30},  # at +30 pips: book another 30%
+        {"pips": 50,  "close_pct": 0.20},  # at +50 pips: book another 20%
+        # remaining 10% rides to TP or trail exit
     ],
-    # Minimum lot required to attempt partial close — below this, skip (can't split)
-    "min_lot_for_partial":    0.02,   # 0.01 lot = can't close fraction, skip all levels
+    # 2026-05-03 FIX: was 0.02 but bot always trades 0.01 → ALL partial closes dead.
+    # At 0.01 lot, close the FULL position at booking levels (can't split further).
+    "min_lot_for_partial":    0.01,   # 0.02→0.01: enable on minimum lot
 
     # Volatility scaling
     "atr_scale_enabled":     True,

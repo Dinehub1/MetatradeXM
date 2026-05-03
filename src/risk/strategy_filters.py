@@ -35,25 +35,36 @@ class StrategyFilter:
 
 class TimeOfDayFilter(StrategyFilter):
     """
-    2026-04-30: NON-BLOCKING. All hours allowed.
-    Spread cost is the real issue (handled by SpreadFilter), not the clock.
-    Adds lot reduction during historically weak windows but never vetoes.
+    2026-05-03 FIX: BLOCKING during proven-losing sessions.
+    30-day live data:
+      - 17:00-21:59 UTC (NY Late): 35% WR, -$827/month
+      - 22:00-00:59 UTC (Asian Late): 35% WR, -$707/month
+    These windows LOSE money at any R:R. Hard block.
+    Premium hours (06-16 UTC) get full lot size.
     """
     name = "time_of_day"
-    PREMIUM_HOURS = {5, 6, 7, 14}        # London open + NY morning
+    # Best hours from 30-day P&L data (less-negative to neutral)
+    PREMIUM_HOURS = {6, 7, 14}           # London open + NY afternoon
+    # HARD BLOCK: 17:00-00:59 UTC — 35% WR, burns $1,534/month
+    BLOCKED_HOURS = {17, 18, 19, 20, 21, 22, 23, 0}
 
     def should_trade(self, symbol, direction, context):
         h = datetime.now(timezone.utc).hour
-        # Boost during premium windows: no lot reduction, just allow
+
+        # HARD BLOCK: NY Late + Asian Late (proven 35% WR)
+        if h in self.BLOCKED_HOURS:
+            return False, (
+                f"Session block: {h:02d}:00 UTC is in blocked window (17-01 UTC). "
+                f"30-day data: 35% WR, -$1,534/month. No trades allowed."
+            )
+
+        # Premium window — full lot, no reduction
         if h in self.PREMIUM_HOURS:
             return True, ""
-        # All other hours: allow but reduce position size by 20%
-        # (size adjustment is non-blocking — high-confidence trades still go through)
-        context["_lot_reduction"] = min(context.get("_lot_reduction", 1.0), 0.80)
 
-        # Reduce lot 30% during mixed hours
-        context["_lot_reduction"] = min(context.get("_lot_reduction", 1.0), 0.7)
-        return True, f"Mixed hour {h:02d} — lot reduced 30%"
+        # Standard hours (01-16 UTC excl premium) — slight lot reduction
+        context["_lot_reduction"] = min(context.get("_lot_reduction", 1.0), 0.80)
+        return True, f"Standard hour {h:02d} — lot reduced 20%"
 
 
 class DayOfWeekFilter(StrategyFilter):
@@ -109,14 +120,12 @@ class VolatilityFilter(StrategyFilter):
 
 class NYLateSessionFilter(StrategyFilter):
     """
-    New York late session (17:00–21:59 UTC) is the weakest trading window.
-    Backtest over 2.4 years shows this period has only 47% win rate vs
-    56% overall — well below break-even at current R:R.
+    2026-05-03: REDUNDANT — TimeOfDayFilter now hard-blocks 17-01 UTC.
+    Kept as defence-in-depth in case TimeOfDayFilter is bypassed.
 
-    Rules:
-      - In NY-late, require confidence ≥ 0.75 (vs normal 0.70 gate)
-      - Allow trades only when ADX ≥ 22 (trending market confirmed)
-      - Reduce position size 30% via lot_reduction if signal is marginal
+    30-day LIVE data (not backtest):
+      17:00-21:59 UTC: 361 trades, 35% WR, -$827
+      This is a HARD BLOCK — no amount of ADX/confidence makes this profitable.
     """
     name = "ny_late_session"
 
@@ -128,40 +137,27 @@ class NYLateSessionFilter(StrategyFilter):
         if not (self.NY_LATE_START <= h < self.NY_LATE_END):
             return True, ""
 
-        indicators = context.get("indicators", {})
-        adx        = indicators.get("adx", 0)
-        confidence = context.get("confidence", 1.0)
-
-        # Require trend confirmation during this weaker session
-        if adx < 22:
-            return False, (
-                f"NY-late filter: ADX={adx:.1f} < 22 (ranging market in weak session "
-                f"{h:02d}:00 UTC — wait for London/NY_Overlap)"
-            )
-
-        # Allow but reduce size if confidence is marginal for this session
-        if confidence < 0.75:
-            context["_lot_reduction"] = min(context.get("_lot_reduction", 1.0), 0.7)
-            return True, f"NY-late: lot reduced 30% (conf={confidence:.0%} in off-peak session)"
-
-        return True, ""
+        # HARD BLOCK — no exceptions
+        return False, (
+            f"NY-late HARD BLOCK: {h:02d}:00 UTC — 30-day live WR=35%, "
+            f"-$827/month. No trading 17-22 UTC."
+        )
 
 
 class SilverADXFilter(StrategyFilter):
     """
-    Silver (XAGUSD) is a graveyard.
-    30-day live data: 27% WR, -$2,262 P&L on 284 trades.
+    2026-05-03: Silver EFFECTIVELY DISABLED.
+    30-day live data: 33% WR, -$2,698 P&L on 425 trades.
     Below random — taking the OPPOSITE of every signal would have profited.
 
-    Until the silver signal generation is rebuilt, we require:
-      - ADX ≥ 30 (only trade strongest silver trends)
-      - Confidence ≥ 80% (vs 75% for gold)
-      - Half lot size
+    ADX min raised to 30 (was 23). At ADX 23, WR was 33% — catastrophic.
+    Combined with score_threshold=30 in continuous_trader.py, silver
+    will only trade in the strongest possible trends.
     """
     name = "silver_adx"
 
-    SILVER_ADX_MIN  = 23   # optimized to catch developing trends (was 28)
-    SILVER_CONF_MIN = 0.72 # 0.80→0.72: matches per-symbol min_confidence floor
+    SILVER_ADX_MIN  = 30   # 23→30: only strongest trends (33% WR at 23)
+    SILVER_CONF_MIN = 0.80 # 0.72→0.80: very high bar
 
     def should_trade(self, symbol, direction, context):
         sym_upper = symbol.upper()
@@ -175,18 +171,18 @@ class SilverADXFilter(StrategyFilter):
         if adx < self.SILVER_ADX_MIN:
             return False, (
                 f"Silver ADX filter: ADX={adx:.1f} < {self.SILVER_ADX_MIN} "
-                "(silver 30-day WR: 27% — only trade strongest trends)"
+                f"(silver 30-day WR: 33% at ADX 23 — only trade ADX 30+)"
             )
 
         if conf < self.SILVER_CONF_MIN:
             return False, (
                 f"Silver confidence filter: {conf:.0%} < {self.SILVER_CONF_MIN:.0%} "
-                "(silver 30-day P&L: -$2,262 — very high bar required)"
+                f"(silver 30-day P&L: -$2,698 — very high bar required)"
             )
 
-        # Always halve silver lot size until WR improves
-        context["_lot_reduction"] = min(context.get("_lot_reduction", 1.0), 0.5)
-        return True, "Silver — lot halved until WR improves"
+        # Quarter silver lot size until WR improves
+        context["_lot_reduction"] = min(context.get("_lot_reduction", 1.0), 0.25)
+        return True, "Silver — lot quartered until WR improves"
 
 
 class SpreadFilter(StrategyFilter):
