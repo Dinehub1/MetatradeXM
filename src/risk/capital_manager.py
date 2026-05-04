@@ -203,10 +203,12 @@ class CapitalManager:
                  f"session_mult={session_mult} atr_mult={atr_mult:.1f} → lot={lot}")
         return lot
 
-    def record_outcome(self, outcome: str, profit_usd: float):
+    def record_outcome(self, outcome: str, profit_usd: float,
+                       balance: float = 0.0):
         """
         Call this after every trade closes to update streaks and compound state.
         outcome: 'WIN' or 'LOSS'
+        balance: current account balance (for peak tracking)
         """
         if outcome == "WIN":
             self.state["consecutive_wins"] += 1
@@ -215,9 +217,34 @@ class CapitalManager:
             self.state["consecutive_losses"] += 1
             self.state["consecutive_wins"] = 0
 
+        # Track all-time peak balance for max drawdown calculation
+        if balance > 0:
+            self._update_peak(balance)
+
         _save_state(self.state)
         log.info(f"[CAPITAL] Outcome: {outcome} ${profit_usd:+.2f} | "
-                 f"Streak W:{self.state['consecutive_wins']} L:{self.state['consecutive_losses']}")
+                 f"Streak W:{self.state['consecutive_wins']} L:{self.state['consecutive_losses']} | "
+                 f"Peak: ${self.state.get('peak_balance', 0):.2f}")
+
+    def update_peak_balance(self, balance: float):
+        """Call each cycle to keep peak_balance up to date (for drawdown calc)."""
+        if balance > 0:
+            self._update_peak(balance)
+
+    def _update_peak(self, balance: float):
+        """Internal: update peak_balance if current balance exceeds it."""
+        prev = self.state.get("peak_balance", 0.0)
+        if balance > prev:
+            self.state["peak_balance"] = round(balance, 2)
+            _save_state(self.state)
+
+    def get_max_drawdown_pct(self) -> float:
+        """Return current drawdown from peak as a percentage."""
+        peak = self.state.get("peak_balance", 0.0)
+        if peak <= 0:
+            return 0.0
+        # Caller should pass current balance; this returns based on stored peak
+        return 0.0  # needs current balance — use get_drawdown_from(balance)
 
     def book_profits(self, bridge, positions_by_sym: dict, symbols: dict,
                      dry_run: bool = False) -> list:

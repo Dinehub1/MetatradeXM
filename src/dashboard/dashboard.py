@@ -459,7 +459,7 @@ HTML = r"""<!DOCTYPE html>
     <!-- ECONOMIC CALENDAR -->
     <div class="card">
       <div class="card-header">
-        <div class="card-title">📅 Economic Calendar (Simulated)</div>
+        <div class="card-title">📅 Economic Calendar</div>
       </div>
       <div class="table-container" style="max-height: 200px;">
         <table>
@@ -516,7 +516,7 @@ HTML = r"""<!DOCTYPE html>
     <!-- PENDING ORDERS -->
     <div class="card">
       <div class="card-header">
-        <div class="card-title">⏳ Pending Orders (Simulated)</div>
+        <div class="card-title">⏳ Pending Orders</div>
       </div>
       <div class="table-container">
         <table>
@@ -618,6 +618,8 @@ HTML = r"""<!DOCTYPE html>
           document.getElementById('price-gold').innerText = formatPrice(gPrice, 2);
           if (gold.spread) document.getElementById('spread-gold').innerText = gold.spread;
           if (gold.atr) document.getElementById('atr-gold').innerText = formatPrice(gold.atr, 2);
+          if (gold.daily_high) document.getElementById('high-gold').innerText = formatPrice(gold.daily_high, 2);
+          if (gold.daily_low) document.getElementById('low-gold').innerText = formatPrice(gold.daily_low, 2);
       }
       
       const silver = snap.symbols['XAGUSD'];
@@ -626,6 +628,8 @@ HTML = r"""<!DOCTYPE html>
           document.getElementById('price-silver').innerText = formatPrice(sPrice, 3);
           if (silver.spread) document.getElementById('spread-silver').innerText = silver.spread;
           if (silver.atr) document.getElementById('atr-silver').innerText = formatPrice(silver.atr, 3);
+          if (silver.daily_high) document.getElementById('high-silver').innerText = formatPrice(silver.daily_high, 3);
+          if (silver.daily_low) document.getElementById('low-silver').innerText = formatPrice(silver.daily_low, 3);
       }
       
       // Update Times
@@ -760,7 +764,7 @@ main{padding:20px 24px;display:flex;flex-direction:column;gap:18px}
 <header>
   <div class="logo">MetatradeXM <span>/ Live Stream</span></div>
   <div id="pill" class="pill wait"><span class="dot"></span><span id="pillTxt">Connecting…</span></div>
-  <span class="mono" style="font-size:11px;color:var(--muted)">ws://92.4.71.177:8887</span>
+  <span class="mono" style="font-size:11px;color:var(--muted)" id="wsEndpoint">ws://206.72.198.54:5002</span>
   <div class="ml" style="display:flex;gap:8px;align-items:center">
     <span style="font-size:11px;color:var(--muted)">Msgs: <b id="mc" style="color:var(--text)">0</b></span>
     <span style="font-size:11px;color:var(--muted)">Last: <b id="lt" class="mono" style="color:var(--cyan)">—</b></span>
@@ -779,7 +783,7 @@ main{padding:20px 24px;display:flex;flex-direction:column;gap:18px}
   </div>
 </main>
 <script>
-const WS='ws://92.4.71.177:8887', POLL='/api/live-snapshot';
+const WS='ws://206.72.198.54:5002?token=__AUTH_TOKEN__', POLL='/api/live-snapshot';
 let ws=null,mc=0,log=[],latest={},atf={},rt=null,usePoll=false;
 
 function connect(){
@@ -797,28 +801,70 @@ function connect(){
     // Fallback to polling if WS not established in 6s
     setTimeout(()=>{if(ws.readyState!==1){addLog('system','WS timeout — switching to HTTP polling');
       usePoll=true;ws.close();startPoll()}},6000);
+    // Start HTTP polling immediately for AI indicators
+    startPoll();
   }catch(e){addLog('error','Cannot create WebSocket: '+e);startPoll()}
 }
 
 function startPoll(){
-  setState('wait');addLog('system','HTTP poll mode — /api/live-snapshot every 15s');
+  if(window._pollStarted) return;
+  window._pollStarted = true;
+  addLog('system','Started HTTP poll mode for AI indicators');
   fetchPoll();setInterval(fetchPoll,15000);}
 function fetchPoll(){
-  fetch(POLL).then(r=>r.json()).then(d=>{mc++;
+  Promise.all([
+    fetch('/api/live-snapshot').then(r=>r.json()).catch(()=>({})),
+    fetch('/api/status').then(r=>r.json()).catch(()=>({}))
+  ]).then(([snap, status]) => {
+    mc++;
     document.getElementById('mc').textContent=mc;
     document.getElementById('lt').textContent=new Date().toLocaleTimeString();
-    addLog('poll','HTTP snapshot — '+Object.keys(d.symbols||{}).join(', '));
-    handle({type:'snapshot',data:d});setState('ok')})
-  .catch(e=>addLog('error','Poll failed: '+e));}
+    
+    // Merge status indicators into snapshot symbols
+    const mergedSymbols = snap.symbols || {};
+    if (status.symbols) {
+      for (const sym in status.symbols) {
+        if (!mergedSymbols[sym]) mergedSymbols[sym] = {};
+        mergedSymbols[sym].indicators = status.symbols[sym].indicators;
+        mergedSymbols[sym].signal = status.symbols[sym].signal;
+        mergedSymbols[sym].confidence = status.symbols[sym].confidence;
+      }
+    }
+    
+    addLog('poll','HTTP snapshot + status — '+Object.keys(mergedSymbols).join(', '));
+    handle({type:'snapshot', data: {symbols: mergedSymbols}});
+    if(ws && ws.readyState===1) setState('ok');
+  }).catch(e=>addLog('error','Poll failed: '+e));}
 function reconnect(){if(rt)clearTimeout(rt);usePoll=false;if(ws)ws.close();connect()}
 
 function handle(m){
+  const MAP = {'GOLD.i#': 'XAUUSD', 'SILVER.i#': 'XAGUSD'};
+  const sym = MAP[m.symbol] || m.symbol;
+
   if(m.type==='snapshot'){const s=m.data?.symbols||{};Object.assign(latest,s);renderAll()}
   else if(m.type==='indicator_update'&&m.symbol){
-    if(!latest[m.symbol])latest[m.symbol]={};
-    if(m.indicators)latest[m.symbol].indicators=m.indicators;
-    if(m.timeframes)latest[m.symbol].timeframes=m.timeframes;
-    render(m.symbol)}}
+    if(!latest[sym])latest[sym]={};
+    if(m.indicators)latest[sym].indicators=m.indicators;
+    if(m.timeframes)latest[sym].timeframes=m.timeframes;
+    render(sym);
+  }
+  else if(m.type==='candles' && m.candles && m.candles.length) {
+    if(!sym) return;
+    if(!latest[sym])latest[sym]={indicators:{}};
+    latest[sym].indicators = latest[sym].indicators || {};
+    latest[sym].indicators.price = m.candles[m.candles.length-1].c;
+    latest[sym]._last_update = Math.round(Date.now()/1000);
+    render(sym);
+  }
+  else if(m.type==='ticks' && m.ticks && m.ticks.length) {
+    if(!sym) return;
+    if(!latest[sym])latest[sym]={indicators:{}};
+    latest[sym].indicators = latest[sym].indicators || {};
+    latest[sym].indicators.price = m.ticks[m.ticks.length-1].bid;
+    latest[sym]._last_update = Math.round(Date.now()/1000);
+    render(sym);
+  }
+}
 
 function renderAll(){Object.keys(latest).sort().forEach(render)}
 function render(sym){
@@ -889,9 +935,9 @@ function setState(s){
   const labels={ok:'Live',bad:'Disconnected',wait:'Connecting…'};
   const icons={ok:'🟢',bad:'🔴',wait:'⏳'};
   const msgs={
-    ok:'✅ Connected — streaming live indicators from ws://92.4.71.177:8887',
+    ok:'✅ Connected — streaming live indicators from '+WS,
     bad:'⚡ Connection lost — will retry in 5s (or using HTTP poll fallback)',
-    wait:'⏳ Connecting to ws://92.4.71.177:8887…'};
+    wait:'⏳ Connecting to '+WS+'…'};
   p.className='pill '+s;t.textContent=labels[s];
   ban.className=s;document.getElementById('bi').textContent=icons[s];
   document.getElementById('bm').textContent=msgs[s]}
@@ -1305,8 +1351,12 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
 
         elif path in ('/live', '/live.html'):
             # ── Live indicator stream viewer ──────────────────────────────────
-            # Connects to ws://92.4.71.177:8887 and displays all indicators live
-            body = LIVE_HTML.encode()
+            # Connects to Windows MT5 bridge (206.72.198.54:5002) and displays all indicators live
+            from dotenv import load_dotenv
+            load_dotenv(BASE_DIR / ".env")
+            auth_token = os.environ.get("WEBHOOK_AUTH_TOKEN", "super_secret_token_2026")
+            html_content = LIVE_HTML.replace("__AUTH_TOKEN__", auth_token)
+            body = html_content.encode()
             self.send_response(200)
             self.send_header('Content-Type', 'text/html; charset=utf-8')
             self.send_header('Content-Length', len(body))

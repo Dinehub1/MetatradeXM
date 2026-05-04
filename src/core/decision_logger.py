@@ -69,7 +69,6 @@ def write_trace(cycle: int, symbol: str, session: str, signal_data: dict):
                 },
                 "factor_scores": {k: v for k, v in fs.items()
                                   if k not in ("adx_regime", "bb_squeeze")},
-                "fib_zone": signal_data.get("_fib_zone", ""),
             },
 
             # ── Stage 3: AI context summary ───────────────────────────────

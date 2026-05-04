@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from pathlib import Path
 import requests
 from urllib.parse import quote
@@ -159,6 +160,7 @@ class WebhookBridge:
                 bid=data["bid"],
                 last=data.get("last", data["ask"]),
                 time=data.get("time", 0),
+                received_at=time.time(),  # Mac-local arrival time (no clock-drift bias)
             )
         except Exception as e:
             log.warning(f"[WEBHOOK] get_tick error: {e}")

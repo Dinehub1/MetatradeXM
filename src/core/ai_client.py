@@ -433,6 +433,3 @@ def ask_nvidia(
     return None
 
 
-# Aliases for backward compatibility — analyzer.py imports these names
-ask_gemini = ask_nvidia
-ask_openrouter = ask_nvidia

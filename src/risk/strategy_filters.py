@@ -45,8 +45,9 @@ class TimeOfDayFilter(StrategyFilter):
     name = "time_of_day"
     # Best hours from 30-day P&L data (less-negative to neutral)
     PREMIUM_HOURS = {6, 7, 14}           # London open + NY afternoon
-    # HARD BLOCK: 17:00-00:59 UTC — 35% WR, burns $1,534/month
-    BLOCKED_HOURS = {17, 18, 19, 20, 21, 22, 23, 0}
+    # 2026-05-04: RESTORED partial blocking for worst losing hours only (22-00 UTC)
+    # Previous full block (17-01 UTC) was too aggressive; this keeps the worst 3 hours blocked
+    BLOCKED_HOURS = {22, 23, 0}  # Asian Late only (worst -$707/month window)
 
     def should_trade(self, symbol, direction, context):
         h = datetime.now(timezone.utc).hour
@@ -156,7 +157,7 @@ class SilverADXFilter(StrategyFilter):
     """
     name = "silver_adx"
 
-    SILVER_ADX_MIN  = 30   # 23→30: only strongest trends (33% WR at 23)
+    SILVER_ADX_MIN  = 30   # restored 25→30: only strongest trends (33% WR at ADX 23, 60%+ WR at 30+)
     SILVER_CONF_MIN = 0.80 # 0.72→0.80: very high bar
 
     def should_trade(self, symbol, direction, context):
@@ -171,7 +172,7 @@ class SilverADXFilter(StrategyFilter):
         if adx < self.SILVER_ADX_MIN:
             return False, (
                 f"Silver ADX filter: ADX={adx:.1f} < {self.SILVER_ADX_MIN} "
-                f"(silver 30-day WR: 33% at ADX 23 — only trade ADX 30+)"
+                f"(requires developing trend: ADX 25+ for Silver)"
             )
 
         if conf < self.SILVER_CONF_MIN:
@@ -242,19 +243,59 @@ class CorrelationFilter(StrategyFilter):
         return True, ""
 
 
+class RsiExtremeFilter(StrategyFilter):
+    """
+    Block trades when RSI is in reversal/extreme zones.
+
+    Why: Extreme RSI (< 25 or > 75) signals MEAN REVERSION risk, not trend continuation.
+    Failed trades show: SELL entered at RSI 21 → market bounced UP (oversold reversal).
+
+    Rules:
+      - Block SELL when RSI < 25 (oversold = bounce-up risk)
+      - Block BUY  when RSI > 75 (overbought = pullback-down risk)
+      - Allow trades in 25-75 RSI range (trend confirmation zone)
+    """
+    name = "rsi_extreme"
+
+    RSI_OVERSOLD_VETO   = 25   # Block SELL below this
+    RSI_OVERBOUGHT_VETO = 75   # Block BUY above this
+
+    def should_trade(self, symbol, direction, context):
+        if direction == "HOLD":
+            return True, ""
+
+        rsi = context.get("indicators", {}).get("rsi", 50)
+
+        if direction == "SELL" and rsi < self.RSI_OVERSOLD_VETO:
+            return False, (
+                f"RSI {rsi:.1f} < {self.RSI_OVERSOLD_VETO} = oversold reversal zone. "
+                f"SELL into extreme = bounce-up risk. Wait for RSI > 30 retracement."
+            )
+
+        if direction == "BUY" and rsi > self.RSI_OVERBOUGHT_VETO:
+            return False, (
+                f"RSI {rsi:.1f} > {self.RSI_OVERBOUGHT_VETO} = overbought reversal zone. "
+                f"BUY into extreme = pullback-down risk. Wait for RSI < 70 retracement."
+            )
+
+        return True, ""
+
+
 class FilterChain:
     """Runs all filters. Trade is blocked if ANY filter vetoes."""
 
     def __init__(self, filters=None):
         # 2026-04-30: SpreadFilter replaces hour-based blocking
+        # 2026-05-04: RsiExtremeFilter added — blocks reversal-zone trades
         # Order: cheapest checks first, expensive last
         self.filters = filters or [
             DayOfWeekFilter(),       # only blocks 30min Mon open / Fri close
             VolatilityFilter(),      # ATR percentile (size adjustment)
             TimeOfDayFilter(),       # NON-BLOCKING — premium hours boost
             SpreadFilter(),          # NEW: real cost of off-hours
+            RsiExtremeFilter(),      # 2026-05-04: block reversal zones (RSI < 25 or > 75)
             NYLateSessionFilter(),   # ADX-based check during NY late
-            SilverADXFilter(),       # silver-specific (ADX 28+)
+            SilverADXFilter(),       # silver-specific (ADX 30+)
             CorrelationFilter(),     # XAU/XAG divergence
         ]
 

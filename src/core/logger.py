@@ -8,7 +8,8 @@ import json
 import logging
 import logging.handlers
 import sys
-from datetime import datetime
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 from core.paths import LOG_DIR, DATA_DIR
 
@@ -19,6 +20,7 @@ _FMT = logging.Formatter(
     "%(asctime)s [%(levelname)-5s] [%(name)-12s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
+_FMT.converter = time.gmtime  # UTC timestamps — prevents local-time confusion
 
 
 def setup_logging(level: str = "INFO") -> None:
@@ -99,7 +101,7 @@ class TradeLogger:
                 INSERT INTO signals (ts, symbol, direction, confidence, reason, action, ticket, order_json)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                datetime.now().isoformat(),
+                datetime.now(timezone.utc).isoformat(),
                 sym,
                 signal["direction"],
                 signal["confidence"],

@@ -186,6 +186,7 @@ class WSBridge:
                         "last": data.get("last", data.get("ask", 0)),
                         "time": data.get("time", 0),
                         "spread": data.get("spread", 0),
+                        "received_at": time.time(),  # Mac-local arrival time (no clock-drift bias)
                     }
 
                 elif msg_type == "candles":
@@ -253,12 +254,13 @@ class WSBridge:
             cached = self._latest_ticks.get(symbol)
 
         # Use cache if fresh (< 5 seconds old)
-        if cached and (time.time() - cached.get("time", 0)) < 5:
+        if cached and (time.time() - cached.get("received_at", 0)) < 5:
             return SimpleNamespace(
                 ask=cached["ask"],
                 bid=cached["bid"],
                 last=cached.get("last", cached["ask"]),
                 time=cached.get("time", 0),
+                received_at=cached.get("received_at", time.time()),
             )
 
         # Fallback to HTTP

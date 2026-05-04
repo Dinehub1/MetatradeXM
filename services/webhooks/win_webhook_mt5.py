@@ -951,8 +951,19 @@ async def _ws_handler(websocket):
             auth_header = websocket.request_headers.get("Authorization")
     except Exception:
         auth_header = None
+
+    # Check if token is in query params for browser clients
+    token_in_path = False
+    try:
+        path_attr = getattr(websocket, "path", "")
+        if not path_attr and hasattr(websocket, "request"):
+            path_attr = getattr(websocket.request, "path", "")
+        if f"token={AUTH_TOKEN}" in path_attr:
+            token_in_path = True
+    except Exception:
+        pass
         
-    if not auth_header or auth_header != f"Bearer {AUTH_TOKEN}":
+    if not token_in_path and (not auth_header or auth_header != f"Bearer {AUTH_TOKEN}"):
         log.warning(f"[WS] Unauthorized connection attempt from {client_addr}")
         await websocket.close(1008, "Unauthorized")
         return

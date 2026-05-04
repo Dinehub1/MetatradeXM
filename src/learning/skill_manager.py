@@ -14,7 +14,7 @@ import requests
 from pathlib import Path
 from datetime import datetime, timezone
 
-from core.ai_client import ask_openrouter  # unified OpenRouter client — no more Ollama
+from core.ai_client import ask_nvidia as ask_openrouter
 from core.paths import SKILLS_DIR
 
 

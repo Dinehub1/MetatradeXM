@@ -1,1 +1,97 @@
-{}
+{
+  "indicator_cache": {
+    "XAUUSD": {
+      "indicators": {
+        "rsi": 33.98,
+        "ema20": 4586.63599,
+        "ema50": 4596.90711,
+        "ema200": 4602.12452,
+        "ema_trend": "BEARISH",
+        "macd_signal": "BEARISH",
+        "macd_hist": -0.118307,
+        "bb_position": "BELOW_MID",
+        "bb_squeeze": false,
+        "atr": 7.59857,
+        "adx": 48.3,
+        "plus_di": 7.5,
+        "minus_di": 26.8,
+        "trend_strong": true,
+        "stoch_k": 12.7,
+        "stoch_d": 24.0,
+        "stoch_cross": "BULLISH",
+        "williams_r": -87.3,
+        "price": 4575.32,
+        "price_change": -0.491,
+        "vol_ratio": 0.11,
+        "candle_pattern_score": 0
+      },
+      "score": -22.5,
+      "confidence": 0.9,
+      "signal_direction": "SELL",
+      "factor_scores": {
+        "f1_h4_trend": -6.0,
+        "f2_h1_trend": -8.0,
+        "f3_rsi_zone": 2.9,
+        "f4_macd_momentum": -6.0,
+        "f5_adx_strength": -11.0,
+        "f6_stoch_confirm": 8.0,
+        "f7_bb_action": -2.0,
+        "f8_h1_rsi": 2.5,
+        "f9_h1_macd": -1.5,
+        "f10_d1_trend": -1.4,
+        "f11_candle_pattern": 0.0,
+        "adx_regime": "STRONG_TREND_DOWN",
+        "volatility_state": "EXPANDING",
+        "recommended_strategy": "TREND_FOLLOWING",
+        "bb_squeeze": false
+      }
+    }
+  },
+  "pyramids": {
+    "XAUUSD": {
+      "symbol": "XAUUSD",
+      "direction": "SELL",
+      "first_entry_price": 4575.18,
+      "pip_size": 0.1,
+      "started_at": 1777888768.332138,
+      "last_add_time": 1777888768.332138,
+      "tranches": [
+        {
+          "num": 1,
+          "ticket": "756255628",
+          "price": 4575.18,
+          "lot": 0.01,
+          "ts": "2026-05-04T09:59:28.332143+00:00"
+        }
+      ],
+      "signal_context": {
+        "confidence": 0.9,
+        "factors": {
+          "f1_h4_trend": -6.0,
+          "f2_h1_trend": -8.0,
+          "f3_rsi_zone": 2.9,
+          "f4_macd_momentum": -6.0,
+          "f5_adx_strength": -11.0,
+          "f6_stoch_confirm": 8.0,
+          "f7_bb_action": -2.0,
+          "f8_h1_rsi": 2.5,
+          "f9_h1_macd": -1.5,
+          "f10_d1_trend": -1.4,
+          "f11_candle_pattern": 0.0,
+          "adx_regime": "STRONG_TREND_DOWN",
+          "volatility_state": "EXPANDING",
+          "recommended_strategy": "TREND_FOLLOWING",
+          "bb_squeeze": false
+        },
+        "conditions": {
+          "session": "LONDON",
+          "atr": 7.59857,
+          "adx": 48.3,
+          "rsi": 33.98,
+          "h4_trend": "BEARISH"
+        },
+        "skills_used": []
+      }
+    }
+  }
+}

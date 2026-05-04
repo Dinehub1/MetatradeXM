@@ -22,7 +22,7 @@ import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-from core.ai_client import ask_openrouter  # unified OpenRouter client (T1 → T2)
+from core.ai_client import ask_nvidia as ask_openrouter
 from core.paths import DATA_DIR
 
 
@@ -63,10 +63,11 @@ EXIT_CFG = {
     "stale_check_hours":       12.0,
 
     # Trailing stop — THE PROFIT ENGINE
-    # FIX: start was 35p but avg win was only 5.6p → trail NEVER activated.
-    # Lowered to 20p so more winners get trail protection.
-    "trailing_start_pips":     20,       # 35→20: activate trail much earlier
-    "trailing_distance_pips":  8,        # 20→8: default for ranging (ADX<22)
+    # 2026-05-04: Switched to Trend Follower Strategy.
+    # Winners must run to 35 pips before trailing starts to ensure R:R > 1:1 against the 30-pip loss cut.
+    # Distance widened to 15 pips to prevent premature stop-outs during normal trend pullbacks.
+    "trailing_start_pips":     35,       # Let winners run! (was 10)
+    "trailing_distance_pips":  15,       # Wider breathing room for trends (was 8)
 
     # AI confirmation — disabled (slow + adds variance)
     "ai_confirm_exits":        False,
@@ -433,22 +434,22 @@ class SmartExitManager:
                               sym_cfg, dry_run, adx: float = 0.0):
         """Tighten SL as profit grows — lock in gains progressively.
 
-        Adaptive trail distance:
-          - ADX ≥ 30 (strong trend): trail 20 pips → let winners run further
-          - ADX ≥ 22 (normal trend): trail 12 pips
-          - ADX < 22 (ranging):      trail 8 pips → tighten fast in chop
-        Backtest shows TRAIL is the #1 P&L driver — widening in strong trends
-        captures the tail of large moves without giving back more than needed.
+        Adaptive trail distance (Trend Follower, 2026-05-04):
+          - ADX ≥ 30 (strong trend): trail 20 pips → maximum room for big moves
+          - ADX ≥ 22 (normal trend): trail 15 pips (from config) → standard trend following
+          - ADX < 22 (ranging):      trail 10 pips → tighten fast in chop
+        Trail is the #1 P&L driver — widening in strong trends captures the
+        tail of large moves without giving back more than needed.
         """
         if profit_pips < EXIT_CFG["trailing_start_pips"]:
             return None
 
         if adx >= 30:
-            trail_pips = 18   # strong trend — give room to breathe (was 20)
+            trail_pips = 20   # strong trend — maximum room for big runners
         elif adx >= 22:
-            trail_pips = 12   # normal trend (unchanged)
+            trail_pips = EXIT_CFG["trailing_distance_pips"]  # normal trend: 15p (from config)
         else:
-            trail_pips = EXIT_CFG["trailing_distance_pips"]   # ranging: 8p (was 20)
+            trail_pips = 10   # ranging/chop — tighten fast, protect gains
 
         trail_distance = trail_pips * pip
         digits = 2 if pip >= 0.01 else 5

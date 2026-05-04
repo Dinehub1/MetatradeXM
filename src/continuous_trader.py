@@ -130,7 +130,7 @@ SYMBOLS = [
         # 2026-05-03: Score threshold raised 9→12. At 9, too many marginal signals
         # passed — every single hour was net-negative. Require 3+ confirming factors.
         "score_threshold": 12,    # min score magnitude to consider trade (was 9)
-        "min_confidence":  0.55,  # 50→55% AI confidence floor
+        "min_confidence":  0.65,  # 0.55→0.65: tightened after RSI-extreme losses (need stronger conviction)
         "adx_min":         20,    # min ADX (18→20: slight tightening for trend confirmation)
         "rsi_oversold":    25,
         "rsi_overbought":  75,
@@ -138,6 +138,7 @@ SYMBOLS = [
         "sl_atr_mult":     1.5,   # SL = 1.5 × M15 ATR
         "tp_atr_mult":     4.5,   # TP = 4.5 × M15 ATR (R:R 3.0)
         "trail_atr_mult":  1.0,   # trail distance = 1.0 × ATR
+        "max_sl_pips":     80,    # hard cap: prevents SL blowout during news spikes
     },
     {
         "broker": "SILVER.i#",
@@ -147,18 +148,21 @@ SYMBOLS = [
         "sl_pips": 25,
         "tp_pips": 80,
         "lot": 0.01,
-        # 2026-05-03: Silver EFFECTIVELY DISABLED.
-        # 30-day live: 33% WR, -$2,698 P&L, R:R 0.60.
-        # score_threshold=30 makes it nearly impossible to trigger.
-        # Combined with SilverADXFilter (ADX ≥ 30) this is a double gate.
-        "score_threshold": 30,    # 12→30: effectively disabled (max score ~23)
-        "min_confidence":  0.80,  # 50→80%: only ultra-high conviction
-        "adx_min":         30,    # 23→30: only strongest trends
-        "rsi_oversold":    20,
-        "rsi_overbought":  80,
+        # 2026-05-04: Silver re-enabled with data-driven calibration.
+        # Root causes of 33% WR fixed: wrong session (London avg score -14.14),
+        # Gold-tuned thresholds, and 4.5× TP that Silver never reaches.
+        # Strategy: NEW_YORK mean-reversion + ASIAN ranging only. London blocked.
+        "score_threshold": 15,    # 30→15: max score ~23; 15 requires 3+ aligned factors
+        "min_confidence":  0.62,  # 0.80→0.62: calibrated (stricter than Gold's 0.55)
+        "adx_min":         22,    # 30→22: Silver ADX range 26-32; 30 blocked everything
+        "rsi_oversold":    25,    # 20→25: Silver rarely hits 20; 25 = usable signal
+        "rsi_overbought":  75,    # 80→75: Silver rarely hits 80; 75 = usable signal
         "sl_atr_mult":     1.5,
-        "tp_atr_mult":     4.5,
-        "trail_atr_mult":  1.2,
+        "tp_atr_mult":     3.5,   # 4.5→3.5: Silver runs shorter than Gold
+        "trail_atr_mult":  1.0,   # 1.2→1.0: tighter trail for shorter moves
+        "max_sl_pips":     60,    # hard cap: 60 pips @ pip=0.01; ATR 0.24×1.5=36 pips typical
+        # 2026-05-04: RESTORED — London avg score -14.14 (0 BUY signals in 81 trades)
+        "allowed_sessions": ["NEW_YORK", "ASIAN", "LONDON_NY_OVERLAP"],  # block LONDON only
     },
 ]
 
@@ -398,7 +402,6 @@ def _format_factor_summary(factor_scores: dict) -> str:
         ("f6_stoch_confirm", "Stoch"),
         ("f7_bb_action", "BB"),
         ("f10_d1_trend", "D1"),
-        ("f12_fibonacci", "Fib"),
     ]:
         value = factor_scores.get(key, 0)
         if value != 0:
@@ -654,7 +657,7 @@ def check_and_close_positions(
                                     log.debug(f"Skill outcome record: {_se}")
 
                             if capital_mgr:
-                                capital_mgr.record_outcome(outcome, profit)
+                                capital_mgr.record_outcome(outcome, profit, balance=balance)
                         except Exception as e:
                             log.warning(f"Outcome record error: {e}")
                 else:
@@ -677,14 +680,14 @@ def build_order_params(
     import math
     import pandas as pd
 
-    # Validate tick freshness (prevent stale price orders)
-    # NOTE: tick.time comes from the MT5 server clock which may differ from
-    # the local (Mac/Ubuntu) clock. Only reject if the age is egregiously old
-    # (>120s) to avoid false positives from minor clock drift.
-    tick_time = getattr(tick, 'time', 0)
-    if tick_time > 0:
-        tick_age_s = abs(time.time() - tick_time)
-        if tick_age_s > 120:
+    # Validate tick freshness using Mac-local received_at (immune to Windows/Mac clock drift).
+    # Falls back to tick.time only when received_at is unavailable (legacy paths).
+    _received_at = getattr(tick, 'received_at', 0)
+    _tick_time   = getattr(tick, 'time', 0)
+    _ref_time    = _received_at if _received_at > 0 else _tick_time
+    if _ref_time > 0:
+        tick_age_s = time.time() - _ref_time
+        if tick_age_s > 30:
             log.warning(f"Stale tick ({tick_age_s:.1f}s old) for {sym_cfg['display']} — rejecting order")
             return None
 
@@ -715,8 +718,8 @@ def build_order_params(
                 sl_mult *= 0.85   # -15% tighter stops
                 tp_mult *= 0.85
 
-        # Pure ATR-based (no cap from fixed sl_pips — let vol regime drive size)
         sl_pips = max(int(atr * sl_mult / pip), 15 if pip >= 0.10 else 5)
+        sl_pips = min(sl_pips, sym_cfg.get("max_sl_pips", 80))  # hard cap — news spike guard
         tp_pips = max(int(atr * tp_mult / pip), 35 if pip >= 0.10 else 10)
         # Enforce minimum R:R 2.5 (was 1.8 — too low for 49% WR)
         min_rr = 2.5
@@ -1114,6 +1117,9 @@ class ContinuousTrader:
                 "currency": getattr(acct, "currency", "USD"),
             }
             pnl = equity - balance
+            # Track all-time peak balance for max drawdown calculation
+            if self.capital:
+                self.capital.update_peak_balance(balance)
 
             # ── Fetch ALL open positions (one RPC call) ──────────────────────
             positions_by_sym = get_positions_by_symbol(self.bridge)
@@ -1153,7 +1159,7 @@ class ContinuousTrader:
             # Detect tickets that vanished since last cycle (closed by broker SL/TP)
             if _prev_tickets:
                 # Get tickets already counted by SmartExitManager (prevents double-counting)
-                _smart_closed = getattr(self.exit_mgr, "closed_tickets", set()) if hasattr(self, "exit_mgr") and self.exit_mgr else set()
+                _smart_closed = getattr(self.smart_exit, "closed_tickets", set()) if self.smart_exit else set()
                 for tk, info in _prev_tickets.items():
                     if tk not in _cur_tickets and not self.dry_run:
                         # Skip if smart exit already counted this ticket's stats
@@ -1200,6 +1206,12 @@ class ContinuousTrader:
                                 )
                             _save_streaks(self._consec_losses)
                             _save_state(self.state)
+                            # Sync capital manager streak tracking + peak balance
+                            if self.capital:
+                                try:
+                                    self.capital.record_outcome(outcome, pr, balance=balance)
+                                except Exception as _ce:
+                                    log.debug(f"Capital record on external close: {_ce}")
                         except Exception as _e:
                             log.warning(f"External close record error: {_e}")
             _prev_tickets = _cur_tickets
@@ -1331,7 +1343,6 @@ class ContinuousTrader:
                     reason = signal_data.get("reason", "")
                     _ind = signal_data.get("indicators", {})
                     _fs  = signal_data.get("factor_scores", {})
-                    _fib = signal_data.get("fibonacci_data", {})
                     _score = signal_data.get("score", 0)
                     # Stash indicators so SmartExitManager + next-cycle memory enrichment can use them
                     sym_cfg["_last_adx"] = _ind.get("adx", 0.0)
@@ -1358,8 +1369,6 @@ class ContinuousTrader:
                         f"Stoch {_ind.get('stoch_k', 50):.0f}/{_ind.get('stoch_d', 50):.0f} {_ind.get('stoch_cross', '')} | "
                         f"Score {_score:+.1f} | Factors {_format_factor_summary(_fs)}"
                     )
-                    if _fib and _fib.get('zone_label'):
-                        log.info(f"DETAIL | {disp} | Fib {_compact_text(_fib['zone_label'], 96)}")
 
                     # Write 4-stage decision trace
                     try:
@@ -1459,6 +1468,13 @@ class ContinuousTrader:
                                 f"ACTION | {disp} | fade block bypassed | "
                                 f"trend continuation (ADX={adx_val:.1f} RSI={rsi_val:.1f} regime={_fb_regime} score={_sig_score_raw:.1f})"
                             )
+
+                    # Per-symbol session filter — block sessions with structural edge loss.
+                    # Silver blocks LONDON (81-entry sample: avg score -14.14, 0 BUY signals).
+                    _allowed_sessions = sym_cfg.get("allowed_sessions")
+                    if can_open_new and _allowed_sessions and session not in _allowed_sessions:
+                        log.info(f"ACTION | {disp} | {session} session blocked (not in allowed_sessions {_allowed_sessions})")
+                        can_open_new = False
 
                     # Loss cooldown: 10 min rest after a loss (was 3 min — too short, caused churn)
                     _LOSS_COOLDOWN_SECS = 600  # 10 minutes — prevents revenge trading

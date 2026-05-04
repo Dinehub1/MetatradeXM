@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from core.regime_detector import RegimeDetector
 from datetime import datetime, timezone
 
-from core.ai_client import ask_gemini, ask_openrouter  # NVIDIA primary + fallback
+from core.ai_client import ask_nvidia
 
 log = logging.getLogger("analyzer")
 
@@ -129,11 +129,6 @@ class MarketAnalyzer:
         base_signal = self._multi_tf_signal(ind_m15, ind_h1, ind_h4, ind_d1, weights=weights)
         base_signal["session"] = session
 
-        # F12 Fibonacci removed 2026-05-01: mechanical swing detection conflicted with
-        # EMA trend across timeframes, introducing noise in choppy/ranging markets.
-        # 11 other factors (EMA trend, RSI, MACD, ADX, Stochastic, Bollinger Bands, etc.)
-        # are more reliable and provide better confluence detection.
-
         if self.use_claude:
             research_ctx = self._fetch_nemotron_research(symbol, base_signal)
             signal = self._ai_reasoning(symbol, tick, ind_m15, ind_h1, ind_h4,
@@ -211,7 +206,7 @@ class MarketAnalyzer:
         """TV-direct path: skip broker candle fetch and indicator computation entirely.
 
         tv_tfs: dict with keys M15, H1, H4 (and optionally D1) from tv_client
-        m15_candles: optional broker M15 DataFrame — used only for Fibonacci (F12)
+        m15_candles: optional broker M15 DataFrame — used for last-candle display in AI prompt
         """
         ind_m15 = self._tv_to_ind(tv_tfs.get("M15", {}))
         ind_h1  = self._tv_to_ind(tv_tfs.get("H1", {}))
@@ -222,8 +217,6 @@ class MarketAnalyzer:
         weights     = self._load_weights()
         base_signal = self._multi_tf_signal(ind_m15, ind_h1, ind_h4, ind_d1, weights=weights)
         base_signal["session"] = session
-
-        # F12 Fibonacci removed 2026-05-01 (see above for rationale)
 
         if self.use_claude:
             research_ctx = self._fetch_nemotron_research(symbol, base_signal)
@@ -463,186 +456,6 @@ class MarketAnalyzer:
             return 1.0
         avg = df["vol"].iloc[-21:-1].mean()
         return round(float(df["vol"].iloc[-1]) / (avg + 1e-9), 2)
-
-    def compute_fibonacci_levels(self, df: pd.DataFrame, lookback: int = 100) -> dict:
-        """
-        Detect the most recent swing high and swing low over `lookback` bars
-        and return Fibonacci retracement + extension levels with price proximity context.
-
-        Swing detection: a pivot high is a bar whose high is the highest in a ±5 bar window.
-        Same logic for pivot low.
-
-        Returns dict with keys:
-            swing_high, swing_low, trend,
-            retracements: {23.6, 38.2, 50.0, 61.8, 78.6}  (price levels)
-            extensions:   {127.2, 161.8, 200.0, 261.8}     (price levels)
-            nearest_level: {"ratio": float, "price": float, "distance_pips": float, "type": str}
-            at_key_level: bool  (True if price within 0.3% of any retracement level)
-            zone_label: str  (human-readable context for AI prompt)
-        """
-        if len(df) < 20:
-            return {}
-
-        window = min(lookback, len(df))
-        bars = df.tail(window)
-        highs = bars["h"].values
-        lows  = bars["l"].values
-        close = bars["c"].values
-        current_price = float(close[-1])
-
-        # --- Swing pivot detection (±5 bar window) ---
-        pivot = 5
-        swing_high_idx = -1
-        swing_low_idx  = -1
-        swing_high_val = -np.inf
-        swing_low_val  =  np.inf
-
-        for i in range(pivot, len(highs) - pivot):
-            if highs[i] == np.max(highs[i - pivot: i + pivot + 1]):
-                if highs[i] > swing_high_val:
-                    swing_high_val = highs[i]
-                    swing_high_idx = i
-            if lows[i] == np.min(lows[i - pivot: i + pivot + 1]):
-                if lows[i] < swing_low_val:
-                    swing_low_val = lows[i]
-                    swing_low_idx = i
-
-        if swing_high_val == -np.inf or swing_low_val == np.inf:
-            return {}
-
-        swing_range = swing_high_val - swing_low_val
-        if swing_range < 1e-6:
-            return {}
-
-        # Determine trend direction: which pivot came LAST?
-        trend = "UP" if swing_low_idx > swing_high_idx else "DOWN"
-
-        # --- Retracement levels (price pulls back INTO the swing) ---
-        # For UP trend: fib retracements are between swing_low and swing_high
-        # For DOWN trend: fib retracements are between swing_high and swing_low
-        retrace_ratios = [0.236, 0.382, 0.500, 0.618, 0.786]
-        extend_ratios  = [1.272, 1.618, 2.000, 2.618]
-
-        retracements = {}
-        extensions   = {}
-
-        if trend == "UP":
-            # Retracements pull back from high toward low
-            for r in retrace_ratios:
-                retracements[round(r * 100, 1)] = round(swing_high_val - r * swing_range, 5)
-            # Extensions project above the high
-            for r in extend_ratios:
-                extensions[round(r * 100, 1)] = round(swing_low_val + r * swing_range, 5)
-        else:
-            # Retracements pull back from low toward high (bearish swing)
-            for r in retrace_ratios:
-                retracements[round(r * 100, 1)] = round(swing_low_val + r * swing_range, 5)
-            # Extensions project below the low
-            for r in extend_ratios:
-                extensions[round(r * 100, 1)] = round(swing_high_val - r * swing_range, 5)
-
-        # --- Find nearest level to current price ---
-        all_levels = [(ratio, price, "retracement") for ratio, price in retracements.items()]
-        all_levels += [(ratio, price, "extension") for ratio, price in extensions.items()]
-
-        nearest = min(all_levels, key=lambda x: abs(x[1] - current_price))
-        nearest_ratio, nearest_price, nearest_type = nearest
-        distance_pips = abs(current_price - nearest_price)
-        # For gold (~2000), 1 pip ≈ 0.1; for silver (~30), 1 pip ≈ 0.01
-        # Use percentage-based proximity instead
-        proximity_pct = distance_pips / (current_price + 1e-9) * 100
-
-        at_key_level = proximity_pct < 0.30  # within 0.3% = at the level
-
-        # --- Zone label for AI prompt ---
-        key_levels = {61.8: "golden ratio", 38.2: "strong confluence", 50.0: "midpoint",
-                      78.6: "deep retracement", 23.6: "shallow pullback",
-                      127.2: "minor extension", 161.8: "major extension"}
-        level_name = key_levels.get(nearest_ratio, f"{nearest_ratio}% level")
-
-        if at_key_level:
-            zone_label = f"⚡ Price AT {nearest_ratio}% {nearest_type} ({level_name}) — HIGH-PROBABILITY ZONE"
-        elif proximity_pct < 0.6:
-            zone_label = f"Price approaching {nearest_ratio}% {nearest_type} ({level_name}) — {proximity_pct:.2f}% away"
-        else:
-            zone_label = f"Nearest Fib: {nearest_ratio}% {nearest_type} @ {nearest_price:.3f} ({proximity_pct:.2f}% away)"
-
-        return {
-            "swing_high":     round(float(swing_high_val), 5),
-            "swing_low":      round(float(swing_low_val), 5),
-            "trend":          trend,
-            "retracements":   retracements,
-            "extensions":     extensions,
-            "nearest_level":  {
-                "ratio":          nearest_ratio,
-                "price":          round(nearest_price, 5),
-                "distance_pct":   round(proximity_pct, 4),
-                "type":           nearest_type,
-            },
-            "at_key_level":   at_key_level,
-            "zone_label":     zone_label,
-        }
-
-    # ── Fibonacci factor scoring ──────────────────────────────────────────────
-
-    def _compute_fib_factor(self, df: pd.DataFrame, fib_data: dict = None) -> float:
-        """
-        F12: Fibonacci proximity score.
-        Returns a SIGNED score (positive = bullish Fib support, negative = bearish Fib resistance).
-
-        Trading in the Zone principle: only trade at high-probability Fibonacci confluence zones.
-        The score amplifies conviction when price is at a key level, and stays 0 when in no-man's-land.
-
-        Score guide:
-            ±12 : Price AT 61.8% (Golden Ratio) — highest probability zone
-            ±10 : Price AT 38.2% or 50% — strong confluence
-            ±6  : Price AT 78.6% or 23.6% — moderate level
-            ±4  : Price APPROACHING (within 0.6%) a key level
-              0 : No meaningful Fibonacci proximity
-        """
-        try:
-            fib = fib_data if fib_data is not None else self.compute_fibonacci_levels(df, lookback=100)
-            if not fib or not fib.get("nearest_level"):
-                return 0.0
-
-            fib_trend   = fib.get("trend", "")          # "UP" or "DOWN"
-            at_level    = fib.get("at_key_level", False)
-            nearest     = fib["nearest_level"]
-            ratio       = nearest.get("ratio", 0)
-            dist_pct    = nearest.get("distance_pct", 999)
-            level_type  = nearest.get("type", "")
-
-            # Direction: bullish when trend is UP (price pulled back to support)
-            # bearish when trend is DOWN (price pulled back to resistance)
-            direction_sign = 1.0 if fib_trend == "UP" else -1.0
-
-            # ── At key level ────────────────────────────────────────────
-            if at_level:
-                strength_map = {
-                    61.8: 12.0,   # Golden Ratio — maximum conviction
-                    38.2: 10.0,   # Strong Fibonacci level
-                    50.0: 10.0,   # 50% midpoint — institutional favourite
-                    78.6: 6.0,    # Deep retracement — valid but riskier
-                    23.6: 6.0,    # Shallow — valid only with strong trend
-                    127.2: -4.0,  # Extension: over-extended, fade signal
-                    161.8: -6.0,  # Major extension: exhaustion warning
-                    200.0: -8.0,  # Double extension: very likely reversal
-                }
-                strength = strength_map.get(ratio, 4.0)
-                # Extensions are inherently fading signals (opposite direction)
-                if level_type == "extension":
-                    return round(-abs(strength) * direction_sign, 1)
-                return round(strength * direction_sign, 1)
-
-            # ── Approaching (within 0.6%) ────────────────────────────
-            if dist_pct < 0.60 and ratio in (61.8, 38.2, 50.0):
-                return round(4.0 * direction_sign, 1)
-
-            return 0.0
-
-        except Exception as e:
-            log.warning(f"[ANALYZER] Fibonacci computation failed: {e}")
-            return 0.0
 
     # ── Factor scoring (pre-AI) ────────────────────────────────────────────────
 
@@ -931,19 +744,6 @@ class MarketAnalyzer:
                       m1_df: pd.DataFrame = None) -> dict:
         last_candles = candles.tail(8)[["time", "o", "h", "l", "c", "vol"]].to_string(index=False)
 
-        # Fibonacci levels — reuse cached result from analyze() to avoid duplicate computation
-        fib = base_signal.get("fibonacci_data") or self.compute_fibonacci_levels(candles, lookback=100)
-        fib_block = ""
-        if fib:
-            ret = fib["retracements"]
-            ext = fib["extensions"]
-            fib_block = f"""
-=== FIBONACCI LEVELS (swing {fib['swing_low']:.3f} → {fib['swing_high']:.3f}, trend: {fib['trend']}) ===
-Retracements: 23.6%={ret.get(23.6,'?')}  38.2%={ret.get(38.2,'?')}  50%={ret.get(50.0,'?')}  61.8%={ret.get(61.8,'?')}  78.6%={ret.get(78.6,'?')}
-Extensions:   127.2%={ext.get(127.2,'?')}  161.8%={ext.get(161.8,'?')}  200%={ext.get(200.0,'?')}  261.8%={ext.get(261.8,'?')}
-{fib['zone_label']}
-"""
-
         # Daily pivot points from yesterday's D1 candle (more precise than swing high/low)
         if d1_df is not None and len(d1_df) >= 2:
             prev = d1_df.iloc[-2]
@@ -1039,8 +839,27 @@ M1 Range: {m1_range:.5f}
             f"W%R({m15.get('williams_r', -50):.0f})",
         ]
 
-        prompt = f"""Analyze {symbol} market data and decide: BUY, SELL, or HOLD.
+        # Silver-specific market context injected before regime/indicator data
+        _symbol_ctx = ""
+        if symbol in ("XAGUSD", "SILVER", "XAGUSD.i", "SILVER.i#"):
+            _symbol_ctx = """
+=== SILVER-SPECIFIC CONTEXT ===
+Silver is a hybrid industrial/precious metal — different from Gold in key ways:
+- Beta to Gold: Silver amplifies Gold moves by 2-3×. Expect wider swings per ATR unit.
+- Industrial demand component: bearish during risk-off if manufacturing sentiment weakens.
+- Mean-reversion character: H4 BULLISH + M15 MACD BEARISH is a NORMAL Silver setup —
+  price pulls back to H4 support before bouncing. Do NOT treat M15 MACD bearish as a veto when H4 is bullish.
+- RSI 40-50 (neutral zone) + H4 BULLISH + ADX 22-28 = Silver's ideal BUY zone.
+  RSI does NOT need to be oversold (20-25) — Silver rarely reaches extremes.
+- Silver trends end faster than Gold. Realistic TP is 3× ATR, not 4-5×.
+- LONDON session is structurally bearish for Silver due to European industrial risk flows.
+  Weight London SELL signals higher than BUY signals.
+- NEW_YORK and ASIAN sessions: primary windows for Silver mean-reversion setups.
 
+"""
+
+        prompt = f"""Analyze {symbol} market data and decide: BUY, SELL, or HOLD.
+{_symbol_ctx}
 === MARKET REGIME (adapt your strategy to this) ===
 {_regime_guidance}
 Volatility: {_vol_state} | Recommended approach: {_rec_strategy}
@@ -1071,7 +890,6 @@ Candle pattern score: {int(m15.get('candle_pattern_score', 0)):+d}
 
 === KEY LEVELS (Daily Pivots) ===
 {levels_str} | 20-bar change: {m15['price_change']:+.3f}%
-{fib_block}
 
 === SESSION: {session} ===
 
@@ -1087,8 +905,7 @@ F8  H1-RSI:         {fs.get('f8_h1_rsi', 0):+.1f}
 F9  H1-MACD:        {fs.get('f9_h1_macd', 0):+.1f}
 F10 D1 Trend:       {fs.get('f10_d1_trend', 0):+.1f}
 F11 Candle Pattern: {fs.get('f11_candle_pattern', 0):+.1f}
-F12 Fibonacci:      {fs.get('f12_fibonacci', 0):+.1f}
-Regime: {fs['adx_regime']} | Bullish factors: {bullish_count}/12 | Bearish factors: {bearish_count}/12
+Regime: {fs['adx_regime']} | Bullish factors: {bullish_count}/11 | Bearish factors: {bearish_count}/11
 
 === INDICATOR-BASED SIGNAL ===
 {base_signal['direction']} | Score: {base_signal['score']} | Confidence: {float(base_signal.get('confidence', 0)):.0%}
@@ -1175,7 +992,7 @@ Williams%R={tv_ind.get('williams_r','?')} Stoch_K={tv_ind.get('stoch_k','?')} St
             f"AI-REQ | {symbol} | chars {_prompt_chars:,} | chain NVIDIA->Gemini | "
             f"ADX {m15.get('adx', 0):.0f} | RSI {m15.get('rsi', 50):.0f} | score {base_signal.get('score', 0):+.1f}"
         )
-        data = ask_gemini(ai_messages, label=symbol)
+        data = ask_nvidia(ai_messages, label=symbol)
 
         # ── Step 3: Hard indicator fallback (fires ONLY when ALL AI tiers fail)
         if not data:
@@ -1249,6 +1066,18 @@ Williams%R={tv_ind.get('williams_r','?')} Stoch_K={tv_ind.get('stoch_k','?')} St
 
                 data["direction"]  = ai_direction
                 data["confidence"] = round(min(ind_conf, _override_cap), 4)
+
+                # Weak-score penalty applied here so it is never skipped.
+                # Override at score 8-12 (ranging market) is genuinely borderline;
+                # cap it hard rather than letting the ADX cap (0.62-0.82) pass through.
+                _so_abs = abs(ind_score)
+                if _so_abs < 8:
+                    data["confidence"] = min(data["confidence"], 0.40)
+                    log.info(f"AI-NOTE | {symbol} | override noise score {ind_score:+.1f} (< 8) — cap 40%")
+                elif _so_abs < 12:
+                    data["confidence"] = round(data["confidence"] * 0.75, 4)
+                    log.info(f"AI-NOTE | {symbol} | override weak score {ind_score:+.1f} (< 12) — conf ×0.75")
+
                 data["reason"] = (f"[Score override {ind_score:+.1f}] "
                                   + data.get("reason", ""))
                 _score_override = True
@@ -1300,13 +1129,11 @@ Williams%R={tv_ind.get('williams_r','?')} Stoch_K={tv_ind.get('stoch_k','?')} St
                 data["confidence"] = max(old_conf * penalty, 0.20)
                 data["reason"] = f"[MTF ×{penalty} ({disagree_count} TFs disagree)] {data.get('reason', '')}"
 
-        # ── WEAK SCORE PENALTY (CRITICAL FIX) ──────────────────────────────
-        # AI model was generating 70-90% confidence on weak scores (8-11).
-        # Score < 12 is genuinely borderline; score < 8 is noise.
-        # Apply confidence penalty based on score strength to prevent
-        # AI from overconfidently overriding weak deterministic signals.
+        # ── WEAK SCORE PENALTY ────────────────────────────────────────────────
+        # For non-override paths: AI returned BUY/SELL directly but score is weak.
+        # Override paths already had the penalty applied inside the override block.
         _score_abs = abs(ind_score)
-        if ai_direction in ("BUY", "SELL"):
+        if ai_direction in ("BUY", "SELL") and not _score_override:
             if _score_abs < 8:
                 # Score is pure noise (< 8) — cap confidence at 45%
                 data["confidence"] = min(float(data.get("confidence", 0.40)), 0.45)
@@ -1322,9 +1149,6 @@ Williams%R={tv_ind.get('williams_r','?')} Stoch_K={tv_ind.get('stoch_k','?')} St
                    if isinstance(v, (int, float)) and v > 0)
         bear = sum(1 for v in base_signal.get("factor_scores", {}).values()
                    if isinstance(v, (int, float)) and v < 0)
-        fib_data = base_signal.get("fibonacci_data", {})
-        fib_zone = fib_data.get("zone_label", "") if fib_data else ""
-
         return {
             "direction":     data.get("direction", "HOLD"),
             "confidence":    round(float(data.get("confidence", 0.40)), 4),
@@ -1334,8 +1158,6 @@ Williams%R={tv_ind.get('williams_r','?')} Stoch_K={tv_ind.get('stoch_k','?')} St
             "indicators":    base_signal.get("indicators", {}),
             "h1_trend":      base_signal.get("h1_trend", ""),
             "h4_trend":      base_signal.get("h4_trend", ""),
-            # Trace metadata (Stage 3 + Fib zone for Stage 2)
-            "_ai_context":   (f"Score={ind_score:+.1f} | Bull:{bull}/12 Bear:{bear}/12 | "
+            "_ai_context":   (f"Score={ind_score:+.1f} | Bull:{bull}/11 Bear:{bear}/11 | "
                               f"IndSignal={ind_direction} → AI={data.get('direction','HOLD')}"),
-            "_fib_zone":     fib_zone,
         }
