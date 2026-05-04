@@ -4,10 +4,14 @@ memory.py — Trade Memory System (Hermes-inspired)
 Persistent memory of all trading decisions and outcomes.
 Prefetches context before decisions, syncs outcomes after trades close.
 Feeds the self-improvement engine with performance data.
+
+Now backed by Supabase PostgreSQL for cloud-based persistence across environments.
+Fallback to SQLite if Supabase is unavailable.
 """
 
 import json
 import sqlite3
+import os
 from core.logger_factory import get_logger
 from core.utils import now_utc
 from datetime import datetime, timezone, timedelta
@@ -19,15 +23,33 @@ log = get_logger("memory")
 
 DB_PATH = DATA_DIR / "trade_memory.db"
 
+# Try to use Supabase if available, fallback to SQLite
+_USE_SUPABASE = os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_ANON_KEY")
+
+if _USE_SUPABASE:
+    try:
+        from core.supabase_db import SupabaseDB
+        _db_adapter = SupabaseDB()
+        log.info("Using Supabase PostgreSQL as database backend")
+    except Exception as e:
+        log.warning(f"Supabase unavailable, falling back to SQLite: {e}")
+        _db_adapter = None
+else:
+    _db_adapter = None
+
 
 class TradeMemory:
-    """SQLite-backed trade memory with prefetch/sync pattern."""
+    """Trade memory system with Supabase backend (or SQLite fallback)."""
 
     def __init__(self, db_path: str = None):
         self.db_path = db_path or str(DB_PATH)
-        self._init_db()
+        if _db_adapter:
+            self.adapter = _db_adapter
+        else:
+            self._init_sqlite()
+            self.adapter = None
 
-    def _init_db(self):
+    def _init_sqlite(self):
         with sqlite3.connect(self.db_path) as conn:
             conn.executescript("""
                 CREATE TABLE IF NOT EXISTS trade_outcomes (
@@ -100,18 +122,21 @@ class TradeMemory:
                      factors: dict = None, conditions: dict = None,
                      skills_used: list = None):
         """Record when a new trade is opened."""
-        ts = now_utc().isoformat()
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
-                INSERT INTO trade_entries
-                (ts, ticket, symbol, direction, entry_price, confidence,
-                 factors_json, conditions_json, skills_used)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (ts, str(ticket), symbol, direction, entry_price, confidence,
-                  json.dumps(self._safe_json(factors or {})),
-                  json.dumps(self._safe_json(conditions or {})),
-                  json.dumps(skills_used or [])))
-        log.info(f"[MEMORY] Recorded entry: {symbol} {direction} #{ticket} conf={confidence:.0%}")
+        if self.adapter:
+            self.adapter.record_entry(ticket, symbol, direction, entry_price, confidence, factors, conditions, skills_used)
+        else:
+            ts = now_utc().isoformat()
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute("""
+                    INSERT INTO trade_entries
+                    (ts, ticket, symbol, direction, entry_price, confidence,
+                     factors_json, conditions_json, skills_used)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (ts, str(ticket), symbol, direction, entry_price, confidence,
+                      json.dumps(self._safe_json(factors or {})),
+                      json.dumps(self._safe_json(conditions or {})),
+                      json.dumps(skills_used or [])))
+            log.info(f"[MEMORY] Recorded entry: {symbol} {direction} #{ticket} conf={confidence:.0%}")
 
     # ── Record trade outcome ─────────────────────────────────────────────────
 
@@ -119,81 +144,87 @@ class TradeMemory:
                        pips_result: float, outcome: str,
                        symbol: str = "UNKNOWN", direction: str = "UNKNOWN"):
         """Record when a trade closes. Links back to entry data."""
-        ts = now_utc().isoformat()
+        if self.adapter:
+            self.adapter.record_outcome(ticket, exit_price, pips_result, outcome, symbol, direction)
+        else:
+            ts = now_utc().isoformat()
 
-        with sqlite3.connect(self.db_path) as conn:
-            # Find the entry record
-            row = conn.execute(
-                "SELECT * FROM trade_entries WHERE ticket=? AND closed=0 ORDER BY id DESC LIMIT 1",
-                (str(ticket),)
-            ).fetchone()
+            with sqlite3.connect(self.db_path) as conn:
+                # Find the entry record
+                row = conn.execute(
+                    "SELECT * FROM trade_entries WHERE ticket=? AND closed=0 ORDER BY id DESC LIMIT 1",
+                    (str(ticket),)
+                ).fetchone()
 
-            if row:
-                entry_ts = row[1]
-                symbol = row[3]
-                direction = row[4]
-                entry_price = row[5]
-                confidence = row[6]
-                factors_json = row[7]
-                conditions_json = row[8]
-                skills_used = row[9]
+                if row:
+                    entry_ts = row[1]
+                    symbol = row[3]
+                    direction = row[4]
+                    entry_price = row[5]
+                    confidence = row[6]
+                    factors_json = row[7]
+                    conditions_json = row[8]
+                    skills_used = row[9]
 
-                # Calculate duration
-                try:
-                    entry_dt = datetime.fromisoformat(entry_ts)
-                    duration = (now_utc() - entry_dt).total_seconds() / 60
-                except (ValueError, TypeError):
-                    duration = 0
+                    # Calculate duration
+                    try:
+                        entry_dt = datetime.fromisoformat(entry_ts)
+                        duration = (now_utc() - entry_dt).total_seconds() / 60
+                    except (ValueError, TypeError):
+                        duration = 0
 
-                conn.execute("""
-                    INSERT INTO trade_outcomes
-                    (ts, ticket, symbol, direction, entry_price, exit_price,
-                     pips_result, confidence, factors_json, conditions_json,
-                     duration_min, outcome, skills_used)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (ts, str(ticket), symbol, direction, entry_price, exit_price,
-                      pips_result, confidence, factors_json, conditions_json,
-                      duration, outcome, skills_used))
+                    conn.execute("""
+                        INSERT INTO trade_outcomes
+                        (ts, ticket, symbol, direction, entry_price, exit_price,
+                         pips_result, confidence, factors_json, conditions_json,
+                         duration_min, outcome, skills_used)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (ts, str(ticket), symbol, direction, entry_price, exit_price,
+                          pips_result, confidence, factors_json, conditions_json,
+                          duration, outcome, skills_used))
 
-                # Mark entry as closed
-                conn.execute("UPDATE trade_entries SET closed=1 WHERE id=?", (row[0],))
+                    # Mark entry as closed
+                    conn.execute("UPDATE trade_entries SET closed=1 WHERE id=?", (row[0],))
 
-                # Record pattern
-                now = now_utc()
-                conn.execute("""
-                    INSERT INTO market_patterns
-                    (symbol, hour_utc, day_of_week, session, direction, outcome, pips, ts)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (symbol, now.hour, now.weekday(),
-                      self._get_session_name(now.hour), direction, outcome,
-                      pips_result, ts))
+                    # Record pattern
+                    now = now_utc()
+                    conn.execute("""
+                        INSERT INTO market_patterns
+                        (symbol, hour_utc, day_of_week, session, direction, outcome, pips, ts)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (symbol, now.hour, now.weekday(),
+                          self._get_session_name(now.hour), direction, outcome,
+                          pips_result, ts))
 
-                log.info(f"[MEMORY] Recorded outcome: {symbol} {direction} #{ticket} "
-                         f"{outcome} {pips_result:+.1f} pips (duration: {duration:.0f}min)")
-            else:
-                # No entry found — record outcome anyway
-                conn.execute("""
-                    INSERT INTO trade_outcomes
-                    (ts, ticket, symbol, direction, entry_price, exit_price,
-                     pips_result, confidence, factors_json, conditions_json,
-                     duration_min, outcome, skills_used)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (ts, str(ticket), symbol, direction, 0, exit_price,
-                      pips_result, 0, "{}", "{}", 0, outcome, "[]"))
+                    log.info(f"[MEMORY] Recorded outcome: {symbol} {direction} #{ticket} "
+                             f"{outcome} {pips_result:+.1f} pips (duration: {duration:.0f}min)")
+                else:
+                    # No entry found — record outcome anyway
+                    conn.execute("""
+                        INSERT INTO trade_outcomes
+                        (ts, ticket, symbol, direction, entry_price, exit_price,
+                         pips_result, confidence, factors_json, conditions_json,
+                         duration_min, outcome, skills_used)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (ts, str(ticket), symbol, direction, 0, exit_price,
+                          pips_result, 0, "{}", "{}", 0, outcome, "[]"))
 
     # ── Record filtered trade ────────────────────────────────────────────────
 
     def record_filtered(self, symbol: str, direction: str, confidence: float,
                         reasons: list, factors: dict = None):
         """Record when a trade was filtered out (for self-improvement tracking)."""
-        ts = now_utc().isoformat()
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
-                INSERT INTO filtered_trades
-                (ts, symbol, direction, confidence, filter_reasons, factors_json)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (ts, symbol, direction, confidence,
-                  json.dumps(self._safe_json(reasons)), json.dumps(self._safe_json(factors or {}))))
+        if self.adapter:
+            self.adapter.record_filtered(symbol, direction, confidence, reasons, factors)
+        else:
+            ts = now_utc().isoformat()
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute("""
+                    INSERT INTO filtered_trades
+                    (ts, symbol, direction, confidence, filter_reasons, factors_json)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (ts, symbol, direction, confidence,
+                      json.dumps(self._safe_json(reasons)), json.dumps(self._safe_json(factors or {}))))
 
     # ── Prefetch context for AI reasoning ────────────────────────────────────
 
@@ -206,6 +237,9 @@ class TradeMemory:
         Includes: aggregate performance, per-direction WR, current streak,
         recent trades, session stats, and learning insights.
         """
+        if self.adapter:
+            return self.adapter.prefetch_context(symbol, current_conditions, direction, adx, rsi)
+
         parts = []
 
         with sqlite3.connect(self.db_path) as conn:
@@ -452,6 +486,9 @@ class TradeMemory:
         Matches: same symbol + direction + session, ADX within ±8, RSI within ±12.
         Searches last 100 trades (wider pool = more matches).
         """
+        if self.adapter:
+            return self.adapter.get_similar_setups(symbol, direction, adx, rsi, session, limit)
+
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute("""
@@ -497,6 +534,9 @@ class TradeMemory:
         Return win-rate stats for this symbol in the current session.
         Returns None if fewer than min_trades recorded (not enough data).
         """
+        if self.adapter:
+            return self.adapter.get_session_win_rate(symbol, session, min_trades)
+
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             row = conn.execute("""
@@ -522,6 +562,9 @@ class TradeMemory:
 
     def get_recent_outcomes(self, hours: int = 24) -> list:
         """Get all trade outcomes from the last N hours."""
+        if self.adapter:
+            return self.adapter.get_recent_outcomes(hours)
+
         cutoff = (now_utc() - timedelta(hours=hours)).isoformat()
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
@@ -532,6 +575,9 @@ class TradeMemory:
 
     def get_all_outcomes(self, symbol: str = None, limit: int = 100) -> list:
         """Get trade outcomes, optionally filtered by symbol."""
+        if self.adapter:
+            return self.adapter.get_all_outcomes(symbol, limit)
+
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             if symbol:
@@ -547,6 +593,9 @@ class TradeMemory:
 
     def get_factor_stats(self) -> dict:
         """Compute win rate per factor value range."""
+        if self.adapter:
+            return self.adapter.get_factor_stats()
+
         stats = {}
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
@@ -590,16 +639,22 @@ class TradeMemory:
     def log_learning(self, insight_type: str, insight_text: str,
                      data: dict = None, applied: bool = False):
         """Record a learning insight from the self-improvement engine."""
-        ts = now_utc().isoformat()
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
-                INSERT INTO learning_log (ts, insight_type, insight_text, data_json, applied)
-                VALUES (?, ?, ?, ?, ?)
-            """, (ts, insight_type, insight_text, json.dumps(data or {}), int(applied)))
-        log.info(f"[MEMORY] Learning: [{insight_type}] {insight_text}")
+        if self.adapter:
+            self.adapter.log_learning(insight_type, insight_text, data, applied)
+        else:
+            ts = now_utc().isoformat()
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute("""
+                    INSERT INTO learning_log (ts, insight_type, insight_text, data_json, applied)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (ts, insight_type, insight_text, json.dumps(data or {}), int(applied)))
+            log.info(f"[MEMORY] Learning: [{insight_type}] {insight_text}")
 
     def get_pattern_summary(self, symbol: str) -> dict:
         """Get hourly and daily pattern summary for a symbol."""
+        if self.adapter:
+            return self.adapter.get_pattern_summary(symbol)
+
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
 

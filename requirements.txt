@@ -8,6 +8,8 @@ pandas>=2.0.3                     # Candle DataFrame processing
 python-dotenv==1.0.0              # .env loading helper (optional, manual loader in place)
 Flask>=2.3.2                      # Webhook server for the Windows MT5 bridge
 MetaTrader5>=5.0.45               # Native Windows MT5 terminal bridge used by win_webhook_mt5.py
+supabase>=2.0.0                   # Supabase PostgreSQL client for cloud database
+postgrest-py>=0.13.0              # PostgreSQL REST client (supabase dependency)
 
 # ── Python stdlib (no install needed) ─────────────────────────────────────────
 # sqlite3    — trades.db, trade_memory.db, signals table
