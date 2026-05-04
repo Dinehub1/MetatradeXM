@@ -140,7 +140,7 @@ SYMBOLS = [
         "sl_atr_mult":     1.5,   # SL = 1.5 × M15 ATR
         "tp_atr_mult":     4.5,   # TP = 4.5 × M15 ATR (R:R 3.0)
         "trail_atr_mult":  1.0,   # trail distance = 1.0 × ATR
-        "max_sl_pips":     80,    # hard cap: prevents SL blowout during news spikes
+        "max_sl_pips":     25,    # hard cap: capped at 25 pips to align risk/reward
     },
     {
         "broker": "SILVER.i#",
@@ -635,40 +635,42 @@ def check_and_close_positions(
                                 pips = 0
                             current_price = getattr(pos, "price_current", getattr(pos, "price_open", 0))
                             # Pass symbol/direction to avoid UNKNOWN records in learning loop
-                            mem.record_outcome(
+                            is_primary = mem.record_outcome(
                                 str(ticket), current_price, round(pips, 1), outcome,
                                 symbol=sym_cfg["display"],
                                 direction=direction,
                             )
-                            # Update consecutive loss counter (Trading in the Zone edge tracking)
-                            if consec_losses is not None:
-                                disp = sym_cfg["display"]
-                                if outcome == "WIN":
-                                    consec_losses[disp] = 0
-                                else:
-                                    consec_losses[disp] = consec_losses.get(disp, 0) + 1
-                                _save_streaks(consec_losses)
+                            
+                            if is_primary:
+                                # Update consecutive loss counter (Trading in the Zone edge tracking)
+                                if consec_losses is not None:
+                                    disp = sym_cfg["display"]
+                                    if outcome == "WIN":
+                                        consec_losses[disp] = 0
+                                    else:
+                                        consec_losses[disp] = consec_losses.get(disp, 0) + 1
+                                    _save_streaks(consec_losses)
 
-                            # Wire skill outcome recording
-                            if skill_mgr:
-                                try:
-                                    import sqlite3 as _sql
-                                    with _sql.connect(str(mem.db_path)) as _conn:
-                                        _entry_row = _conn.execute(
-                                            "SELECT skills_used FROM trade_entries WHERE ticket=? ORDER BY id DESC LIMIT 1",
-                                            (str(ticket),)
-                                        ).fetchone()
-                                        if _entry_row and _entry_row[0]:
-                                            import json as _json
-                                            _skills = _json.loads(_entry_row[0])
-                                            if _skills:
-                                                for _sk in _skills:
-                                                    skill_mgr.record_outcome(_sk, outcome, round(pips, 1))
-                                except Exception as _se:
-                                    log.debug(f"Skill outcome record: {_se}")
+                                # Wire skill outcome recording
+                                if skill_mgr:
+                                    try:
+                                        import sqlite3 as _sql
+                                        with _sql.connect(str(mem.db_path)) as _conn:
+                                            _entry_row = _conn.execute(
+                                                "SELECT skills_used FROM trade_entries WHERE ticket=? ORDER BY id DESC LIMIT 1",
+                                                (str(ticket),)
+                                            ).fetchone()
+                                            if _entry_row and _entry_row[0]:
+                                                import json as _json
+                                                _skills = _json.loads(_entry_row[0])
+                                                if _skills:
+                                                    for _sk in _skills:
+                                                        skill_mgr.record_outcome(_sk, outcome, round(pips, 1))
+                                    except Exception as _se:
+                                        log.debug(f"Skill outcome record: {_se}")
 
-                            if capital_mgr:
-                                capital_mgr.record_outcome(outcome, profit, balance=balance)
+                                if capital_mgr:
+                                    capital_mgr.record_outcome(outcome, profit, balance=balance)
                         except Exception as e:
                             log.warning(f"Outcome record error: {e}")
                 else:

@@ -473,16 +473,14 @@ class MarketAnalyzer:
         if weights is None:
             weights = self._load_weights()
 
-        # F1: H4 EMA trend (±6) — reduced from ±10. Trend is CONTEXT, not a gatekeeper.
-        # Old ±10 made trend factors alone (H4+D1 = ±18) exceed buy_threshold (12),
-        # making it impossible for M15 entry signals to generate counter-trend trades.
-        h4_map = {'BULLISH': 6, 'MILD_BULL': 3, 'MIXED': 0,
-                  'MILD_BEAR': -3, 'BEARISH': -6}
+        # F1: H4 EMA trend (±4) — reduced from ±6 to prevent trend-only signals.
+        h4_map = {'BULLISH': 4, 'MILD_BULL': 2, 'MIXED': 0,
+                  'MILD_BEAR': -2, 'BEARISH': -4}
         f1 = h4_map.get(h4['ema_trend'], 0)
 
-        # F2: H1 EMA trend (±8) — reduced from ±10. Still significant but not overwhelming.
-        h1_map = {'BULLISH': 8, 'MILD_BULL': 4, 'MIXED': 0,
-                  'MILD_BEAR': -4, 'BEARISH': -8}
+        # F2: H1 EMA trend (±5) — reduced from ±8.
+        h1_map = {'BULLISH': 5, 'MILD_BULL': 3, 'MIXED': 0,
+                  'MILD_BEAR': -3, 'BEARISH': -5}
         f2 = h1_map.get(h1['ema_trend'], 0)
 
         # F3: RSI zone — TIGHTENED 2026-04-30 (25/75 vs old 30/70)
@@ -564,9 +562,8 @@ class MarketAnalyzer:
         elif h1_macd == 'BEARISH':        f9 = -3
         else:                             f9 = 0
 
-        # F10: D1 daily trend — reduced from ±8 to ±4. Tiebreaker, not dictator.
-        # Old ±8 combined with H4 ±10 = ±18 from trend alone, exceeding threshold.
-        d1_map = {'BULLISH': 4, 'MILD_BULL': 2, 'MIXED': 0, 'MILD_BEAR': -2, 'BEARISH': -4}
+        # F10: D1 daily trend (±2) — reduced from ±4. Tiebreaker, not dictator.
+        d1_map = {'BULLISH': 2, 'MILD_BULL': 1, 'MIXED': 0, 'MILD_BEAR': -1, 'BEARISH': -2}
         f10 = d1_map.get(d1.get('ema_trend', 'MIXED'), 0) if d1 else 0
 
         # F11: Candlestick pattern confirmation on M15
