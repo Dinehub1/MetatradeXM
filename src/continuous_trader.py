@@ -1328,16 +1328,21 @@ class ContinuousTrader:
                 except: pass
                 pass
 
-            # Update symbol status
+            # Update symbol status — enrich indicators with score/trend so dashboard shows them
+            _ind_base = dict(signal_data.get("indicators", {}))
+            _ind_base["score"]        = round(_score, 1)
+            _ind_base["trend_strong"] = _ind_base.get("adx", 0) > 25
+            _ind_base["bb_squeeze"]   = bool(_ind_base.get("bb_squeeze", False))
             symbols_status[disp] = {
                 "signal": direction,
                 "confidence": round(confidence, 4),
+                "score": round(_score, 1),
                 "reason": reason,
                 "session": session,
                 "ask": round(tick.ask, 5) if tick else None,
                 "bid": round(tick.bid, 5) if tick else None,
                 "positions": len(current_pos),
-                "indicators": signal_data.get("indicators", {}),
+                "indicators": _ind_base,
                 "h1_trend": signal_data.get("h1_trend", ""),
                 "h4_trend": signal_data.get("h4_trend", ""),
                 "broker_symbol": broker_sym,
