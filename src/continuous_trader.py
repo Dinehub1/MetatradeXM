@@ -164,7 +164,8 @@ SYMBOLS = [
         "trail_atr_mult":  1.0,   # 1.2→1.0: tighter trail for shorter moves
         "max_sl_pips":     60,    # hard cap: 60 pips @ pip=0.01; ATR 0.24×1.5=36 pips typical
         # 2026-05-04: RESTORED — London avg score -14.14 (0 BUY signals in 81 trades)
-        "allowed_sessions": ["NEW_YORK", "ASIAN", "LONDON_NY_OVERLAP"],  # block LONDON only
+        # 2026-05-04: Also block LONDON_NY_OVERLAP (silver structurally down during UK/EU hours)
+        "allowed_sessions": ["NEW_YORK", "ASIAN"],  # block LONDON + LONDON_NY_OVERLAP
     },
 ]
 
@@ -173,8 +174,8 @@ SYMBOLS = [
 # so ASIAN and NEW_YORK sessions will rarely execute. Kept for defence-in-depth.
 SESSION_CONFIG = {
     "ASIAN":             {"lot_mult": 0.3,  "min_conf": 0.75},  # 0.5→0.3 (thin markets)
-    "LONDON":            {"lot_mult": 0.8,  "min_conf": 0.60},  # 0.7→0.8 (best session)
-    "LONDON_NY_OVERLAP": {"lot_mult": 1.0,  "min_conf": 0.55},  # peak liquidity
+    "LONDON":            {"lot_mult": 0.8,  "min_conf": 0.70},  # raised 0.60→0.70 (lower liquidity, need higher quality)
+    "LONDON_NY_OVERLAP": {"lot_mult": 1.0,  "min_conf": 0.60},  # raised 0.55→0.60 (filter tail of marginal trades)
     "NEW_YORK":          {"lot_mult": 0.5,  "min_conf": 0.70},  # 0.7→0.5 (harder gate)
 }
 

@@ -1111,30 +1111,39 @@ Williams%R={tv_ind.get('williams_r','?')} Stoch_K={tv_ind.get('stoch_k','?')} St
                 if f2_score > 0: disagree_count += 1   # H1 bullish
                 if f10_score > 0: disagree_count += 1  # D1 bullish
 
-            # ── GRADUATED PENALTY (not a kill switch) ──
-            # Calibration math at each tier (AI 65% is typical):
-            #   3 TFs: 65% × 0.80 = 52.0% — passes normal adaptive gates
-            #          55% × 0.80 = 44.0% — permits small Fib reversal probes
-            #          85% × 0.80 = 68.0% — comfortably passes all gates
-            #   2 TFs: 65% × 0.85 = 55.3% — passes normal gate (0.55)
-            #   1 TF:  65% × 0.92 = 59.8% — minimal reduction
-            # This allows high-conviction counter-trend trades at Fib levels
-            # while still penalizing weak signals against the trend.
-            if disagree_count >= 3:
-                penalty = 0.80
-                log.info(f"AI-NOTE | {symbol} | 3 higher TFs disagree with {ai_direction} | conf x{penalty}")
-            elif disagree_count == 2:
-                penalty = 0.85
-                log.info(f"AI-NOTE | {symbol} | 2 higher TFs disagree with {ai_direction} | conf x{penalty}")
-            elif disagree_count == 1:
-                penalty = 0.92
-            else:
-                penalty = 1.0
+            # ── MTF VETO & GRADUATED PENALTY ──────────────────────────────────
+            # 2026-05-04: Hard veto when BOTH H1 + H4 oppose AND confidence < 70%.
+            # Rationale: Counter-trend at <70% confidence in trending market = worst setup.
+            # Allow high-conviction reversals (70%+) to pass, but not marginal ones.
 
-            if penalty < 1.0:
-                old_conf = float(data.get("confidence", 0.40))
-                data["confidence"] = max(old_conf * penalty, 0.20)
-                data["reason"] = f"[MTF ×{penalty} ({disagree_count} TFs disagree)] {data.get('reason', '')}"
+            h1_h4_both_oppose = (
+                (ai_direction == "BUY" and f1_score < 0 and f2_score < 0) or
+                (ai_direction == "SELL" and f1_score > 0 and f2_score > 0)
+            )
+            old_conf = float(data.get("confidence", 0.40))
+
+            if h1_h4_both_oppose and old_conf < 0.70:
+                # Hard veto: both H1 + H4 opposed and low confidence
+                log.info(f"AI-NOTE | {symbol} | MTF VETO: H1+H4 oppose {ai_direction} @ {old_conf:.0%} conf (< 70%) — blocking")
+                data["direction"] = "HOLD"
+                data["confidence"] = 0.0
+                data["reason"] = "MTF veto: H1+H4 oppose at low confidence"
+            else:
+                # Apply graduated penalty if at least one higher TF opposes
+                if disagree_count >= 3:
+                    penalty = 0.80
+                    log.info(f"AI-NOTE | {symbol} | 3 higher TFs disagree with {ai_direction} | conf x{penalty}")
+                elif disagree_count == 2:
+                    penalty = 0.85
+                    log.info(f"AI-NOTE | {symbol} | 2 higher TFs disagree with {ai_direction} | conf x{penalty}")
+                elif disagree_count == 1:
+                    penalty = 0.92
+                else:
+                    penalty = 1.0
+
+                if penalty < 1.0:
+                    data["confidence"] = max(old_conf * penalty, 0.20)
+                    data["reason"] = f"[MTF ×{penalty} ({disagree_count} TFs disagree)] {data.get('reason', '')}"
 
         # ── WEAK SCORE PENALTY ────────────────────────────────────────────────
         # For non-override paths: AI returned BUY/SELL directly but score is weak.
