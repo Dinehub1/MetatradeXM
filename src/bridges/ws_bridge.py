@@ -14,8 +14,7 @@ Config:
 from __future__ import annotations
 
 import json
-import logging
-import os
+from core.logger_factory import get_logger
 import threading
 import time
 from datetime import datetime, timezone
@@ -25,10 +24,11 @@ from typing import Dict, Optional
 import pandas as pd
 from pathlib import Path
 from dotenv import load_dotenv
+from core.config import get_webhook_config as _get_wh_cfg
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
-log = logging.getLogger("ws_bridge")
-AUTH_TOKEN = os.environ.get("WEBHOOK_AUTH_TOKEN", "super_secret_token_2026")
+log = get_logger("ws_bridge")
+AUTH_TOKEN = _get_wh_cfg()["auth_token"]
 
 # Try to import websockets (async) — fall back to websocket-client (sync)
 try:
@@ -47,8 +47,9 @@ class WSBridge:
     """
 
     def __init__(self, ws_url: str = None, http_url: str = None):
-        self.ws_url = (ws_url or os.environ.get("WIN_WS_URL", "")).rstrip("/")
-        self.http_url = (http_url or os.environ.get("WIN_WEBHOOK_URL", "")).rstrip("/")
+        _wh = _get_wh_cfg()
+        self.ws_url = (ws_url or _wh["ws_url"]).rstrip("/")
+        self.http_url = (http_url or _wh["webhook_url"]).rstrip("/")
         self.connected = False
 
         # HTTP bridge for trade execution (BUY/SELL/CLOSE/MODIFY)
@@ -110,8 +111,8 @@ class WSBridge:
         if self._ws:
             try:
                 self._ws.close()
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug(f"[WS_BRIDGE] Error closing WebSocket: {e}")
         self._ws_connected = False
         self.connected = False
         self._webhook.disconnect()

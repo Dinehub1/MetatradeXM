@@ -8,14 +8,14 @@ Feeds the self-improvement engine with performance data.
 
 import json
 import sqlite3
-import os
-import logging
+from core.logger_factory import get_logger
+from core.utils import now_utc
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from core.paths import DATA_DIR
 
 
-log = logging.getLogger("memory")
+log = get_logger("memory")
 
 DB_PATH = DATA_DIR / "trade_memory.db"
 
@@ -100,7 +100,7 @@ class TradeMemory:
                      factors: dict = None, conditions: dict = None,
                      skills_used: list = None):
         """Record when a new trade is opened."""
-        ts = datetime.now(timezone.utc).isoformat()
+        ts = now_utc().isoformat()
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("""
                 INSERT INTO trade_entries
@@ -119,7 +119,7 @@ class TradeMemory:
                        pips_result: float, outcome: str,
                        symbol: str = "UNKNOWN", direction: str = "UNKNOWN"):
         """Record when a trade closes. Links back to entry data."""
-        ts = datetime.now(timezone.utc).isoformat()
+        ts = now_utc().isoformat()
 
         with sqlite3.connect(self.db_path) as conn:
             # Find the entry record
@@ -141,8 +141,8 @@ class TradeMemory:
                 # Calculate duration
                 try:
                     entry_dt = datetime.fromisoformat(entry_ts)
-                    duration = (datetime.now(timezone.utc) - entry_dt).total_seconds() / 60
-                except:
+                    duration = (now_utc() - entry_dt).total_seconds() / 60
+                except (ValueError, TypeError):
                     duration = 0
 
                 conn.execute("""
@@ -159,7 +159,7 @@ class TradeMemory:
                 conn.execute("UPDATE trade_entries SET closed=1 WHERE id=?", (row[0],))
 
                 # Record pattern
-                now = datetime.now(timezone.utc)
+                now = now_utc()
                 conn.execute("""
                     INSERT INTO market_patterns
                     (symbol, hour_utc, day_of_week, session, direction, outcome, pips, ts)
@@ -186,7 +186,7 @@ class TradeMemory:
     def record_filtered(self, symbol: str, direction: str, confidence: float,
                         reasons: list, factors: dict = None):
         """Record when a trade was filtered out (for self-improvement tracking)."""
-        ts = datetime.now(timezone.utc).isoformat()
+        ts = now_utc().isoformat()
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("""
                 INSERT INTO filtered_trades
@@ -284,7 +284,7 @@ class TradeMemory:
                                  f"({r['duration_min']:.0f}min)")
 
             # Win rate by current session + hour
-            now = datetime.now(timezone.utc)
+            now = now_utc()
             session = self._get_session_name(now.hour)
             pattern_stats = conn.execute("""
                 SELECT direction, outcome, COUNT(*) as cnt, AVG(pips) as avg_pips
@@ -352,14 +352,16 @@ class TradeMemory:
                         for k, v in fj.items():
                             if isinstance(v, (int, float)) and not isinstance(v, bool):
                                 win_factors.setdefault(k, []).append(v)
-                    except: pass
+                    except Exception as e:
+                        log.debug(f"Failed to parse factors for win fingerprinting: {e}")
                 for l in losses:
                     try:
                         fj = json.loads(l['factors_json'] or '{}')
                         for k, v in fj.items():
                             if isinstance(v, (int, float)) and not isinstance(v, bool):
                                 loss_factors.setdefault(k, []).append(v)
-                    except: pass
+                    except Exception as e:
+                        log.debug(f"Failed to parse factors for loss fingerprinting: {e}")
 
                 parts.append(f"\n📊 FACTOR FINGERPRINT ({len(wins)} wins vs {len(losses)} losses):")
                 for factor in sorted(set(win_factors.keys()) & set(loss_factors.keys())):
@@ -413,7 +415,7 @@ class TradeMemory:
 
         # ── SIMILAR SETUP RECALL (new — AI sees past outcomes for this exact setup) ──
         if direction and adx > 0:
-            now_session = self._get_session_name(datetime.now(timezone.utc).hour)
+            now_session = self._get_session_name(now_utc().hour)
             similar = self.get_similar_setups(symbol, direction, adx, rsi, now_session, limit=10)
             if similar:
                 wins   = sum(1 for s in similar if s['outcome'] == 'WIN')
@@ -483,7 +485,9 @@ class TradeMemory:
                     })
                     if len(matches) >= limit:
                         break
-            except Exception:
+            except Exception as e:
+                try: log.debug(f'Caught exception: {e}')
+                except: pass
                 continue
         return matches
 
@@ -518,7 +522,7 @@ class TradeMemory:
 
     def get_recent_outcomes(self, hours: int = 24) -> list:
         """Get all trade outcomes from the last N hours."""
-        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+        cutoff = (now_utc() - timedelta(hours=hours)).isoformat()
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute("""
@@ -566,7 +570,7 @@ class TradeMemory:
                             stats[factor_name]['win_vals'].append(value)
                         elif outcome == 'LOSS':
                             stats[factor_name]['loss_vals'].append(value)
-                except:
+                except (json.JSONDecodeError, ValueError, KeyError):
                     continue
 
         # Compute averages
@@ -586,7 +590,7 @@ class TradeMemory:
     def log_learning(self, insight_type: str, insight_text: str,
                      data: dict = None, applied: bool = False):
         """Record a learning insight from the self-improvement engine."""
-        ts = datetime.now(timezone.utc).isoformat()
+        ts = now_utc().isoformat()
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("""
                 INSERT INTO learning_log (ts, insight_type, insight_text, data_json, applied)
@@ -654,7 +658,7 @@ class TradeMemory:
             if isinstance(obj, (np.bool_,)):
                 return bool(obj)
         except ImportError:
-            pass
+            pass  # Numpy not available, fallback to standard python types
         if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
             return None
         return obj
@@ -667,10 +671,3 @@ class TradeMemory:
         return "ASIAN"
 
 
-if __name__ == "__main__":
-    # Quick test
-    mem = TradeMemory()
-    print(f"Trade memory initialized at {DB_PATH}")
-    print(f"Recent outcomes: {len(mem.get_all_outcomes())}")
-    ctx = mem.prefetch_context("XAUUSD")
-    print(f"Prefetch context: {ctx[:200] if ctx else '(empty - no trades yet)'}")

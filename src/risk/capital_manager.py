@@ -19,13 +19,13 @@ AGGRESSIVE PROFIT BOOKING:
 
 import json
 import sqlite3
-import logging
+from core.logger_factory import get_logger
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from core.paths import DATA_DIR, STATE_DIR
 
 
-log = logging.getLogger("capital_mgr")
+log = get_logger("capital_mgr")
 
 DB_PATH    = DATA_DIR / "trade_memory.db"
 STATE_PATH = STATE_DIR / "capital_state.json"
@@ -81,7 +81,9 @@ def _load_state() -> dict:
     if STATE_PATH.exists():
         try:
             return json.loads(STATE_PATH.read_text())
-        except Exception:
+        except Exception as e:
+            try: log.debug(f'Caught exception: {e}')
+            except: pass
             pass
     return {
         "consecutive_wins":   0,
@@ -410,10 +412,3 @@ def _record_partial_close(ticket, symbol, direction, level_pips,
         log.warning(f"[CAPITAL] DB record failed: {e}")
 
 
-if __name__ == "__main__":
-    mgr = CapitalManager()
-    # Test lot calc
-    lot = mgr.compute_lot(balance=984.6, atr=13.8, atr_avg=11.5, session="LONDON")
-    print(f"Suggested lot: {lot}")
-    summary = mgr.get_summary()
-    print(f"Capital summary: {json.dumps(summary, indent=2)}")

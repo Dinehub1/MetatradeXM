@@ -90,7 +90,9 @@ def _check_config_integrity():
         bt = w.get("buy_threshold", 12)
         if bt < 8 or bt > 20:
             log.warning(f"CONFIG: buy_threshold={bt} outside valid 8-20 range — analyzer will clamp on next read")
-    except Exception:
+    except Exception as e:
+        try: log.debug(f'Caught exception: {e}')
+        except: pass
         pass
 
 # ── Logging ──────────────────────────────────────────────────────────────────
@@ -292,7 +294,9 @@ def _load_state() -> dict:
     try:
         if STATE_FILE.exists():
             return json.loads(STATE_FILE.read_text())
-    except Exception:
+    except Exception as e:
+        try: log.debug(f'Caught exception: {e}')
+        except: pass
         pass
     return {"cycle": 0, "total_trades": 0, "wins": 0, "losses": 0}
 
@@ -321,7 +325,9 @@ def _load_cooldown() -> dict:
             return json.loads(COOLDOWN_FILE.read_text())
     except json.JSONDecodeError:
         log.warning(f"Corrupted cooldown file, starting fresh")
-    except Exception:
+    except Exception as e:
+        try: log.debug(f'Caught exception: {e}')
+        except: pass
         pass
     return {}
 
@@ -338,7 +344,9 @@ def _load_streaks() -> dict:
             return json.loads(STREAKS_FILE.read_text())
     except json.JSONDecodeError:
         log.warning(f"Corrupted streaks file, starting fresh")
-    except Exception:
+    except Exception as e:
+        try: log.debug(f'Caught exception: {e}')
+        except: pass
         pass
     return {}
 
@@ -513,7 +521,9 @@ def _load_peaks() -> dict:
     try:
         if _PEAK_FILE.exists():
             return json.loads(_PEAK_FILE.read_text())
-    except Exception:
+    except Exception as e:
+        try: log.debug(f'Caught exception: {e}')
+        except: pass
         pass
     return {}
 
@@ -886,7 +896,9 @@ class ContinuousTrader:
                 log.info("  [TV] ✅ Live TradingView indicators connected")
             else:
                 log.info("  [TV] TradingView not available — using broker candles")
-        except Exception:
+        except Exception as e:
+            try: log.debug(f'Caught exception: {e}')
+            except: pass
             log.info("  [TV] TradingView not available — using broker candles")
             self.tv = None
 
@@ -1027,6 +1039,890 @@ class ContinuousTrader:
                 log.warning(f"Candle fetch {broker_sym}/{tf}: {e}")
         return tf_data
 
+
+    def _check_health_and_market(self, cycle, ts, symbols_status):
+        """Check system health and market hours. Returns (should_continue_loop, session)."""
+        # ── Config integrity guard (detects external tampering) ──────────
+        _check_config_integrity()
+
+        # ── Connection health check ──────────────────────────────────────
+        if not self._ensure_connected():
+            log.error("❌ MetaTrader disconnected — retrying next cycle")
+            _write_status(
+                {
+                    "state": "reconnecting",
+                    "cycle": cycle,
+                    "ts": ts,
+                    "dry_run": self.dry_run,
+                    "symbols": symbols_status,
+                    "connection": "DISCONNECTED",
+                }
+            )
+            time.sleep(CONFIG["monitor_interval_s"])
+            self.bridge = make_bridge()  # fresh bridge
+            return False, ""
+
+        # ── Market hours gate ────────────────────────────────────────────
+        market_open, session = is_forex_market_open()
+        if not market_open:
+            log.info(f"💤 Market CLOSED ({session}) — sleeping 5 min")
+            _write_status(
+                {
+                    "state": "sleeping",
+                    "cycle": cycle,
+                    "ts": ts,
+                    "dry_run": self.dry_run,
+                    "session": session,
+                    "reason": "Market closed — weekend",
+                    "symbols": symbols_status,
+                    "connection": "OK",
+                }
+            )
+            time.sleep(300)
+            return False, session
+
+        return True, session
+
+
+    def _reconcile_external_closures(self, positions_by_sym, _prev_tickets, balance):
+        """Builds current tickets dictionary and detects externally closed positions."""
+        _cur_tickets: dict[str, dict] = {}
+        for sym_cfg in SYMBOLS:
+            broker_sym = sym_cfg["broker"]
+            disp = sym_cfg["display"]
+            pos_list = positions_by_sym.get(broker_sym, [])
+            for p in pos_list:
+                d = "BUY" if getattr(p, "type", 1) == 0 else "SELL"
+                pr = getattr(p, "profit", 0)
+                op = getattr(p, "price_open", 0)
+                tk = str(getattr(p, "ticket", ""))
+                vol = getattr(p, "volume", 0.05)
+                log.info(
+                    f"POSITION | {disp} {d} | entry @{op:.2f} | pnl {fmt_profit(pr)} | lot {vol:.2f}"
+                )
+                _cur_tickets[tk] = {"profit": pr, "direction": d, "sym_cfg": sym_cfg, "volume": getattr(p, "volume", 0.05)}
+
+        # ── Pyramid hard sync: purge phantom tranches every cycle ────────
+        # Queries MT5 directly via bridge to ensure pyramid state reflects
+        # reality. Replaces the old force_reconcile approach.
+        if self.pyramid:
+            self.pyramid.hard_sync(
+                self.bridge, {s["display"]: s for s in SYMBOLS}
+            )
+
+        # Detect tickets that vanished since last cycle (closed by broker SL/TP)
+        if _prev_tickets:
+            # Get tickets already counted by SmartExitManager (prevents double-counting)
+            _smart_closed = getattr(self.smart_exit, "closed_tickets", set()) if self.smart_exit else set()
+            for tk, info in _prev_tickets.items():
+                if tk not in _cur_tickets and not self.dry_run:
+                    # Skip if smart exit already counted this ticket's stats
+                    if tk in _smart_closed:
+                        _smart_closed.discard(tk)
+                        log.debug(f"   [EXTERNAL CLOSE] #{tk} already counted by SmartExit — skipping stats")
+                        continue
+                    pr = info["profit"]
+                    outcome = "WIN" if pr > 0 else "LOSS"
+                    _sc = info["sym_cfg"]
+                    log.info(
+                        f"   [EXTERNAL CLOSE] #{tk} {_sc['display']} {info['direction']} "
+                        f"{fmt_profit(pr)} → {outcome} (closed by broker)"
+                    )
+                    try:
+                        _mem = self.memory
+                        if _mem is None:
+                            from learning.memory import TradeMemory
+                            _mem = TradeMemory()
+                        _pip = _sc["pip"]
+                        _cs = _sc.get("contract_size", 100)
+                        _vol = info.get("volume", 0.05)
+                        _pv = _pip * _cs * _vol
+                        _pips = pr / _pv if _pv > 0 else 0
+                        # Pass symbol/direction so memory never records UNKNOWN
+                        _mem.record_outcome(
+                            tk, 0.0, round(_pips, 1), outcome,
+                            symbol=_sc["display"],
+                            direction=info["direction"],
+                        )
+                        # Notify pyramid manager
+                        if self.pyramid:
+                            self.pyramid.on_position_closed(_sc["display"], tk)
+                        
+                        self.state["total_trades"] += 1
+                        if outcome == "WIN":
+                            self.state["wins"] += 1
+                            self._consec_losses[_sc["display"]] = 0
+                        else:
+                            self.state["losses"] += 1
+                            self._loss_cooldown[_sc["broker"]] = time.time()
+                            self._consec_losses[_sc["display"]] = (
+                                self._consec_losses.get(_sc["display"], 0) + 1
+                            )
+                        _save_streaks(self._consec_losses)
+                        _save_state(self.state)
+                        # Sync capital manager streak tracking + peak balance
+                        if self.capital:
+                            try:
+                                self.capital.record_outcome(outcome, pr, balance=balance)
+                            except Exception as _ce:
+                                log.debug(f"Capital record on external close: {_ce}")
+                    except Exception as _e:
+                        log.warning(f"External close record error: {_e}")
+        return _cur_tickets
+
+
+    def _manage_dynamic_exits(self, positions_by_sym, balance):
+        """Executes profit booking and smart exits, refreshing positions if needed."""
+        # ── Profit Booking (partial closes at pip milestones) ─────────
+        if self.capital:
+            try:
+                booked = self.capital.book_profits(
+                    bridge=self.bridge,
+                    positions_by_sym=positions_by_sym,
+                    symbols={s["display"]: s for s in SYMBOLS},
+                    dry_run=self.dry_run,
+                )
+                if booked:
+                    total_booked = sum(b.get("booked_usd", 0) for b in booked)
+                    log.info(
+                        f"   💵 PROFIT BOOKED: ${total_booked:.2f} across "
+                        f"{len(booked)} partial close(s)"
+                    )
+                    time.sleep(0.5)
+                    positions_by_sym = get_positions_by_symbol(self.bridge)
+            except Exception as e:
+                log.warning(f"Capital book_profits error: {e}")
+
+        # ── Smart exit checks (momentum reversal, adaptive TP) ────────────
+        if self.smart_exit:
+            try:
+                symbols_dict = {s["display"]: s for s in SYMBOLS}
+                smart_closed = self.smart_exit.evaluate_exits(
+                    bridge=self.bridge,
+                    positions_by_sym=positions_by_sym,
+                    symbols=symbols_dict,
+                    account_balance=balance,
+                    state=self.state,
+                    dry_run=self.dry_run,
+                )
+                if smart_closed:
+                    _save_state(self.state)
+                    time.sleep(1)
+                    positions_by_sym = get_positions_by_symbol(self.bridge)
+            except Exception as e:
+                log.warning(f"Smart exit error: {e}")
+                
+        return positions_by_sym
+
+
+    def _manage_pyramids(self, positions_by_sym):
+        """Executes pyramid tranche checks and scales into winning positions."""
+        if self.pyramid and self.pyramid.active_pyramid_count() > 0:
+            try:
+                _sym_lookup = {s["display"]: s for s in SYMBOLS}
+                pyramid_actions = self.pyramid.check_pyramids(self.bridge, _sym_lookup, positions_by_sym)
+                if pyramid_actions:
+                    for pa in pyramid_actions:
+                        log.info(
+                            f"   🔺 PYRAMID {pa['symbol']} tranche {pa['tranche']}/10 "
+                            f"@ {pa['price']:.2f} (+{pa['pips']:.1f}p) "
+                            f"total={pa['total_lot']:.2f}"
+                        )
+                    time.sleep(0.5)
+                    positions_by_sym = get_positions_by_symbol(self.bridge)
+            except Exception as e:
+                log.warning(f"   [PYRAMID] Check error: {e}")
+        return positions_by_sym
+
+
+    def _run_analysis_phase(self, cycle, session, now, ts, positions_by_sym, symbols_status, candles_cache):
+        """Executes market scanning, signal generation, filtering, and scaling/execution."""
+        log.info(f"ANALYSIS | Starting market scan | session {session}")
+        next_analysis = now + CONFIG["analysis_interval_s"]
+        """Executes market scanning, signal generation, filtering, and scaling/execution."""
+
+        log.info(f"ANALYSIS | Starting market scan | session {session}")
+        next_analysis = now + CONFIG["analysis_interval_s"]
+
+        total_open = sum(len(v) for v in positions_by_sym.values())
+        for sym_cfg in SYMBOLS:
+            broker_sym = sym_cfg["broker"]
+            disp = sym_cfg["display"]
+
+            current_pos = positions_by_sym.get(broker_sym, [])
+            can_open_new = (
+                len(current_pos) < CONFIG["max_trades_per_sym"]
+                and total_open < CONFIG["max_total_positions"]
+            )
+
+            if not can_open_new and not self.scaler:
+                log.info(
+                    f"ACTION | {disp} | skip entry | max trades reached ({len(current_pos)})"
+                )
+                if disp in symbols_status:
+                    symbols_status[disp]["positions"] = len(current_pos)
+                continue
+
+            if not can_open_new:
+                log.info(
+                    f"ACTION | {disp} | entry full | checking scale only"
+                )
+
+            log.info(f"ANALYSIS | {disp} | fetching candles + live indicators")
+            tick = self.bridge.get_tick(broker_sym)
+            tf_data = self._fetch_candles(sym_cfg)
+            if not tf_data:
+                log.warning(f"ACTION | {disp} | skip analysis | no candle data")
+                continue
+            primary = tf_data.get("M15", list(tf_data.values())[0])
+            signal_data = self._run_analysis(sym_cfg, tf_data, tick)
+            direction = signal_data.get("direction", "HOLD")
+            confidence = float(signal_data.get("confidence", 0.0))
+            reason = signal_data.get("reason", "")
+            _ind = signal_data.get("indicators", {})
+            _fs  = signal_data.get("factor_scores", {})
+            _score = signal_data.get("score", 0)
+            # Stash indicators so SmartExitManager + next-cycle memory enrichment can use them
+            sym_cfg["_last_adx"] = _ind.get("adx", 0.0)
+            sym_cfg["_last_indicators"] = {
+                "direction": direction,
+                "adx":       _ind.get("adx", 0.0),
+                "rsi":       _ind.get("rsi", 50.0),
+            }
+
+            log.info(
+                f"SIGNAL | {disp} | {direction} {confidence:.0%} | score {_score:+.1f} | {_compact_text(reason)}"
+            )
+            log.info(
+                f"DETAIL | {disp} | trend D1={signal_data.get('d1_trend', '?')} H4={signal_data.get('h4_trend', '?')} "
+                f"H1={signal_data.get('h1_trend', '?')} M15={_ind.get('ema_trend', '?')}"
+            )
+            log.info(
+                f"DETAIL | {disp} | ADX {_ind.get('adx', 0):.1f} {_adx_regime(_ind.get('adx', 0))} | "
+                f"RSI {_ind.get('rsi', 50):.1f} | MACD {_ind.get('macd_signal', 'N/A')} | "
+                f"BB {_ind.get('bb_position', 'N/A')} | ATR {_ind.get('atr', 0):.5f}"
+            )
+            log.info(
+                f"DETAIL | {disp} | Price {_ind.get('price', 0):.5f} | Change {_ind.get('price_change', 0):+.3f}% | "
+                f"Stoch {_ind.get('stoch_k', 50):.0f}/{_ind.get('stoch_d', 50):.0f} {_ind.get('stoch_cross', '')} | "
+                f"Score {_score:+.1f} | Factors {_format_factor_summary(_fs)}"
+            )
+
+            # Write 4-stage decision trace
+            try:
+                from core.decision_logger import write_trace
+                write_trace(cycle, disp, session, signal_data)
+            except Exception as _te:
+                log.debug(f"Trace write error: {_te}")
+
+            # Cache sparkline data
+            try:
+                candles_cache[disp] = {
+                    "closes": primary["c"].tail(100).tolist(),
+                    "updated": ts,
+                }
+                CANDLES_FILE.write_text(json.dumps(_sanitize(candles_cache)))
+            except Exception as e:
+                try: log.debug(f'Caught exception: {e}')
+                except: pass
+                pass
+
+            # Update symbol status
+            symbols_status[disp] = {
+                "signal": direction,
+                "confidence": round(confidence, 4),
+                "reason": reason,
+                "session": session,
+                "ask": round(tick.ask, 5) if tick else None,
+                "bid": round(tick.bid, 5) if tick else None,
+                "positions": len(current_pos),
+                "indicators": signal_data.get("indicators", {}),
+                "h1_trend": signal_data.get("h1_trend", ""),
+                "h4_trend": signal_data.get("h4_trend", ""),
+                "broker_symbol": broker_sym,
+            }
+
+            # Cache signal for cross-symbol correlation
+            self._symbol_signals[disp] = {
+                "direction": direction,
+                "confidence": confidence,
+            }
+
+            # ── Fade Detection: block counter-trend entries on exhausted moves ──
+            # Target: ADX 40-55 + RSI mildly oversold/overbought (20-30 / 70-80)
+            #   → mature trend that is approaching exhaustion, likely to stall/reverse.
+            #
+            # Do NOT block:
+            #   RSI < 20 (SELL) or RSI > 80 (BUY) — this is CAPITULATION / PANIC, not
+            #   exhaustion. Extreme RSI + extreme ADX = continuation, not reversal.
+            #   Score ≤ -25 or ≥ +25 with conf ≥ 82% — full-stack alignment, respect it.
+            indicators = signal_data.get("indicators", {})
+            adx_val  = indicators.get("adx", 0)
+            rsi_val  = indicators.get("rsi", 50)
+            bb_pos   = indicators.get("bb_position", "MID")
+            _sig_score_raw = signal_data.get("score", 0)
+            fade_blocked = False
+
+            if can_open_new and direction in ("BUY", "SELL") and adx_val >= 20:
+                # Capitulation / panic exception: extreme RSI means continuation, not reversal
+                # RSI < 25 on SELL = deep panic selling (continuation likely)
+                # RSI > 75 on BUY  = extreme euphoria (continuation likely)
+                _is_capitulation_sell = direction == "SELL" and rsi_val < 25
+                _is_capitulation_buy  = direction == "BUY"  and rsi_val > 75
+                # RSI exhaustion check — shared across all exceptions to prevent bounce risk
+                _rsi_not_exhausted = (
+                    (direction == "SELL" and rsi_val >= 28) or
+                    (direction == "BUY"  and rsi_val <= 72)
+                )
+                # Full-stack alignment exception: overwhelming evidence across all factors
+                # CRITICAL: Even overwhelming signals must avoid exhaustion zones (RSI < 28 on SELL)
+                _is_overwhelm = abs(_sig_score_raw) >= 20 and confidence >= 0.78 and _rsi_not_exhausted
+                # Strong trend continuation exception: in exceptional trends, oversold/overbought
+                # RSI is a feature not a bug — the trend is strong enough to stay extended.
+                # Requires: STRONG_TREND regime + ADX > 45 + score > 1.8× threshold
+                # CRITICAL GUARD: RSI must NOT be at exhaustion level (< 28 sell / > 72 buy).
+                # RSI 20–27 after a 100-pip drop = exhaustion bounce risk, NOT continuation.
+                # Only bypass fade block if RSI is in the 28–50 zone (pullback within trend).
+                _fb_regime = signal_data.get("factor_scores", {}).get("adx_regime", "")
+                _fb_thresh = sym_cfg.get("score_threshold", 15)
+                _is_trend_continuation = (
+                    "STRONG_TREND" in _fb_regime
+                    and adx_val > 45
+                    and abs(_sig_score_raw) > _fb_thresh * 1.8
+                    and _rsi_not_exhausted
+                    and (
+                        (direction == "SELL" and "DOWN" in _fb_regime)
+                        or (direction == "BUY"  and "UP"   in _fb_regime)
+                    )
+                )
+
+                if not (_is_capitulation_sell or _is_capitulation_buy or _is_overwhelm or _is_trend_continuation):
+                    if direction == "SELL" and adx_val > 40 and rsi_val < 30 and bb_pos in ("BELOW_MID", "BELOW_LOW"):
+                        log.info(f"ACTION | {disp} | fade block | SELL vs exhausted downtrend (ADX={adx_val:.1f} RSI={rsi_val:.1f} BB={bb_pos})")
+                        fade_blocked = True
+                    elif direction == "BUY" and adx_val > 40 and rsi_val > 70 and bb_pos in ("ABOVE_MID", "ABOVE_HIGH"):
+                        log.info(f"ACTION | {disp} | fade block | BUY vs exhausted uptrend (ADX={adx_val:.1f} RSI={rsi_val:.1f} BB={bb_pos})")
+                        fade_blocked = True
+                elif _is_trend_continuation:
+                    log.info(
+                        f"ACTION | {disp} | fade block bypassed | "
+                        f"trend continuation (ADX={adx_val:.1f} RSI={rsi_val:.1f} regime={_fb_regime} score={_sig_score_raw:.1f})"
+                    )
+
+            # Per-symbol session filter — block sessions with structural edge loss.
+            # Silver blocks LONDON (81-entry sample: avg score -14.14, 0 BUY signals).
+            _allowed_sessions = sym_cfg.get("allowed_sessions")
+            if can_open_new and _allowed_sessions and session not in _allowed_sessions:
+                log.info(f"ACTION | {disp} | {session} session blocked (not in allowed_sessions {_allowed_sessions})")
+                can_open_new = False
+
+            # Loss cooldown: 10 min rest after a loss (was 3 min — too short, caused churn)
+            _LOSS_COOLDOWN_SECS = 600  # 10 minutes — prevents revenge trading
+            _cooldown_remaining = _LOSS_COOLDOWN_SECS - (time.time() - self._loss_cooldown.get(broker_sym, 0))
+            if can_open_new and _cooldown_remaining > 0:
+                log.info(f"ACTION | {disp} | cooldown after loss | wait {int(_cooldown_remaining)}s")
+                can_open_new = False
+
+            # Post-trade cooldown: split same-direction vs any-direction
+            # Same direction = chasing/revenge → 5min block
+            # Opposite direction = legit reversal → 90s block only
+            # Exception: in exceptional trends (ADX > 35, score > 1.5× threshold,
+            # STRONG_TREND regime), allow same-direction continuation — riding
+            # a strong trend is the OPPOSITE of revenge trading.
+            _last_t   = self._last_trade_time.get(broker_sym, 0)
+            _last_dir = self._last_trade_dir.get(broker_sym, None)
+            _elapsed  = time.time() - _last_t
+            _cd_regime = signal_data.get("factor_scores", {}).get("adx_regime", "")
+            _cd_adx    = signal_data.get("indicators", {}).get("adx", 0)
+            _cd_score  = abs(signal_data.get("score", 0))
+            _cd_thresh = sym_cfg.get("score_threshold", 15)
+            _exceptional_trend = (
+                "STRONG_TREND" in _cd_regime
+                and _cd_adx > 35
+                and _cd_score > _cd_thresh * 1.5
+            )
+            if can_open_new and _last_t > 0:
+                if direction == _last_dir and _elapsed < self._TRADE_COOLDOWN_SAME_DIR:
+                    if _exceptional_trend:
+                        log.info(
+                            f"ACTION | {disp} | bypass same-dir cooldown | "
+                            f"exceptional trend (ADX {_cd_adx:.1f}, score {_cd_score:.1f}, regime {_cd_regime})"
+                        )
+                    else:
+                        _wait = int(self._TRADE_COOLDOWN_SAME_DIR - _elapsed)
+                        log.info(f"ACTION | {disp} | same-dir cooldown ({direction}) | wait {_wait}s")
+                        can_open_new = False
+                elif _elapsed < self._TRADE_COOLDOWN_ANY_DIR:
+                    _wait = int(self._TRADE_COOLDOWN_ANY_DIR - _elapsed)
+                    log.info(f"ACTION | {disp} | post-trade cooldown | wait {_wait}s")
+                    can_open_new = False
+
+            # ── ADX: advisory not exclusionary ───────────────────────
+            # ADX tells us trend STRENGTH — not whether to trade.
+            # We only block on truly dead markets (ADX < 5 = no movement).
+            # Score threshold + confidence gate is the real filter.
+            _adx_val   = signal_data.get("indicators", {}).get("adx", 0)
+            _bb_pos    = signal_data.get("indicators", {}).get("bb_position", "MID")
+            _rsi_v     = signal_data.get("indicators", {}).get("rsi", 50)
+            _sig_score = abs(signal_data.get("score", 0))
+            # ADX comes directly from local analysis now
+
+            # Only block if ADX is truly dead (< 5) AND signal is weak (< 8)
+            _adx_ok = not (_adx_val < 5 and _sig_score < 8)
+            if not _adx_ok:
+                log.info(f"ACTION | {disp} | dead market | ADX {_adx_val:.1f} and score {_sig_score:.0f}")
+
+            # ── Circuit breaker: 4 consecutive losses → 1-cycle pause ─
+            _sym_consec = self._consec_losses.get(disp, 0)
+            _cb_until   = self._circuit_break_until.get(disp, 0)
+
+            if _cb_until > 0 and cycle >= _cb_until:
+                self._consec_losses[disp] = 0
+                self._circuit_break_until[disp] = 0
+                _save_streaks(self._consec_losses)
+                _sym_consec = 0
+                _cb_until   = 0
+                log.info(f"ACTION | {disp} | circuit breaker reset | trading resumed")
+
+            if can_open_new and _sym_consec >= 4:
+                if _cb_until == 0:
+                    self._circuit_break_until[disp] = cycle + 1
+                    _cb_until = cycle + 1
+                log.info(f"ACTION | {disp} | circuit breaker | {_sym_consec} losses, pausing 1 cycle")
+                can_open_new = False
+
+            # ── Phase 2.1: Adaptive Confidence Gating ──────────────────────
+            _sig_reason = signal_data.get("reason", "")
+            _regime_label = signal_data.get("factor_scores", {}).get("adx_regime", "")
+            _is_ranging   = _regime_label.startswith("RANGING")
+            _sess_cfg     = SESSION_CONFIG.get(session, {"lot_mult": 1.0, "min_conf": 0.48})
+
+            # 1. Base session/signal confidence
+            if "[Score override" in _sig_reason:
+                _base_conf = 0.45 if _is_ranging else 0.48
+            elif "[Indicator fallback]" in _sig_reason:
+                _base_conf = 0.45
+            else:
+                _base_conf = 0.45 if _is_ranging else _sess_cfg["min_conf"]
+
+            # 2. Full-regime modifier (replaces bare ADX ±5% logic)
+            #    STRONG_TREND  → lower gate (trend confirmation = higher edge)
+            #    SQUEEZE       → lower gate (breakout incoming)
+            #    RANGING_CHOP  → raise gate (low-quality signals)
+            #    RANGING_VOLATILE → slight raise (some edge but noisy)
+            _regime_mod = 0.0
+            if "STRONG_TREND" in _regime_label:
+                _regime_mod = -0.07   # ADX > 25, trending hard → be bold
+            elif "SQUEEZE" in _regime_label:
+                _regime_mod = -0.05   # BB squeeze → breakout imminent
+            elif "WEAK_TREND" in _regime_label:
+                _regime_mod = -0.02   # Developing trend → slight benefit
+            elif "RANGING_CHOP" in _regime_label:
+                _regime_mod = +0.05   # Chop → require stronger signal
+            elif "RANGING_VOLATILE" in _regime_label:
+                _regime_mod = +0.02   # Wide range → slight penalty
+            # backward compat: bare ADX mod if no regime label
+            elif _adx_val > 25:
+                _regime_mod = -0.05
+            elif _adx_val < 15:
+                _regime_mod = +0.05
+
+            # ── ADX-adaptive boost: exceptional trends deserve looser gates ──
+            # ADX > 40 = strong trend (top 20% of conditions)
+            # ADX > 60 = exceptional trend (top 5% of conditions, rare)
+            # Stacks on top of regime modifier to capture rare high-edge setups
+            if _adx_val > 60:
+                _regime_mod -= 0.05   # additional -5% (total -12% w/ STRONG_TREND)
+            elif _adx_val > 40:
+                _regime_mod -= 0.03   # additional -3% (total -10% w/ STRONG_TREND)
+
+            # 3. Session historical win-rate modifier
+            #    If this symbol historically underperforms in this session,
+            #    raise the bar. If it outperforms, lower it slightly.
+            _sess_wr_mod = 0.0
+            if self.memory:
+                try:
+                    _sess_wr = self.memory.get_session_win_rate(disp, session)
+                    if _sess_wr:
+                        _wr = _sess_wr["win_rate"]
+                        if _wr < 0.40:
+                            _sess_wr_mod = +0.08   # < 40% WR → raise gate hard
+                            log.info(f"RISK | {disp} | session WR {_wr:.0%} in {session} → gate +8%")
+                        elif _wr < 0.50:
+                            _sess_wr_mod = +0.04   # < 50% WR → raise gate
+                        elif _wr > 0.70:
+                            _sess_wr_mod = -0.05   # > 70% WR → lower gate
+                        elif _wr > 0.60:
+                            _sess_wr_mod = -0.02   # > 60% WR → slight benefit
+                except Exception as e:
+                    try: log.debug(f'Caught exception: {e}')
+                    except: pass
+                    pass
+
+            # 4. Loss-streak modifier removed from gate — circuit breaker handles it
+            _streak_mod = 0.0
+
+            # Calculate final adaptive gate (per-symbol minimum)
+            # 2026-04-30: silver requires 0.72 floor vs gold's 0.65
+            _per_sym_min = sym_cfg.get("min_confidence", 0.65)
+            _conf_gate = round(_base_conf + _regime_mod + _sess_wr_mod + _streak_mod, 3)
+            _conf_gate = max(_per_sym_min, min(0.85, _conf_gate))
+            log.info(
+                f"RISK | {disp} | gate {_conf_gate:.0%} | base {_base_conf:.0%} | "
+                f"per_sym_floor {_per_sym_min:.0%} | regime({_regime_label}) {_regime_mod:+.0%} | sess_wr {_sess_wr_mod:+.0%}"
+            )
+
+            # Per-symbol score threshold check (silver needs ±18 vs gold ±15)
+            _sym_score_min = sym_cfg.get("score_threshold", 15)
+            _sig_score_now = abs(signal_data.get("score", 0))
+            if _sig_score_now < _sym_score_min:
+                log.info(
+                    f"ACTION | {disp} | skip entry | score {_sig_score_now:.1f} below "
+                    f"per-symbol threshold {_sym_score_min}"
+                )
+                continue
+
+            # Per-symbol ADX minimum (gold 22, silver 28)
+            _sym_adx_min = sym_cfg.get("adx_min", 22)
+            _sig_adx = signal_data.get("indicators", {}).get("adx", 0)
+            if _sig_adx < _sym_adx_min:
+                log.info(
+                    f"ACTION | {disp} | skip entry | ADX {_sig_adx:.1f} below "
+                    f"per-symbol min {_sym_adx_min}"
+                )
+                continue
+
+            # ── Regime direction block ─────────────────────────────────────
+            # 2026-04-30: Tightened threshold 0.88→0.78. Anti-fade rule:
+            # never short a strong uptrend / long a strong downtrend
+            # unless confidence is genuinely high (78%+ vs old 88%).
+            # 88% was effectively unreachable, making rule cosmetic.
+            _regime_label_now = signal_data.get("factor_scores", {}).get("adx_regime", "")
+            _regime_blocked = False
+            _REGIME_OVERRIDE_CONF = 0.78
+            if direction == "SELL" and "STRONG_TREND_UP" in _regime_label_now:
+                if confidence < _REGIME_OVERRIDE_CONF:
+                    _regime_blocked = True
+                    log.info(f"ACTION | {disp} | regime_block | SELL blocked in STRONG_TREND_UP (conf {confidence:.0%} < {_REGIME_OVERRIDE_CONF:.0%})")
+            elif direction == "BUY" and "STRONG_TREND_DOWN" in _regime_label_now:
+                if confidence < _REGIME_OVERRIDE_CONF:
+                    _regime_blocked = True
+                    log.info(f"ACTION | {disp} | regime_block | BUY blocked in STRONG_TREND_DOWN (conf {confidence:.0%} < {_REGIME_OVERRIDE_CONF:.0%})")
+
+            if (
+                can_open_new
+                and direction in ("BUY", "SELL")
+                and confidence >= _conf_gate
+                and _adx_ok
+                and not fade_blocked
+                and not _regime_blocked
+            ):
+                # ── Run strategy filters ─────────────────────────────
+                lot_reduction = 1.0
+                if self.filter_chain:
+                    # Build ATR history from M15 candle true-range
+                    _atr_history = []
+                    try:
+                        _df = primary
+                        if _df is not None and len(_df) > 20:
+                            _tr = (
+                                _df["h"] - _df["l"]
+                            ).abs().rolling(14).mean().dropna()
+                            _atr_history = _tr.tail(50).tolist()
+                    except Exception as e:
+                        try: log.debug(f'Caught exception: {e}')
+                        except: pass
+                        pass
+                    # Compute spread + ATR (pips) for SpreadFilter
+                    _atr_raw = signal_data.get("indicators", {}).get("atr", 0) or 0
+                    _atr_pips = (_atr_raw / sym_cfg["pip"]) if sym_cfg["pip"] > 0 else 0
+                    try:
+                        _tick_now = self.bridge.get_tick(broker_sym)
+                        _spread_pips = (_tick_now.ask - _tick_now.bid) / sym_cfg["pip"]
+                    except Exception as e:
+                        try: log.debug(f'Caught exception: {e}')
+                        except: pass
+                        _spread_pips = 0
+                    filter_ctx = {
+                        "session": session,
+                        "confidence": confidence,
+                        "indicators": signal_data.get("indicators", {}),
+                        "hour_utc": datetime.now(timezone.utc).hour,
+                        "atr_history": _atr_history,
+                        "atr_pips": _atr_pips,
+                        "spread_pips": _spread_pips,
+                        "other_symbol_signal": self._get_other_signal(disp),
+                        "xau_xag_correlation": 0,
+                    }
+                    allowed, veto_reasons = self.filter_chain.evaluate(
+                        disp, direction, filter_ctx
+                    )
+                    lot_reduction = filter_ctx.get("_lot_reduction", 1.0)
+
+                    if not allowed:
+                        log.info(
+                            f"ACTION | {disp} | filtered | {'; '.join(veto_reasons)}"
+                        )
+                        _log_signal(
+                            broker_sym,
+                            direction,
+                            confidence,
+                            "; ".join(veto_reasons),
+                            "FILTERED",
+                        )
+                        if self.memory:
+                            self.memory.record_filtered(
+                                disp,
+                                direction,
+                                confidence,
+                                veto_reasons,
+                                signal_data.get("factor_scores"),
+                            )
+                        continue
+
+                # ── Run skill evaluation ─────────────────────────────
+                skills_used = []
+                if self.skill_mgr:
+                    skill_ctx = {
+                        "session": session,
+                        "adx": signal_data.get("indicators", {}).get("adx", 0),
+                        "hour_utc": datetime.now(timezone.utc).hour,
+                    }
+                    skill_result = self.skill_mgr.evaluate_all(
+                        disp, direction, skill_ctx
+                    )
+                    if not skill_result["allowed"]:
+                        log.info(
+                            f"ACTION | {disp} | skill blocked | "
+                            f"{'; '.join(skill_result['reasons'])}"
+                        )
+                        _log_signal(
+                            broker_sym,
+                            direction,
+                            confidence,
+                            "; ".join(skill_result["reasons"]),
+                            "SKILL_BLOCKED",
+                        )
+                        continue
+                    confidence = min(
+                        confidence + skill_result["confidence_boost"], 0.95
+                    )
+                    skills_used = skill_result["skills_used"]
+
+                # ── #4: Mathematical Confluence Confidence Boost ──────────
+                # When score + ADX + MACD all strongly agree, AI tends to
+                # understate confidence. Apply a calibrated +5% boost.
+                _cb_score = abs(signal_data.get("score", 0))
+                _cb_adx   = signal_data.get("indicators", {}).get("adx", 0)
+                _cb_macd  = signal_data.get("indicators", {}).get("macd_signal", "")
+                _cb_macd_aligned = (
+                    (direction == "SELL" and "BEAR" in _cb_macd.upper()) or
+                    (direction == "BUY"  and "BULL" in _cb_macd.upper())
+                )
+                if _cb_score > 18 and _cb_adx > 40 and _cb_macd_aligned:
+                    _cb_boost = 0.05
+                    confidence = min(confidence + _cb_boost, 0.95)
+                    log.info(
+                        f"ACTION | {disp} | confluence boost +{_cb_boost:.0%} → {confidence:.0%} "
+                        f"(score={_cb_score:.1f} ADX={_cb_adx:.1f} MACD={_cb_macd})"
+                    )
+
+                # ── Build order with ATR-based SL/TP ─────────────
+                atr = signal_data.get("indicators", {}).get("atr", 0)
+                # Inject balance for Kelly sizing (1% risk per trade)
+                try:
+                    _acct_info = self.bridge.get_account_info()
+                    sym_cfg["_account_balance"] = float(getattr(_acct_info, "balance", 0))
+                except Exception as e:
+                    try: log.debug(f'Caught exception: {e}')
+                    except: pass
+                    sym_cfg["_account_balance"] = 0
+                order = build_order_params(
+                    sym_cfg,
+                    tick,
+                    direction,
+                    confidence=confidence,
+                    atr=atr,
+                    lot_reduction=lot_reduction,
+                    regime_data=signal_data.get("factor_scores"),
+                )
+
+                # Validate order was built successfully
+                if order is None:
+                    log.warning(f"[ORDER] Failed to build order for {disp} - skipping signal")
+                    continue
+
+                # ── #5: Conviction-Scaled Position Sizing ─────────────────
+                # The Kelly lot from build_order_params already factors in:
+                #   balance × risk_pct × confidence × R:R × ATR
+                # Now we SCALE it by regime + RSI instead of overriding.
+                # This means a 90% confidence trade in a strong trend
+                # will be 3-4× bigger than a 55% confidence ranging trade.
+                _kelly_lot = order["lot"]  # preserve Kelly-computed lot
+                _ps_regime = signal_data.get("factor_scores", {}).get("adx_regime", "")
+                _ps_rsi    = signal_data.get("indicators", {}).get("rsi", 50)
+                _ps_rsi_safe = (
+                    (direction == "SELL" and _ps_rsi >= 28) or
+                    (direction == "BUY"  and _ps_rsi <= 72)
+                )
+
+                # Regime multiplier: scales the Kelly lot
+                if "STRONG_TREND" in _ps_regime and _ps_rsi_safe:
+                    _regime_mult = 1.5    # strong trend + safe RSI → scale up
+                elif "STRONG_TREND" in _ps_regime:
+                    _regime_mult = 1.0    # strong trend but RSI exhausted → neutral
+                elif "WEAK_TREND" in _ps_regime:
+                    _regime_mult = 0.8    # developing trend → slightly reduce
+                elif "RANGING" in _ps_regime:
+                    _regime_mult = 0.6    # ranging → significant reduction
+                elif "SQUEEZE" in _ps_regime:
+                    _regime_mult = 0.7    # breakout pending → cautious size
+                else:
+                    _regime_mult = 0.8    # unknown regime → conservative
+
+                # RSI exhaustion penalty (catch trades going against momentum)
+                if not _ps_rsi_safe:
+                    _regime_mult *= 0.5   # halve size when RSI is extreme
+
+                _final_lot = round(max(_kelly_lot * _regime_mult, 0.01), 2)
+                _final_lot = min(_final_lot, 0.10)  # hard ceiling for safety
+                order["lot"] = _final_lot
+                log.info(
+                    f"ACTION | {disp} | conviction sizing | kelly={_kelly_lot} "
+                    f"× regime={_regime_mult:.1f} → lot={_final_lot} "
+                    f"regime={_ps_regime or 'UNKNOWN'} rsi={_ps_rsi:.1f} "
+                    f"conf={confidence:.0%}"
+                )
+
+                # Cache indicators for pyramid tranche checks
+                if self.pyramid:
+                    self.pyramid.update_cached_indicators(
+                        disp,
+                        {
+                            "indicators": _ind,
+                            "score": _score,
+                            "confidence": confidence,
+                            "signal_direction": direction,
+                            "factor_scores": _fs,
+                        },
+                    )
+
+                if self.dry_run:
+                    log.info(
+                        f"ACTION | {disp} | dry run {direction} | lot {order['lot']} | sl {order['sl']} | tp {order['tp']} | conf {confidence:.0%}"
+                    )
+                    _log_signal(
+                        broker_sym, direction, confidence, reason, "DRY_TRADE"
+                    )
+                else:
+                    # Skip if pyramid already active for this symbol
+                    if self.pyramid and self.pyramid.has_active_pyramid(disp):
+                        log.info(f"ACTION | {disp} | skip entry | pyramid already active")
+                        continue
+
+                    result = self.bridge.place_order(order)
+                    if result and hasattr(result, "order"):
+                        log.info(
+                            f"ACTION | {disp} | opened tranche 1/10 #{result.order} | {direction} @{order['price']:.2f} | "
+                            f"sl {order['sl']} | tp {order['tp']} | lot 0.01 | conf {confidence:.0%}"
+                        )
+                        _log_signal(
+                            broker_sym,
+                            direction,
+                            confidence,
+                            reason,
+                            "PYRAMID_START",
+                            ticket=result.order,
+                        )
+
+                        # ── Start pyramid session ────────────────────
+                        if self.pyramid:
+                            self.pyramid.start_pyramid(
+                                symbol=disp,
+                                direction=direction,
+                                entry_price=order["price"],
+                                ticket=str(result.order),
+                                pip_size=sym_cfg["pip"],
+                                sl=order["sl"],
+                                tp=order["tp"],
+                                signal_context={
+                                    "confidence": confidence,
+                                    "factors": signal_data.get("factor_scores"),
+                                    "conditions": {
+                                        "session": session,
+                                        "atr": atr,
+                                        "adx": signal_data.get("indicators", {}).get("adx", 0),
+                                        "rsi": signal_data.get("indicators", {}).get("rsi", 0),
+                                        "h4_trend": signal_data.get("h4_trend", ""),
+                                    },
+                                    "skills_used": skills_used,
+                                },
+                            )
+
+                        # ── Record in trade memory ───────────────────
+                        if self.memory:
+                            self.memory.record_entry(
+                                ticket=str(result.order),
+                                symbol=disp,
+                                direction=direction,
+                                entry_price=order["price"],
+                                confidence=confidence,
+                                factors=signal_data.get("factor_scores"),
+                                conditions={
+                                    "session": session,
+                                    "atr": atr,
+                                    "adx": signal_data.get(
+                                        "indicators", {}
+                                    ).get("adx", 0),
+                                    "rsi": signal_data.get(
+                                        "indicators", {}
+                                    ).get("rsi", 0),
+                                    "h4_trend": signal_data.get("h4_trend", ""),
+                                },
+                                skills_used=skills_used,
+                            )
+
+                        self.state["total_trades"] += 1
+                        _save_state(self.state)
+                        # Record trade time + direction for split cooldown
+                        self._last_trade_time[broker_sym] = time.time()
+                        self._last_trade_dir[broker_sym] = direction
+                        time.sleep(0.5)
+                        positions_by_sym = get_positions_by_symbol(self.bridge)
+                    else:
+                        log.warning(f"ACTION | {disp} | order failed")
+            else:
+                if not can_open_new:
+                    pass  # already logged above; don't spam DB for max-trades cases
+                elif direction == "HOLD":
+                    log.info(f"ACTION | {disp} | HOLD | no trade setup")
+                    _log_signal(
+                        broker_sym, direction, confidence, reason, "HOLD"
+                    )
+                elif fade_blocked:
+                    log.info(f"ACTION | {disp} | skip entry | fade blocked (ADX={_adx_val:.1f} RSI={_rsi_v:.1f})")
+                    _log_signal(broker_sym, direction, confidence, "fade_blocked", "LOW_CONF")
+                elif not _adx_ok:
+                    log.info(f"ACTION | {disp} | skip entry | ADX too low ({_adx_val:.1f})")
+                    _log_signal(broker_sym, direction, confidence, f"adx_low_{_adx_val:.1f}", "LOW_CONF")
+                else:
+                    log.info(
+                        f"ACTION | {disp} | skip entry | confidence {confidence:.0%} below gate {_conf_gate:.0%}"
+                    )
+                    _log_signal(
+                        broker_sym, direction, confidence, reason, "LOW_CONF"
+                    )
+
+            # ── Pyramid status logging (replaced old scaler) ──────────
+            if self.pyramid and self.pyramid.has_active_pyramid(disp):
+                _psess = self.pyramid.get_session(disp)
+                if _psess:
+                    log.info(
+                        f"PYRAMID | {disp} | {_psess.tranche_count}/10 tranches | total lot {_psess.total_lot:.2f} | avg entry {_psess.avg_entry_price:.2f}"
+                    )
+
+        return next_analysis, positions_by_sym
+
     def run(self):
         log.info("=" * 60)
         log.info("  🚀 CONTINUOUS TRADER — XAUUSD + XAGUSD")
@@ -1066,43 +1962,8 @@ class ContinuousTrader:
             self.state["cycle"] = cycle
             ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-            # ── Config integrity guard (detects external tampering) ──────────
-            _check_config_integrity()
-
-            # ── Connection health check ──────────────────────────────────────
-            if not self._ensure_connected():
-                log.error("❌ MetaTrader disconnected — retrying next cycle")
-                _write_status(
-                    {
-                        "state": "reconnecting",
-                        "cycle": cycle,
-                        "ts": ts,
-                        "dry_run": self.dry_run,
-                        "symbols": symbols_status,
-                        "connection": "DISCONNECTED",
-                    }
-                )
-                time.sleep(CONFIG["monitor_interval_s"])
-                self.bridge = make_bridge()  # fresh bridge
-                continue
-
-            # ── Market hours gate ────────────────────────────────────────────
-            market_open, session = is_forex_market_open()
-            if not market_open:
-                log.info(f"💤 Market CLOSED ({session}) — sleeping 5 min")
-                _write_status(
-                    {
-                        "state": "sleeping",
-                        "cycle": cycle,
-                        "ts": ts,
-                        "dry_run": self.dry_run,
-                        "session": session,
-                        "reason": "Market closed — weekend",
-                        "symbols": symbols_status,
-                        "connection": "OK",
-                    }
-                )
-                time.sleep(300)
+            _ok, session = self._check_health_and_market(cycle, ts, symbols_status)
+            if not _ok:
                 continue
 
             # ── Account info ─────────────────────────────────────────────────
@@ -1131,129 +1992,10 @@ class ContinuousTrader:
             if total_open == 0:
                 log.info("POSITIONS | none")
 
-            # Build current ticket set and detect externally-closed positions
-            _cur_tickets: dict[str, dict] = {}
-            for sym_cfg in SYMBOLS:
-                broker_sym = sym_cfg["broker"]
-                disp = sym_cfg["display"]
-                pos_list = positions_by_sym.get(broker_sym, [])
-                for p in pos_list:
-                    d = "BUY" if getattr(p, "type", 1) == 0 else "SELL"
-                    pr = getattr(p, "profit", 0)
-                    op = getattr(p, "price_open", 0)
-                    tk = str(getattr(p, "ticket", ""))
-                    vol = getattr(p, "volume", 0.05)
-                    log.info(
-                        f"POSITION | {disp} {d} | entry @{op:.2f} | pnl {fmt_profit(pr)} | lot {vol:.2f}"
-                    )
-                    _cur_tickets[tk] = {"profit": pr, "direction": d, "sym_cfg": sym_cfg, "volume": getattr(p, "volume", 0.05)}
-
-            # ── Pyramid hard sync: purge phantom tranches every cycle ────────
-            # Queries MT5 directly via bridge to ensure pyramid state reflects
-            # reality. Replaces the old force_reconcile approach.
-            if self.pyramid:
-                self.pyramid.hard_sync(
-                    self.bridge, {s["display"]: s for s in SYMBOLS}
-                )
-
-            # Detect tickets that vanished since last cycle (closed by broker SL/TP)
-            if _prev_tickets:
-                # Get tickets already counted by SmartExitManager (prevents double-counting)
-                _smart_closed = getattr(self.smart_exit, "closed_tickets", set()) if self.smart_exit else set()
-                for tk, info in _prev_tickets.items():
-                    if tk not in _cur_tickets and not self.dry_run:
-                        # Skip if smart exit already counted this ticket's stats
-                        if tk in _smart_closed:
-                            _smart_closed.discard(tk)
-                            log.debug(f"   [EXTERNAL CLOSE] #{tk} already counted by SmartExit — skipping stats")
-                            continue
-                        pr = info["profit"]
-                        outcome = "WIN" if pr > 0 else "LOSS"
-                        _sc = info["sym_cfg"]
-                        log.info(
-                            f"   [EXTERNAL CLOSE] #{tk} {_sc['display']} {info['direction']} "
-                            f"{fmt_profit(pr)} → {outcome} (closed by broker)"
-                        )
-                        try:
-                            _mem = self.memory
-                            if _mem is None:
-                                from learning.memory import TradeMemory
-                                _mem = TradeMemory()
-                            _pip = _sc["pip"]
-                            _cs = _sc.get("contract_size", 100)
-                            _vol = info.get("volume", 0.05)
-                            _pv = _pip * _cs * _vol
-                            _pips = pr / _pv if _pv > 0 else 0
-                            # Pass symbol/direction so memory never records UNKNOWN
-                            _mem.record_outcome(
-                                tk, 0.0, round(_pips, 1), outcome,
-                                symbol=_sc["display"],
-                                direction=info["direction"],
-                            )
-                            # Notify pyramid manager
-                            if self.pyramid:
-                                self.pyramid.on_position_closed(_sc["display"], tk)
-                            
-                            self.state["total_trades"] += 1
-                            if outcome == "WIN":
-                                self.state["wins"] += 1
-                                self._consec_losses[_sc["display"]] = 0
-                            else:
-                                self.state["losses"] += 1
-                                self._loss_cooldown[_sc["broker"]] = time.time()
-                                self._consec_losses[_sc["display"]] = (
-                                    self._consec_losses.get(_sc["display"], 0) + 1
-                                )
-                            _save_streaks(self._consec_losses)
-                            _save_state(self.state)
-                            # Sync capital manager streak tracking + peak balance
-                            if self.capital:
-                                try:
-                                    self.capital.record_outcome(outcome, pr, balance=balance)
-                                except Exception as _ce:
-                                    log.debug(f"Capital record on external close: {_ce}")
-                        except Exception as _e:
-                            log.warning(f"External close record error: {_e}")
+            _cur_tickets = self._reconcile_external_closures(positions_by_sym, _prev_tickets, balance)
             _prev_tickets = _cur_tickets
 
-            # ── Profit Booking (partial closes at pip milestones) ─────────
-            if self.capital:
-                try:
-                    booked = self.capital.book_profits(
-                        bridge=self.bridge,
-                        positions_by_sym=positions_by_sym,
-                        symbols={s["display"]: s for s in SYMBOLS},
-                        dry_run=self.dry_run,
-                    )
-                    if booked:
-                        total_booked = sum(b.get("booked_usd", 0) for b in booked)
-                        log.info(
-                            f"   💵 PROFIT BOOKED: ${total_booked:.2f} across "
-                            f"{len(booked)} partial close(s)"
-                        )
-                        time.sleep(0.5)
-                        positions_by_sym = get_positions_by_symbol(self.bridge)
-                except Exception as e:
-                    log.warning(f"Capital book_profits error: {e}")
-
-            # ── Smart exit checks (momentum reversal, adaptive TP) ────────────
-            if self.smart_exit:
-                try:
-                    symbols_dict = {s["display"]: s for s in SYMBOLS}
-                    smart_closed = self.smart_exit.evaluate_exits(
-                        bridge=self.bridge,
-                        positions_by_sym=positions_by_sym,
-                        symbols=symbols_dict,
-                        account_balance=balance,
-                        state=self.state,
-                        dry_run=self.dry_run,
-                    )
-                    if smart_closed:
-                        _save_state(self.state)
-                        time.sleep(1)
-                        positions_by_sym = get_positions_by_symbol(self.bridge)
-                except Exception as e:
-                    log.warning(f"Smart exit error: {e}")
+            positions_by_sym = self._manage_dynamic_exits(positions_by_sym, balance)
 
             # ── Check close conditions ───────────────────────────────────────
             closed_syms = check_and_close_positions(
@@ -1283,696 +2025,14 @@ class ContinuousTrader:
                 time.sleep(1)
                 positions_by_sym = get_positions_by_symbol(self.bridge)
 
-            # ── Pyramid tranche checks (every cycle, not just analysis) ────────
-            if self.pyramid and self.pyramid.active_pyramid_count() > 0:
-                try:
-                    _sym_lookup = {s["display"]: s for s in SYMBOLS}
-                    pyramid_actions = self.pyramid.check_pyramids(self.bridge, _sym_lookup, positions_by_sym)
-                    if pyramid_actions:
-                        for pa in pyramid_actions:
-                            log.info(
-                                f"   🔺 PYRAMID {pa['symbol']} tranche {pa['tranche']}/10 "
-                                f"@ {pa['price']:.2f} (+{pa['pips']:.1f}p) "
-                                f"total={pa['total_lot']:.2f}"
-                            )
-                        time.sleep(0.5)
-                        positions_by_sym = get_positions_by_symbol(self.bridge)
-                except Exception as e:
-                    log.warning(f"   [PYRAMID] Check error: {e}")
+            positions_by_sym = self._manage_pyramids(positions_by_sym)
 
             # ── Analysis & new signals ───────────────────────────────────────
             run_analysis = now >= next_analysis
             if run_analysis:
-                log.info(f"ANALYSIS | Starting market scan | session {session}")
-                next_analysis = now + CONFIG["analysis_interval_s"]
-
-                total_open = sum(len(v) for v in positions_by_sym.values())
-                for sym_cfg in SYMBOLS:
-                    broker_sym = sym_cfg["broker"]
-                    disp = sym_cfg["display"]
-
-                    current_pos = positions_by_sym.get(broker_sym, [])
-                    can_open_new = (
-                        len(current_pos) < CONFIG["max_trades_per_sym"]
-                        and total_open < CONFIG["max_total_positions"]
-                    )
-
-                    if not can_open_new and not self.scaler:
-                        log.info(
-                            f"ACTION | {disp} | skip entry | max trades reached ({len(current_pos)})"
-                        )
-                        if disp in symbols_status:
-                            symbols_status[disp]["positions"] = len(current_pos)
-                        continue
-
-                    if not can_open_new:
-                        log.info(
-                            f"ACTION | {disp} | entry full | checking scale only"
-                        )
-
-                    log.info(f"ANALYSIS | {disp} | fetching candles + live indicators")
-                    tick = self.bridge.get_tick(broker_sym)
-                    tf_data = self._fetch_candles(sym_cfg)
-                    if not tf_data:
-                        log.warning(f"ACTION | {disp} | skip analysis | no candle data")
-                        continue
-                    primary = tf_data.get("M15", list(tf_data.values())[0])
-                    signal_data = self._run_analysis(sym_cfg, tf_data, tick)
-                    direction = signal_data.get("direction", "HOLD")
-                    confidence = float(signal_data.get("confidence", 0.0))
-                    reason = signal_data.get("reason", "")
-                    _ind = signal_data.get("indicators", {})
-                    _fs  = signal_data.get("factor_scores", {})
-                    _score = signal_data.get("score", 0)
-                    # Stash indicators so SmartExitManager + next-cycle memory enrichment can use them
-                    sym_cfg["_last_adx"] = _ind.get("adx", 0.0)
-                    sym_cfg["_last_indicators"] = {
-                        "direction": direction,
-                        "adx":       _ind.get("adx", 0.0),
-                        "rsi":       _ind.get("rsi", 50.0),
-                    }
-
-                    log.info(
-                        f"SIGNAL | {disp} | {direction} {confidence:.0%} | score {_score:+.1f} | {_compact_text(reason)}"
-                    )
-                    log.info(
-                        f"DETAIL | {disp} | trend D1={signal_data.get('d1_trend', '?')} H4={signal_data.get('h4_trend', '?')} "
-                        f"H1={signal_data.get('h1_trend', '?')} M15={_ind.get('ema_trend', '?')}"
-                    )
-                    log.info(
-                        f"DETAIL | {disp} | ADX {_ind.get('adx', 0):.1f} {_adx_regime(_ind.get('adx', 0))} | "
-                        f"RSI {_ind.get('rsi', 50):.1f} | MACD {_ind.get('macd_signal', 'N/A')} | "
-                        f"BB {_ind.get('bb_position', 'N/A')} | ATR {_ind.get('atr', 0):.5f}"
-                    )
-                    log.info(
-                        f"DETAIL | {disp} | Price {_ind.get('price', 0):.5f} | Change {_ind.get('price_change', 0):+.3f}% | "
-                        f"Stoch {_ind.get('stoch_k', 50):.0f}/{_ind.get('stoch_d', 50):.0f} {_ind.get('stoch_cross', '')} | "
-                        f"Score {_score:+.1f} | Factors {_format_factor_summary(_fs)}"
-                    )
-
-                    # Write 4-stage decision trace
-                    try:
-                        from core.decision_logger import write_trace
-                        write_trace(cycle, disp, session, signal_data)
-                    except Exception as _te:
-                        log.debug(f"Trace write error: {_te}")
-
-                    # Cache sparkline data
-                    try:
-                        candles_cache[disp] = {
-                            "closes": primary["c"].tail(100).tolist(),
-                            "updated": ts,
-                        }
-                        CANDLES_FILE.write_text(json.dumps(_sanitize(candles_cache)))
-                    except Exception:
-                        pass
-
-                    # Update symbol status
-                    symbols_status[disp] = {
-                        "signal": direction,
-                        "confidence": round(confidence, 4),
-                        "reason": reason,
-                        "session": session,
-                        "ask": round(tick.ask, 5) if tick else None,
-                        "bid": round(tick.bid, 5) if tick else None,
-                        "positions": len(current_pos),
-                        "indicators": signal_data.get("indicators", {}),
-                        "h1_trend": signal_data.get("h1_trend", ""),
-                        "h4_trend": signal_data.get("h4_trend", ""),
-                        "broker_symbol": broker_sym,
-                    }
-
-                    # Cache signal for cross-symbol correlation
-                    self._symbol_signals[disp] = {
-                        "direction": direction,
-                        "confidence": confidence,
-                    }
-
-                    # ── Fade Detection: block counter-trend entries on exhausted moves ──
-                    # Target: ADX 40-55 + RSI mildly oversold/overbought (20-30 / 70-80)
-                    #   → mature trend that is approaching exhaustion, likely to stall/reverse.
-                    #
-                    # Do NOT block:
-                    #   RSI < 20 (SELL) or RSI > 80 (BUY) — this is CAPITULATION / PANIC, not
-                    #   exhaustion. Extreme RSI + extreme ADX = continuation, not reversal.
-                    #   Score ≤ -25 or ≥ +25 with conf ≥ 82% — full-stack alignment, respect it.
-                    indicators = signal_data.get("indicators", {})
-                    adx_val  = indicators.get("adx", 0)
-                    rsi_val  = indicators.get("rsi", 50)
-                    bb_pos   = indicators.get("bb_position", "MID")
-                    _sig_score_raw = signal_data.get("score", 0)
-                    fade_blocked = False
-
-                    if can_open_new and direction in ("BUY", "SELL") and adx_val >= 20:
-                        # Capitulation / panic exception: extreme RSI means continuation, not reversal
-                        # RSI < 25 on SELL = deep panic selling (continuation likely)
-                        # RSI > 75 on BUY  = extreme euphoria (continuation likely)
-                        _is_capitulation_sell = direction == "SELL" and rsi_val < 25
-                        _is_capitulation_buy  = direction == "BUY"  and rsi_val > 75
-                        # RSI exhaustion check — shared across all exceptions to prevent bounce risk
-                        _rsi_not_exhausted = (
-                            (direction == "SELL" and rsi_val >= 28) or
-                            (direction == "BUY"  and rsi_val <= 72)
-                        )
-                        # Full-stack alignment exception: overwhelming evidence across all factors
-                        # CRITICAL: Even overwhelming signals must avoid exhaustion zones (RSI < 28 on SELL)
-                        _is_overwhelm = abs(_sig_score_raw) >= 20 and confidence >= 0.78 and _rsi_not_exhausted
-                        # Strong trend continuation exception: in exceptional trends, oversold/overbought
-                        # RSI is a feature not a bug — the trend is strong enough to stay extended.
-                        # Requires: STRONG_TREND regime + ADX > 45 + score > 1.8× threshold
-                        # CRITICAL GUARD: RSI must NOT be at exhaustion level (< 28 sell / > 72 buy).
-                        # RSI 20–27 after a 100-pip drop = exhaustion bounce risk, NOT continuation.
-                        # Only bypass fade block if RSI is in the 28–50 zone (pullback within trend).
-                        _fb_regime = signal_data.get("factor_scores", {}).get("adx_regime", "")
-                        _fb_thresh = sym_cfg.get("score_threshold", 15)
-                        _is_trend_continuation = (
-                            "STRONG_TREND" in _fb_regime
-                            and adx_val > 45
-                            and abs(_sig_score_raw) > _fb_thresh * 1.8
-                            and _rsi_not_exhausted
-                            and (
-                                (direction == "SELL" and "DOWN" in _fb_regime)
-                                or (direction == "BUY"  and "UP"   in _fb_regime)
-                            )
-                        )
-
-                        if not (_is_capitulation_sell or _is_capitulation_buy or _is_overwhelm or _is_trend_continuation):
-                            if direction == "SELL" and adx_val > 40 and rsi_val < 30 and bb_pos in ("BELOW_MID", "BELOW_LOW"):
-                                log.info(f"ACTION | {disp} | fade block | SELL vs exhausted downtrend (ADX={adx_val:.1f} RSI={rsi_val:.1f} BB={bb_pos})")
-                                fade_blocked = True
-                            elif direction == "BUY" and adx_val > 40 and rsi_val > 70 and bb_pos in ("ABOVE_MID", "ABOVE_HIGH"):
-                                log.info(f"ACTION | {disp} | fade block | BUY vs exhausted uptrend (ADX={adx_val:.1f} RSI={rsi_val:.1f} BB={bb_pos})")
-                                fade_blocked = True
-                        elif _is_trend_continuation:
-                            log.info(
-                                f"ACTION | {disp} | fade block bypassed | "
-                                f"trend continuation (ADX={adx_val:.1f} RSI={rsi_val:.1f} regime={_fb_regime} score={_sig_score_raw:.1f})"
-                            )
-
-                    # Per-symbol session filter — block sessions with structural edge loss.
-                    # Silver blocks LONDON (81-entry sample: avg score -14.14, 0 BUY signals).
-                    _allowed_sessions = sym_cfg.get("allowed_sessions")
-                    if can_open_new and _allowed_sessions and session not in _allowed_sessions:
-                        log.info(f"ACTION | {disp} | {session} session blocked (not in allowed_sessions {_allowed_sessions})")
-                        can_open_new = False
-
-                    # Loss cooldown: 10 min rest after a loss (was 3 min — too short, caused churn)
-                    _LOSS_COOLDOWN_SECS = 600  # 10 minutes — prevents revenge trading
-                    _cooldown_remaining = _LOSS_COOLDOWN_SECS - (time.time() - self._loss_cooldown.get(broker_sym, 0))
-                    if can_open_new and _cooldown_remaining > 0:
-                        log.info(f"ACTION | {disp} | cooldown after loss | wait {int(_cooldown_remaining)}s")
-                        can_open_new = False
-
-                    # Post-trade cooldown: split same-direction vs any-direction
-                    # Same direction = chasing/revenge → 5min block
-                    # Opposite direction = legit reversal → 90s block only
-                    # Exception: in exceptional trends (ADX > 35, score > 1.5× threshold,
-                    # STRONG_TREND regime), allow same-direction continuation — riding
-                    # a strong trend is the OPPOSITE of revenge trading.
-                    _last_t   = self._last_trade_time.get(broker_sym, 0)
-                    _last_dir = self._last_trade_dir.get(broker_sym, None)
-                    _elapsed  = time.time() - _last_t
-                    _cd_regime = signal_data.get("factor_scores", {}).get("adx_regime", "")
-                    _cd_adx    = signal_data.get("indicators", {}).get("adx", 0)
-                    _cd_score  = abs(signal_data.get("score", 0))
-                    _cd_thresh = sym_cfg.get("score_threshold", 15)
-                    _exceptional_trend = (
-                        "STRONG_TREND" in _cd_regime
-                        and _cd_adx > 35
-                        and _cd_score > _cd_thresh * 1.5
-                    )
-                    if can_open_new and _last_t > 0:
-                        if direction == _last_dir and _elapsed < self._TRADE_COOLDOWN_SAME_DIR:
-                            if _exceptional_trend:
-                                log.info(
-                                    f"ACTION | {disp} | bypass same-dir cooldown | "
-                                    f"exceptional trend (ADX {_cd_adx:.1f}, score {_cd_score:.1f}, regime {_cd_regime})"
-                                )
-                            else:
-                                _wait = int(self._TRADE_COOLDOWN_SAME_DIR - _elapsed)
-                                log.info(f"ACTION | {disp} | same-dir cooldown ({direction}) | wait {_wait}s")
-                                can_open_new = False
-                        elif _elapsed < self._TRADE_COOLDOWN_ANY_DIR:
-                            _wait = int(self._TRADE_COOLDOWN_ANY_DIR - _elapsed)
-                            log.info(f"ACTION | {disp} | post-trade cooldown | wait {_wait}s")
-                            can_open_new = False
-
-                    # ── ADX: advisory not exclusionary ───────────────────────
-                    # ADX tells us trend STRENGTH — not whether to trade.
-                    # We only block on truly dead markets (ADX < 5 = no movement).
-                    # Score threshold + confidence gate is the real filter.
-                    _adx_val   = signal_data.get("indicators", {}).get("adx", 0)
-                    _bb_pos    = signal_data.get("indicators", {}).get("bb_position", "MID")
-                    _rsi_v     = signal_data.get("indicators", {}).get("rsi", 50)
-                    _sig_score = abs(signal_data.get("score", 0))
-                    # ADX comes directly from local analysis now
-
-                    # Only block if ADX is truly dead (< 5) AND signal is weak (< 8)
-                    _adx_ok = not (_adx_val < 5 and _sig_score < 8)
-                    if not _adx_ok:
-                        log.info(f"ACTION | {disp} | dead market | ADX {_adx_val:.1f} and score {_sig_score:.0f}")
-
-                    # ── Circuit breaker: 4 consecutive losses → 1-cycle pause ─
-                    _sym_consec = self._consec_losses.get(disp, 0)
-                    _cb_until   = self._circuit_break_until.get(disp, 0)
-
-                    if _cb_until > 0 and cycle >= _cb_until:
-                        self._consec_losses[disp] = 0
-                        self._circuit_break_until[disp] = 0
-                        _save_streaks(self._consec_losses)
-                        _sym_consec = 0
-                        _cb_until   = 0
-                        log.info(f"ACTION | {disp} | circuit breaker reset | trading resumed")
-
-                    if can_open_new and _sym_consec >= 4:
-                        if _cb_until == 0:
-                            self._circuit_break_until[disp] = cycle + 1
-                            _cb_until = cycle + 1
-                        log.info(f"ACTION | {disp} | circuit breaker | {_sym_consec} losses, pausing 1 cycle")
-                        can_open_new = False
-
-                    # ── Phase 2.1: Adaptive Confidence Gating ──────────────────────
-                    _sig_reason = signal_data.get("reason", "")
-                    _regime_label = signal_data.get("factor_scores", {}).get("adx_regime", "")
-                    _is_ranging   = _regime_label.startswith("RANGING")
-                    _sess_cfg     = SESSION_CONFIG.get(session, {"lot_mult": 1.0, "min_conf": 0.48})
-
-                    # 1. Base session/signal confidence
-                    if "[Score override" in _sig_reason:
-                        _base_conf = 0.45 if _is_ranging else 0.48
-                    elif "[Indicator fallback]" in _sig_reason:
-                        _base_conf = 0.45
-                    else:
-                        _base_conf = 0.45 if _is_ranging else _sess_cfg["min_conf"]
-
-                    # 2. Full-regime modifier (replaces bare ADX ±5% logic)
-                    #    STRONG_TREND  → lower gate (trend confirmation = higher edge)
-                    #    SQUEEZE       → lower gate (breakout incoming)
-                    #    RANGING_CHOP  → raise gate (low-quality signals)
-                    #    RANGING_VOLATILE → slight raise (some edge but noisy)
-                    _regime_mod = 0.0
-                    if "STRONG_TREND" in _regime_label:
-                        _regime_mod = -0.07   # ADX > 25, trending hard → be bold
-                    elif "SQUEEZE" in _regime_label:
-                        _regime_mod = -0.05   # BB squeeze → breakout imminent
-                    elif "WEAK_TREND" in _regime_label:
-                        _regime_mod = -0.02   # Developing trend → slight benefit
-                    elif "RANGING_CHOP" in _regime_label:
-                        _regime_mod = +0.05   # Chop → require stronger signal
-                    elif "RANGING_VOLATILE" in _regime_label:
-                        _regime_mod = +0.02   # Wide range → slight penalty
-                    # backward compat: bare ADX mod if no regime label
-                    elif _adx_val > 25:
-                        _regime_mod = -0.05
-                    elif _adx_val < 15:
-                        _regime_mod = +0.05
-
-                    # ── ADX-adaptive boost: exceptional trends deserve looser gates ──
-                    # ADX > 40 = strong trend (top 20% of conditions)
-                    # ADX > 60 = exceptional trend (top 5% of conditions, rare)
-                    # Stacks on top of regime modifier to capture rare high-edge setups
-                    if _adx_val > 60:
-                        _regime_mod -= 0.05   # additional -5% (total -12% w/ STRONG_TREND)
-                    elif _adx_val > 40:
-                        _regime_mod -= 0.03   # additional -3% (total -10% w/ STRONG_TREND)
-
-                    # 3. Session historical win-rate modifier
-                    #    If this symbol historically underperforms in this session,
-                    #    raise the bar. If it outperforms, lower it slightly.
-                    _sess_wr_mod = 0.0
-                    if self.memory:
-                        try:
-                            _sess_wr = self.memory.get_session_win_rate(disp, session)
-                            if _sess_wr:
-                                _wr = _sess_wr["win_rate"]
-                                if _wr < 0.40:
-                                    _sess_wr_mod = +0.08   # < 40% WR → raise gate hard
-                                    log.info(f"RISK | {disp} | session WR {_wr:.0%} in {session} → gate +8%")
-                                elif _wr < 0.50:
-                                    _sess_wr_mod = +0.04   # < 50% WR → raise gate
-                                elif _wr > 0.70:
-                                    _sess_wr_mod = -0.05   # > 70% WR → lower gate
-                                elif _wr > 0.60:
-                                    _sess_wr_mod = -0.02   # > 60% WR → slight benefit
-                        except Exception:
-                            pass
-
-                    # 4. Loss-streak modifier removed from gate — circuit breaker handles it
-                    _streak_mod = 0.0
-
-                    # Calculate final adaptive gate (per-symbol minimum)
-                    # 2026-04-30: silver requires 0.72 floor vs gold's 0.65
-                    _per_sym_min = sym_cfg.get("min_confidence", 0.65)
-                    _conf_gate = round(_base_conf + _regime_mod + _sess_wr_mod + _streak_mod, 3)
-                    _conf_gate = max(_per_sym_min, min(0.85, _conf_gate))
-                    log.info(
-                        f"RISK | {disp} | gate {_conf_gate:.0%} | base {_base_conf:.0%} | "
-                        f"per_sym_floor {_per_sym_min:.0%} | regime({_regime_label}) {_regime_mod:+.0%} | sess_wr {_sess_wr_mod:+.0%}"
-                    )
-
-                    # Per-symbol score threshold check (silver needs ±18 vs gold ±15)
-                    _sym_score_min = sym_cfg.get("score_threshold", 15)
-                    _sig_score_now = abs(signal_data.get("score", 0))
-                    if _sig_score_now < _sym_score_min:
-                        log.info(
-                            f"ACTION | {disp} | skip entry | score {_sig_score_now:.1f} below "
-                            f"per-symbol threshold {_sym_score_min}"
-                        )
-                        continue
-
-                    # Per-symbol ADX minimum (gold 22, silver 28)
-                    _sym_adx_min = sym_cfg.get("adx_min", 22)
-                    _sig_adx = signal_data.get("indicators", {}).get("adx", 0)
-                    if _sig_adx < _sym_adx_min:
-                        log.info(
-                            f"ACTION | {disp} | skip entry | ADX {_sig_adx:.1f} below "
-                            f"per-symbol min {_sym_adx_min}"
-                        )
-                        continue
-
-                    # ── Regime direction block ─────────────────────────────────────
-                    # 2026-04-30: Tightened threshold 0.88→0.78. Anti-fade rule:
-                    # never short a strong uptrend / long a strong downtrend
-                    # unless confidence is genuinely high (78%+ vs old 88%).
-                    # 88% was effectively unreachable, making rule cosmetic.
-                    _regime_label_now = signal_data.get("factor_scores", {}).get("adx_regime", "")
-                    _regime_blocked = False
-                    _REGIME_OVERRIDE_CONF = 0.78
-                    if direction == "SELL" and "STRONG_TREND_UP" in _regime_label_now:
-                        if confidence < _REGIME_OVERRIDE_CONF:
-                            _regime_blocked = True
-                            log.info(f"ACTION | {disp} | regime_block | SELL blocked in STRONG_TREND_UP (conf {confidence:.0%} < {_REGIME_OVERRIDE_CONF:.0%})")
-                    elif direction == "BUY" and "STRONG_TREND_DOWN" in _regime_label_now:
-                        if confidence < _REGIME_OVERRIDE_CONF:
-                            _regime_blocked = True
-                            log.info(f"ACTION | {disp} | regime_block | BUY blocked in STRONG_TREND_DOWN (conf {confidence:.0%} < {_REGIME_OVERRIDE_CONF:.0%})")
-
-                    if (
-                        can_open_new
-                        and direction in ("BUY", "SELL")
-                        and confidence >= _conf_gate
-                        and _adx_ok
-                        and not fade_blocked
-                        and not _regime_blocked
-                    ):
-                        # ── Run strategy filters ─────────────────────────────
-                        lot_reduction = 1.0
-                        if self.filter_chain:
-                            # Build ATR history from M15 candle true-range
-                            _atr_history = []
-                            try:
-                                _df = primary
-                                if _df is not None and len(_df) > 20:
-                                    _tr = (
-                                        _df["h"] - _df["l"]
-                                    ).abs().rolling(14).mean().dropna()
-                                    _atr_history = _tr.tail(50).tolist()
-                            except Exception:
-                                pass
-                            # Compute spread + ATR (pips) for SpreadFilter
-                            _atr_raw = signal_data.get("indicators", {}).get("atr", 0) or 0
-                            _atr_pips = (_atr_raw / sym_cfg["pip"]) if sym_cfg["pip"] > 0 else 0
-                            try:
-                                _tick_now = self.bridge.get_tick(broker_sym)
-                                _spread_pips = (_tick_now.ask - _tick_now.bid) / sym_cfg["pip"]
-                            except Exception:
-                                _spread_pips = 0
-                            filter_ctx = {
-                                "session": session,
-                                "confidence": confidence,
-                                "indicators": signal_data.get("indicators", {}),
-                                "hour_utc": datetime.now(timezone.utc).hour,
-                                "atr_history": _atr_history,
-                                "atr_pips": _atr_pips,
-                                "spread_pips": _spread_pips,
-                                "other_symbol_signal": self._get_other_signal(disp),
-                                "xau_xag_correlation": 0,
-                            }
-                            allowed, veto_reasons = self.filter_chain.evaluate(
-                                disp, direction, filter_ctx
-                            )
-                            lot_reduction = filter_ctx.get("_lot_reduction", 1.0)
-
-                            if not allowed:
-                                log.info(
-                                    f"ACTION | {disp} | filtered | {'; '.join(veto_reasons)}"
-                                )
-                                _log_signal(
-                                    broker_sym,
-                                    direction,
-                                    confidence,
-                                    "; ".join(veto_reasons),
-                                    "FILTERED",
-                                )
-                                if self.memory:
-                                    self.memory.record_filtered(
-                                        disp,
-                                        direction,
-                                        confidence,
-                                        veto_reasons,
-                                        signal_data.get("factor_scores"),
-                                    )
-                                continue
-
-                        # ── Run skill evaluation ─────────────────────────────
-                        skills_used = []
-                        if self.skill_mgr:
-                            skill_ctx = {
-                                "session": session,
-                                "adx": signal_data.get("indicators", {}).get("adx", 0),
-                                "hour_utc": datetime.now(timezone.utc).hour,
-                            }
-                            skill_result = self.skill_mgr.evaluate_all(
-                                disp, direction, skill_ctx
-                            )
-                            if not skill_result["allowed"]:
-                                log.info(
-                                    f"ACTION | {disp} | skill blocked | "
-                                    f"{'; '.join(skill_result['reasons'])}"
-                                )
-                                _log_signal(
-                                    broker_sym,
-                                    direction,
-                                    confidence,
-                                    "; ".join(skill_result["reasons"]),
-                                    "SKILL_BLOCKED",
-                                )
-                                continue
-                            confidence = min(
-                                confidence + skill_result["confidence_boost"], 0.95
-                            )
-                            skills_used = skill_result["skills_used"]
-
-                        # ── #4: Mathematical Confluence Confidence Boost ──────────
-                        # When score + ADX + MACD all strongly agree, AI tends to
-                        # understate confidence. Apply a calibrated +5% boost.
-                        _cb_score = abs(signal_data.get("score", 0))
-                        _cb_adx   = signal_data.get("indicators", {}).get("adx", 0)
-                        _cb_macd  = signal_data.get("indicators", {}).get("macd_signal", "")
-                        _cb_macd_aligned = (
-                            (direction == "SELL" and "BEAR" in _cb_macd.upper()) or
-                            (direction == "BUY"  and "BULL" in _cb_macd.upper())
-                        )
-                        if _cb_score > 18 and _cb_adx > 40 and _cb_macd_aligned:
-                            _cb_boost = 0.05
-                            confidence = min(confidence + _cb_boost, 0.95)
-                            log.info(
-                                f"ACTION | {disp} | confluence boost +{_cb_boost:.0%} → {confidence:.0%} "
-                                f"(score={_cb_score:.1f} ADX={_cb_adx:.1f} MACD={_cb_macd})"
-                            )
-
-                        # ── Build order with ATR-based SL/TP ─────────────
-                        atr = signal_data.get("indicators", {}).get("atr", 0)
-                        # Inject balance for Kelly sizing (1% risk per trade)
-                        try:
-                            _acct_info = self.bridge.get_account_info()
-                            sym_cfg["_account_balance"] = float(getattr(_acct_info, "balance", 0))
-                        except Exception:
-                            sym_cfg["_account_balance"] = 0
-                        order = build_order_params(
-                            sym_cfg,
-                            tick,
-                            direction,
-                            confidence=confidence,
-                            atr=atr,
-                            lot_reduction=lot_reduction,
-                            regime_data=signal_data.get("factor_scores"),
-                        )
-
-                        # Validate order was built successfully
-                        if order is None:
-                            log.warning(f"[ORDER] Failed to build order for {disp} - skipping signal")
-                            continue
-
-                        # ── #5: Conviction-Scaled Position Sizing ─────────────────
-                        # The Kelly lot from build_order_params already factors in:
-                        #   balance × risk_pct × confidence × R:R × ATR
-                        # Now we SCALE it by regime + RSI instead of overriding.
-                        # This means a 90% confidence trade in a strong trend
-                        # will be 3-4× bigger than a 55% confidence ranging trade.
-                        _kelly_lot = order["lot"]  # preserve Kelly-computed lot
-                        _ps_regime = signal_data.get("factor_scores", {}).get("adx_regime", "")
-                        _ps_rsi    = signal_data.get("indicators", {}).get("rsi", 50)
-                        _ps_rsi_safe = (
-                            (direction == "SELL" and _ps_rsi >= 28) or
-                            (direction == "BUY"  and _ps_rsi <= 72)
-                        )
-
-                        # Regime multiplier: scales the Kelly lot
-                        if "STRONG_TREND" in _ps_regime and _ps_rsi_safe:
-                            _regime_mult = 1.5    # strong trend + safe RSI → scale up
-                        elif "STRONG_TREND" in _ps_regime:
-                            _regime_mult = 1.0    # strong trend but RSI exhausted → neutral
-                        elif "WEAK_TREND" in _ps_regime:
-                            _regime_mult = 0.8    # developing trend → slightly reduce
-                        elif "RANGING" in _ps_regime:
-                            _regime_mult = 0.6    # ranging → significant reduction
-                        elif "SQUEEZE" in _ps_regime:
-                            _regime_mult = 0.7    # breakout pending → cautious size
-                        else:
-                            _regime_mult = 0.8    # unknown regime → conservative
-
-                        # RSI exhaustion penalty (catch trades going against momentum)
-                        if not _ps_rsi_safe:
-                            _regime_mult *= 0.5   # halve size when RSI is extreme
-
-                        _final_lot = round(max(_kelly_lot * _regime_mult, 0.01), 2)
-                        _final_lot = min(_final_lot, 0.10)  # hard ceiling for safety
-                        order["lot"] = _final_lot
-                        log.info(
-                            f"ACTION | {disp} | conviction sizing | kelly={_kelly_lot} "
-                            f"× regime={_regime_mult:.1f} → lot={_final_lot} "
-                            f"regime={_ps_regime or 'UNKNOWN'} rsi={_ps_rsi:.1f} "
-                            f"conf={confidence:.0%}"
-                        )
-
-                        # Cache indicators for pyramid tranche checks
-                        if self.pyramid:
-                            self.pyramid.update_cached_indicators(
-                                disp,
-                                {
-                                    "indicators": _ind,
-                                    "score": _score,
-                                    "confidence": confidence,
-                                    "signal_direction": direction,
-                                    "factor_scores": _fs,
-                                },
-                            )
-
-                        if self.dry_run:
-                            log.info(
-                                f"ACTION | {disp} | dry run {direction} | lot {order['lot']} | sl {order['sl']} | tp {order['tp']} | conf {confidence:.0%}"
-                            )
-                            _log_signal(
-                                broker_sym, direction, confidence, reason, "DRY_TRADE"
-                            )
-                        else:
-                            # Skip if pyramid already active for this symbol
-                            if self.pyramid and self.pyramid.has_active_pyramid(disp):
-                                log.info(f"ACTION | {disp} | skip entry | pyramid already active")
-                                continue
-
-                            result = self.bridge.place_order(order)
-                            if result and hasattr(result, "order"):
-                                log.info(
-                                    f"ACTION | {disp} | opened tranche 1/10 #{result.order} | {direction} @{order['price']:.2f} | "
-                                    f"sl {order['sl']} | tp {order['tp']} | lot 0.01 | conf {confidence:.0%}"
-                                )
-                                _log_signal(
-                                    broker_sym,
-                                    direction,
-                                    confidence,
-                                    reason,
-                                    "PYRAMID_START",
-                                    ticket=result.order,
-                                )
-
-                                # ── Start pyramid session ────────────────────
-                                if self.pyramid:
-                                    self.pyramid.start_pyramid(
-                                        symbol=disp,
-                                        direction=direction,
-                                        entry_price=order["price"],
-                                        ticket=str(result.order),
-                                        pip_size=sym_cfg["pip"],
-                                        sl=order["sl"],
-                                        tp=order["tp"],
-                                        signal_context={
-                                            "confidence": confidence,
-                                            "factors": signal_data.get("factor_scores"),
-                                            "conditions": {
-                                                "session": session,
-                                                "atr": atr,
-                                                "adx": signal_data.get("indicators", {}).get("adx", 0),
-                                                "rsi": signal_data.get("indicators", {}).get("rsi", 0),
-                                                "h4_trend": signal_data.get("h4_trend", ""),
-                                            },
-                                            "skills_used": skills_used,
-                                        },
-                                    )
-
-                                # ── Record in trade memory ───────────────────
-                                if self.memory:
-                                    self.memory.record_entry(
-                                        ticket=str(result.order),
-                                        symbol=disp,
-                                        direction=direction,
-                                        entry_price=order["price"],
-                                        confidence=confidence,
-                                        factors=signal_data.get("factor_scores"),
-                                        conditions={
-                                            "session": session,
-                                            "atr": atr,
-                                            "adx": signal_data.get(
-                                                "indicators", {}
-                                            ).get("adx", 0),
-                                            "rsi": signal_data.get(
-                                                "indicators", {}
-                                            ).get("rsi", 0),
-                                            "h4_trend": signal_data.get("h4_trend", ""),
-                                        },
-                                        skills_used=skills_used,
-                                    )
-
-                                self.state["total_trades"] += 1
-                                _save_state(self.state)
-                                # Record trade time + direction for split cooldown
-                                self._last_trade_time[broker_sym] = time.time()
-                                self._last_trade_dir[broker_sym] = direction
-                                time.sleep(0.5)
-                                positions_by_sym = get_positions_by_symbol(self.bridge)
-                            else:
-                                log.warning(f"ACTION | {disp} | order failed")
-                    else:
-                        if not can_open_new:
-                            pass  # already logged above; don't spam DB for max-trades cases
-                        elif direction == "HOLD":
-                            log.info(f"ACTION | {disp} | HOLD | no trade setup")
-                            _log_signal(
-                                broker_sym, direction, confidence, reason, "HOLD"
-                            )
-                        elif fade_blocked:
-                            log.info(f"ACTION | {disp} | skip entry | fade blocked (ADX={_adx_val:.1f} RSI={_rsi_v:.1f})")
-                            _log_signal(broker_sym, direction, confidence, "fade_blocked", "LOW_CONF")
-                        elif not _adx_ok:
-                            log.info(f"ACTION | {disp} | skip entry | ADX too low ({_adx_val:.1f})")
-                            _log_signal(broker_sym, direction, confidence, f"adx_low_{_adx_val:.1f}", "LOW_CONF")
-                        else:
-                            log.info(
-                                f"ACTION | {disp} | skip entry | confidence {confidence:.0%} below gate {_conf_gate:.0%}"
-                            )
-                            _log_signal(
-                                broker_sym, direction, confidence, reason, "LOW_CONF"
-                            )
-
-                    # ── Pyramid status logging (replaced old scaler) ──────────
-                    if self.pyramid and self.pyramid.has_active_pyramid(disp):
-                        _psess = self.pyramid.get_session(disp)
-                        if _psess:
-                            log.info(
-                                f"PYRAMID | {disp} | {_psess.tranche_count}/10 tranches | total lot {_psess.total_lot:.2f} | avg entry {_psess.avg_entry_price:.2f}"
-                            )
-
+                next_analysis, positions_by_sym = self._run_analysis_phase(
+                    cycle, session, now, ts, positions_by_sym, symbols_status, candles_cache
+                )
             # ── Write dashboard status ────────────────────────────────────────
             # Build open-positions list for dashboard
             open_positions_list = []
@@ -2080,7 +2140,9 @@ class ContinuousTrader:
         log.info("\n🛑 Trader stopped. Disconnecting...")
         try:
             self.bridge.disconnect()
-        except Exception:
+        except Exception as e:
+            try: log.debug(f'Caught exception: {e}')
+            except: pass
             pass
         _save_state(self.state)
         log.info(
@@ -2152,7 +2214,9 @@ if __name__ == "__main__":
             # Check if the locking process is actually still alive
             try:
                 existing_pid = Path("/tmp/trading_bot_pid.txt").read_text().strip()
-            except Exception:
+            except Exception as e:
+                try: log.debug(f'Caught exception: {e}')
+                except: pass
                 existing_pid = "?"
             if _is_pid_alive(existing_pid):
                 print(f"❌ Trader already running (PID {existing_pid}). Exiting.")

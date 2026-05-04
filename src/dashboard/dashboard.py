@@ -1303,7 +1303,9 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
                     if age_s > 120:
                         data['_stale'] = True
                         data['state'] = f"stale ({age_s}s ago)"
-                except Exception:
+                except Exception as e:
+                    try: log.debug(f'Caught exception: {e}')
+                    except: pass
                     data = {'state': 'error'}
                     
             # Inject real MT5 account info
@@ -1336,7 +1338,9 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
                         'FROM signals ORDER BY id DESC LIMIT 200'
                     ).fetchall()]
                     conn.close()
-                except Exception:
+                except Exception as e:
+                    try: log.debug(f'Caught exception: {e}')
+                    except: pass
                     rows = []
             self._json(rows)
 
@@ -1345,7 +1349,9 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
             if CANDLES_FILE.exists():
                 try:
                     data = json.loads(CANDLES_FILE.read_text())
-                except Exception:
+                except Exception as e:
+                    try: log.debug(f'Caught exception: {e}')
+                    except: pass
                     data = {}
             self._json(data)
 
@@ -1353,8 +1359,9 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
             # ── Live indicator stream viewer ──────────────────────────────────
             # Connects to Windows MT5 bridge (206.72.198.54:5002) and displays all indicators live
             from dotenv import load_dotenv
+            from core.config import get_webhook_config as _get_wh
             load_dotenv(BASE_DIR / ".env")
-            auth_token = os.environ.get("WEBHOOK_AUTH_TOKEN", "super_secret_token_2026")
+            auth_token = _get_wh()["auth_token"]
             html_content = LIVE_HTML.replace("__AUTH_TOKEN__", auth_token)
             body = html_content.encode()
             self.send_response(200)
@@ -1411,8 +1418,8 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
                                     if d1 is not None and len(d1) >= 1:
                                         sym_data['daily_high'] = float(d1['h'].values[-1])
                                         sym_data['daily_low']  = float(d1['l'].values[-1])
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                print(f"[DASHBOARD] Error computing ATR: {e}")
                             snap['symbols'][sym] = sym_data
             except Exception as e:
                 snap['_bridge_error'] = str(e)
@@ -1423,8 +1430,8 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
                 if snap_file.exists():
                     try:
                         snap = json.loads(snap_file.read_text())
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        print(f"[DASHBOARD] Error loading local snapshot fallback: {e}")
                         
             self._json(snap)
 
@@ -1499,7 +1506,7 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
                                 'status': 'OPEN'
                             })
                         except Exception as e:
-                            pass
+                            print(f"[DASHBOARD] Error processing position {getattr(p, 'ticket', '?')}: {e}")
             except Exception as e:
                 positions = []
 

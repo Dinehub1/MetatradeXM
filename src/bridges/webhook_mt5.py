@@ -17,46 +17,34 @@ Capabilities:
   ✅ Position modification (SL/TP)
   ✅ Terminal info
 """
-import os
 import time
-import logging
+from core.logger_factory import get_logger
 import requests
 import numpy as np
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import quote
 from dotenv import load_dotenv
+from core.config import get_webhook_config as _get_wh_cfg
 
 # Load .env from the project root (two levels up from src/bridges/)
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
-log = logging.getLogger("webhook_mt5")
+log = get_logger("webhook_mt5")
 
-# ── Server URL ────────────────────────────────────────────────────────────────
-WIN_WEBHOOK_URL = os.getenv("WIN_WEBHOOK_URL", "http://206.72.198.54:5001")
-AUTH_TOKEN = os.getenv("WEBHOOK_AUTH_TOKEN", "super_secret_token_2026")
+# Import centralized MT5 constants
+from core.mt5_constants import (
+    TIMEFRAME_M1, TIMEFRAME_M5, TIMEFRAME_M15, TIMEFRAME_M30,
+    TIMEFRAME_H1, TIMEFRAME_H4, TIMEFRAME_D1,
+    ORDER_TYPE_BUY, ORDER_TYPE_SELL, TRADE_ACTION_DEAL, TRADE_ACTION_SLTP,
+    ORDER_TIME_GTC, ORDER_FILLING_IOC, TRADE_RETCODE_DONE,
+    _TF_INT_TO_STR
+)
+
+# ── Server URL & Auth (centralised via core.config) ──────────────────────────
+_wh = _get_wh_cfg()
+WIN_WEBHOOK_URL = _wh["webhook_url"]
+AUTH_TOKEN = _wh["auth_token"]
 _HEADERS = {"Authorization": f"Bearer {AUTH_TOKEN}"}
-
-# ── MT5 Constants (match real MetaTrader5 package values) ─────────────────────
-TIMEFRAME_M1  = 1
-TIMEFRAME_M5  = 5
-TIMEFRAME_M15 = 15
-TIMEFRAME_M30 = 30
-TIMEFRAME_H1  = 60
-TIMEFRAME_H4  = 240
-TIMEFRAME_D1  = 1440
-
-ORDER_TYPE_BUY   = 0
-ORDER_TYPE_SELL  = 1
-TRADE_ACTION_DEAL   = 1
-TRADE_ACTION_SLTP   = 6
-ORDER_TIME_GTC      = 0
-ORDER_FILLING_IOC   = 1
-TRADE_RETCODE_DONE  = 10009
-
-_TF_INT_TO_STR = {
-    1: "M1", 5: "M5", 15: "M15", 30: "M30",
-    60: "H1", 240: "H4", 1440: "D1"
-}
 
 # ── Connection state ──────────────────────────────────────────────────────────
 _last_successful_call = 0.0

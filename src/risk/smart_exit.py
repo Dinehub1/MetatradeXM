@@ -15,9 +15,8 @@ This module is the "brain" that prevents the bot from:
 """
 
 import json
-import os
 import sqlite3
-import logging
+from core.logger_factory import get_logger
 import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -26,7 +25,7 @@ from core.ai_client import ask_nvidia as ask_openrouter
 from core.paths import DATA_DIR
 
 
-log = logging.getLogger("smart_exit")
+log = get_logger("smart_exit")
 
 DB_PATH = DATA_DIR / "trade_memory.db"
 
@@ -327,7 +326,9 @@ class SmartExitManager:
                 open_dt = open_time
                 if open_dt.tzinfo is None:
                     open_dt = open_dt.replace(tzinfo=timezone.utc)
-        except Exception:
+        except Exception as e:
+            try: log.debug(f'Caught exception: {e}')
+            except: pass
             return None
 
         now = datetime.now(timezone.utc)
@@ -457,7 +458,9 @@ class SmartExitManager:
         try:
             tick = bridge.get_tick(sym_cfg["broker"])
             current_price = tick.bid if direction == "BUY" else tick.ask
-        except Exception:
+        except Exception as e:
+            try: log.debug(f'Caught exception: {e}')
+            except: pass
             return None
 
         if direction == "BUY":
@@ -718,11 +721,9 @@ Respond with ONLY JSON (no markdown):
                     "total_usd": round(total_usd, 2),
                     "avg_pips": round(total_pips / total, 1) if total > 0 else 0,
                 }
-        except Exception:
+        except Exception as e:
+            try: log.debug(f'Caught exception: {e}')
+            except: pass
             return {"total": 0}
 
 
-if __name__ == "__main__":
-    mgr = SmartExitManager()
-    stats = mgr.get_exit_stats()
-    print(f"Smart exit stats: {json.dumps(stats, indent=2)}")

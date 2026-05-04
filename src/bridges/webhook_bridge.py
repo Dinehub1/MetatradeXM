@@ -11,8 +11,7 @@ The webhook server (win_webhook_mt5.py) must be running on the Windows machine.
 """
 from __future__ import annotations
 
-import logging
-import os
+from core.logger_factory import get_logger
 import time
 from pathlib import Path
 import requests
@@ -21,11 +20,13 @@ import pandas as pd
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from dotenv import load_dotenv
+from core.config import get_webhook_config as _get_wh_cfg
 
 # Load .env from project root (two levels up from src/bridges/)
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
-log = logging.getLogger("webhook_bridge")
+log = get_logger("webhook_bridge")
+_WH_CFG = _get_wh_cfg()
 
 # Timeframe mapping for display
 _TF_MAP = {
@@ -44,16 +45,15 @@ class WebhookBridge:
     """
 
     def __init__(self, url: str = None):
-        self.url = (url or os.environ.get("WIN_WEBHOOK_URL", "")).rstrip("/")
+        self.url = (url or _WH_CFG["webhook_url"]).rstrip("/")
         self._validate_url()  # SSRF prevention: validate URL at startup
         self.connected = False
         self._account_cache = None
         self._cache_ts = 0
 
         # Auth session — all requests automatically include the Bearer token
-        auth_token = os.environ.get("WEBHOOK_AUTH_TOKEN", "super_secret_token_2026")
         self._session = requests.Session()
-        self._session.headers.update({"Authorization": f"Bearer {auth_token}"})
+        self._session.headers.update({"Authorization": f"Bearer {_WH_CFG['auth_token']}"})
 
     def _validate_url(self):
         """Validate webhook URL for SSRF prevention."""
@@ -183,7 +183,9 @@ class WebhookBridge:
                 volume_step=data.get("volume_step", 0.01),
                 point=data.get("point", 0.00001),
             )
-        except Exception:
+        except Exception as e:
+            try: log.debug(f'Caught exception: {e}')
+            except: pass
             return None
 
     # ── Account ──────────────────────────────────────────────────────────────

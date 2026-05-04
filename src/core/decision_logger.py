@@ -98,5 +98,7 @@ def _rotate_if_needed():
         lines = TRACE_FILE.read_text().splitlines()
         if len(lines) > MAX_RECORDS:
             TRACE_FILE.write_text("\n".join(lines[-MAX_RECORDS:]) + "\n")
-    except Exception:
+    except Exception as e:
+        try: log.debug(f'Caught exception: {e}')
+        except: pass
         pass

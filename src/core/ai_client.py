@@ -17,25 +17,27 @@ Config (.env):
 """
 from __future__ import annotations
 
-import os
 import re
 import json
 import time
-import logging
 import requests
 
-log = logging.getLogger("ai_client")
+from core.config import get_nvidia_config
+from core.logger_factory import get_logger
+
+log = get_logger("ai_client")
 
 # ── NVIDIA NIM (T1 — Primary, T2 — Backup key) ───────────────────────────────
-_NVIDIA_KEY      = os.getenv("NVIDIA_API_KEY", "")
-_NVIDIA_KEY_2    = os.getenv("NVIDIA_API_KEY_2", "")
-_NVIDIA_URL      = os.getenv("INVOKE_URL", "https://integrate.api.nvidia.com/v1/chat/completions")
-_NVIDIA_MODEL    = os.getenv("MODEL_NAME", "meta/llama-3.3-70b-instruct")
-_NVIDIA_TOKENS   = int(os.getenv("MAX_TOKENS", "16384"))
-_NVIDIA_TEMP     = float(os.getenv("TEMPERATURE", "1.0"))
-_NVIDIA_TOP_P    = float(os.getenv("TOP_P", "1.0"))
-_NVIDIA_STREAM   = os.getenv("STREAM", "true").lower() == "true"
-_NVIDIA_THINKING = os.getenv("THINKING", "true").lower() == "true"
+_nvidia_cfg  = get_nvidia_config()
+_NVIDIA_KEY      = _nvidia_cfg["api_key"]
+_NVIDIA_KEY_2    = _nvidia_cfg["api_key_2"]
+_NVIDIA_URL      = _nvidia_cfg["url"]
+_NVIDIA_MODEL    = _nvidia_cfg["model"]
+_NVIDIA_TOKENS   = _nvidia_cfg["max_tokens"]
+_NVIDIA_TEMP     = _nvidia_cfg["temperature"]
+_NVIDIA_TOP_P    = _nvidia_cfg["top_p"]
+_NVIDIA_STREAM   = _nvidia_cfg["stream"]
+_NVIDIA_THINKING = _nvidia_cfg["thinking"]
 _NVIDIA_TIMEOUT  = 90  # longer for thinking + streaming
 
 # ── Tier list — NVIDIA keys only ─────────────────────────────────────────────

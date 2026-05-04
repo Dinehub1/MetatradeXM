@@ -11,12 +11,13 @@ Usage:
     python3 mcp_server.py --stdio         # explicit stdio mode
 """
 
-import os
 import sys
 import json
 import sqlite3
 import argparse
 import logging
+from core.logger_factory import get_logger
+from core.utils import now_utc
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -26,7 +27,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
-log = logging.getLogger("mcp_trading")
+log = get_logger("mcp_trading")
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 import sys as _sys
@@ -55,7 +56,9 @@ mcp = FastMCP(
 def _load_json(path: Path, default=None):
     try:
         return json.loads(path.read_text())
-    except Exception:
+    except Exception as e:
+        try: log.debug(f'Caught exception: {e}')
+        except: pass
         return default if default is not None else {}
 
 
@@ -69,7 +72,9 @@ def _rows_to_dicts(columns, rows):
             if key in d and isinstance(d[key], str):
                 try:
                     d[key] = json.loads(d[key])
-                except Exception:
+                except Exception as e:
+                    try: log.debug(f'Caught exception: {e}')
+                    except: pass
                     pass
         result.append(d)
     return result
@@ -99,7 +104,7 @@ def get_status() -> dict:
     return {
         "bot": status,
         "state": state,
-        "server_time_utc": datetime.now(timezone.utc).isoformat(),
+        "server_time_utc": now_utc().isoformat(),
     }
 
 
@@ -191,7 +196,9 @@ def get_performance_summary(days: int = 7) -> dict:
         if isinstance(skills_raw, str):
             try:
                 skills_raw = json.loads(skills_raw)
-            except Exception:
+            except Exception as e:
+                try: log.debug(f'Caught exception: {e}')
+                except: pass
                 skills_raw = []
         for skill in (skills_raw or []):
             if skill not in skill_stats:
@@ -503,11 +510,11 @@ def update_scoring_weights(updates: dict) -> dict:
     log.info(f"[update_scoring_weights] {updates}")
     weights = _load_json(SCORING_WEIGHTS, {})
     weights.update(updates)
-    weights["last_adjusted"] = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    weights["last_adjusted"] = now_utc().strftime("%Y-%m-%d")
     if "adjustment_history" not in weights:
         weights["adjustment_history"] = []
     weights["adjustment_history"].append({
-        "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        "date": now_utc().strftime("%Y-%m-%d"),
         "change": str(updates),
     })
     SCORING_WEIGHTS.write_text(json.dumps(weights, indent=2))
@@ -533,7 +540,7 @@ def close_all_positions() -> dict:
     import io, logging.handlers
     stream = io.StringIO()
     handler = logging.StreamHandler(stream)
-    logger = logging.getLogger("continuous_trader")
+    logger = get_logger("continuous_trader")
     logger.setLevel(logging.INFO)
     logger.addHandler(handler)
 

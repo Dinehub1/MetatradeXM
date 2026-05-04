@@ -8,21 +8,13 @@ import random
 import numpy as np
 from types import SimpleNamespace
 
-# ── MT5 Constants (match real values) ────────────────────────────────────────
-TIMEFRAME_M1  = 1
-TIMEFRAME_M5  = 5
-TIMEFRAME_M15 = 15
-TIMEFRAME_M30 = 30
-TIMEFRAME_H1  = 60
-TIMEFRAME_H4  = 240
-TIMEFRAME_D1  = 1440
-
-ORDER_TYPE_BUY   = 0
-ORDER_TYPE_SELL  = 1
-TRADE_ACTION_DEAL   = 1
-ORDER_TIME_GTC      = 0
-ORDER_FILLING_IOC   = 1
-TRADE_RETCODE_DONE  = 10009
+# Import centralized MT5 constants
+from core.mt5_constants import (
+    TIMEFRAME_M1, TIMEFRAME_M5, TIMEFRAME_M15, TIMEFRAME_M30,
+    TIMEFRAME_H1, TIMEFRAME_H4, TIMEFRAME_D1,
+    ORDER_TYPE_BUY, ORDER_TYPE_SELL, TRADE_ACTION_DEAL,
+    ORDER_TIME_GTC, ORDER_FILLING_IOC, TRADE_RETCODE_DONE
+)
 
 # ── Internal state ────────────────────────────────────────────────────────────
 _initialized     = False
@@ -145,9 +137,6 @@ def positions_get(symbol: str = None, ticket: int = None):
     if symbol:
         return [p for p in _open_positions if p.symbol == symbol] or None
     return list(_open_positions) or None
-
-
-TRADE_ACTION_SLTP = 6  # modify SL/TP (matches real MT5 constant)
 
 
 def modify_position_sltp(ticket: int, sl: float, tp: float):

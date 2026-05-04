@@ -15,10 +15,10 @@ BUGS FIXED:
   - _position_size() referenced undefined `mt5` variable
 """
 
-import logging
+from core.logger_factory import get_logger
 from datetime import date
 
-log = logging.getLogger("risk_mgr")
+log = get_logger("risk_mgr")
 
 # ── Symbol metadata (hardcoded for gold/silver — primary instruments) ────────
 _SYMBOL_META = {
@@ -163,7 +163,9 @@ class RiskManager:
 
         try:
             info = bridge.get_account_info()
-        except Exception:
+        except Exception as e:
+            try: log.debug(f'Caught exception: {e}')
+            except: pass
             return False
         if info is None:
             return False
@@ -191,7 +193,9 @@ class RiskManager:
         """
         try:
             positions = bridge.get_open_positions(symbol)
-        except Exception:
+        except Exception as e:
+            try: log.debug(f'Caught exception: {e}')
+            except: pass
             return []
 
         if not positions:
@@ -230,7 +234,9 @@ class RiskManager:
                     if profit_pip >= sl_pips and (current_sl is None or current_sl > be_sl):
                         if bridge.modify_position(ticket, sl=be_sl):
                             modified.append(ticket)
-            except Exception:
+            except Exception as e:
+                try: log.debug(f'Caught exception: {e}')
+                except: pass
                 continue
 
         return modified

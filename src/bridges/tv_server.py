@@ -16,12 +16,12 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
+from core.logger_factory import get_logger
 import threading
 import time
 from typing import Optional
 
-log = logging.getLogger("tv_server")
+log = get_logger("tv_server")
 
 PORT          = 8887
 _REFRESH_SECS = 30                                    # candle fetch interval
@@ -98,13 +98,17 @@ class TVIndicatorServer:
             }
             try:
                 await ws.send(json.dumps(snap, default=str))
-            except Exception:
+            except Exception as e:
+                try: log.debug(f'Caught exception: {e}')
+                except: pass
                 pass
 
         try:
             async for _ in ws:
                 pass           # server-push only; ignore incoming messages
-        except Exception:
+        except Exception as e:
+            try: log.debug(f'Caught exception: {e}')
+            except: pass
             pass
         finally:
             self._clients.discard(ws)
@@ -162,7 +166,9 @@ class TVIndicatorServer:
                     "symbols": dict(self._latest),
                     "_updated": time.time(),
                 }, default=str))
-            except Exception:
+            except Exception as e:
+                try: log.debug(f'Caught exception: {e}')
+                except: pass
                 pass
             self._broadcast_sync({
                 "type": "snapshot",
@@ -183,7 +189,9 @@ class TVIndicatorServer:
         for ws in list(self._clients):
             try:
                 await ws.send(data)
-            except Exception:
+            except Exception as e:
+                try: log.debug(f'Caught exception: {e}')
+                except: pass
                 dead.add(ws)
         for ws in dead:
             self._clients.discard(ws)

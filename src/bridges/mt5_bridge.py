@@ -8,6 +8,9 @@ import sys
 import pandas as pd
 import numpy as np
 from datetime import datetime
+from core.logger_factory import get_logger
+
+log = get_logger("MT5Bridge")
 
 if sys.platform == "win32":
     import MetaTrader5 as mt5
@@ -32,7 +35,7 @@ class MT5Bridge:
     def connect(self) -> bool:
         """Initialize MT5 connection."""
         if not mt5.initialize():
-            print(f"  MT5 init error: {mt5.last_error()}")
+            log.error(f"MT5 init error: {mt5.last_error()}")
             return False
         self.connected = True
         return True
@@ -71,13 +74,13 @@ class MT5Bridge:
     def print_account_info(self):
         info = self.get_account_info()
         if not info:
-            print("  Could not fetch account info.")
+            log.warning("Could not fetch account info.")
             return
-        print(f"  Account:  #{info.login}  ({info.server})")
-        print(f"  Balance:  {info.balance:.2f} {info.currency}")
-        print(f"  Equity:   {info.equity:.2f}")
-        print(f"  Margin:   {info.margin:.2f}  |  Free: {info.margin_free:.2f}")
-        print(f"  Leverage: 1:{info.leverage}")
+        log.info(f"Account:  #{info.login}  ({info.server})")
+        log.info(f"Balance:  {info.balance:.2f} {info.currency}")
+        log.info(f"Equity:   {info.equity:.2f}")
+        log.info(f"Margin:   {info.margin:.2f}  |  Free: {info.margin_free:.2f}")
+        log.info(f"Leverage: 1:{info.leverage}")
 
     # ── Positions ─────────────────────────────────────────────────────────────
 
@@ -91,13 +94,12 @@ class MT5Bridge:
     def print_open_positions(self):
         positions = self.get_open_positions()
         if not positions:
-            print("\n  No open positions.")
+            log.info("No open positions.")
             return
-        print(f"\n  Open positions ({len(positions)}):")
+        log.info(f"Open positions ({len(positions)}):")
         for p in positions:
             direction = "BUY" if p.type == mt5.ORDER_TYPE_BUY else "SELL"
-            print(f"  #{p.ticket}  {p.symbol}  {direction}  {p.volume} lots  "
-                  f"open@{p.price_open:.5f}  profit:{p.profit:.2f}")
+            log.info(f"#{p.ticket}  {p.symbol}  {direction}  {p.volume} lots open@{p.price_open:.5f}  profit:{p.profit:.2f}")
 
     # ── Orders ────────────────────────────────────────────────────────────────
 
@@ -109,7 +111,7 @@ class MT5Bridge:
         symbol = params["symbol"]
         info   = self.get_symbol_info(symbol)
         if not info:
-            print(f"  Symbol {symbol} not found.")
+            log.error(f"Symbol {symbol} not found.")
             return None
 
         order_type = mt5.ORDER_TYPE_BUY if params["direction"] == "BUY" else mt5.ORDER_TYPE_SELL
@@ -133,7 +135,7 @@ class MT5Bridge:
 
         result = mt5.order_send(request)
         if result.retcode != mt5.TRADE_RETCODE_DONE:
-            print(f"  Order error: retcode={result.retcode}  {result.comment}")
+            log.error(f"Order error: retcode={result.retcode}  {result.comment}")
             return None
         return result
 
@@ -141,7 +143,7 @@ class MT5Bridge:
         """Modify SL/TP of an open position (e.g. move to breakeven)."""
         position = mt5.positions_get(ticket=ticket)
         if not position:
-            print(f"  Position #{ticket} not found.")
+            log.error(f"Position #{ticket} not found.")
             return False
         pos = position[0]
         if hasattr(mt5, "modify_position_sltp"):
@@ -166,7 +168,7 @@ class MT5Bridge:
         """Close a position by ticket number."""
         position = mt5.positions_get(ticket=ticket)
         if not position:
-            print(f"  Position #{ticket} not found.")
+            log.error(f"Position #{ticket} not found.")
             return False
         pos = position[0]
         order_type = mt5.ORDER_TYPE_SELL if pos.type == mt5.ORDER_TYPE_BUY else mt5.ORDER_TYPE_BUY

@@ -5,11 +5,11 @@ Each filter can veto a trade or adjust confidence.
 Filters are backed by skills and track their own performance.
 """
 
-import logging
+from core.logger_factory import get_logger
 import numpy as np
 from datetime import datetime, timezone
 
-log = logging.getLogger("filters")
+log = get_logger("filters")
 
 # ── Session boundaries (UTC) — must match is_forex_market_open() ─────────────
 # ASIAN:              22:00–07:59

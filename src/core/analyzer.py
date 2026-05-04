@@ -8,8 +8,7 @@ MarketAnalyzer — UPGRADED
 """
 
 import json
-import logging
-import os
+from core.logger_factory import get_logger
 import re
 import requests
 import numpy as np
@@ -21,7 +20,7 @@ from datetime import datetime, timezone
 
 from core.ai_client import ask_nvidia
 
-log = logging.getLogger("analyzer")
+log = get_logger("analyzer")
 
 SYSTEM_PROMPT = """You are an expert precious metals trader specialising in XAUUSD (Gold) and XAGUSD (Silver).
 You have 20+ years of experience and you are PROTECTING REAL CAPITAL.
@@ -441,7 +440,9 @@ class MarketAnalyzer:
             k2, d2 = self._stochastic(high[:-1], low[:-1], close[:-1])
             if k1 > d1 and k2 <= d2 and k1 < 80:  return "BULLISH"
             if k1 < d1 and k2 >= d2 and k1 > 20:  return "BEARISH"
-        except Exception:
+        except Exception as e:
+            try: log.debug(f'Caught exception: {e}')
+            except: pass
             pass
         return "NONE"
 
@@ -609,7 +610,9 @@ class MarketAnalyzer:
             weights_path = CONFIG_DIR / "scoring_weights.json"
             if weights_path.exists():
                 weights = json.loads(weights_path.read_text())
-        except Exception:
+        except Exception as e:
+            try: log.debug(f'Caught exception: {e}')
+            except: pass
             pass
 
         # Guard: clamp thresholds so the bot never stops trading due to
@@ -818,7 +821,9 @@ M1 RSI: {m1_rsi_val}
 M1 Momentum (5-bar): {m1_momentum}
 M1 Range: {m1_range:.5f}
 """
-            except Exception:
+            except Exception as e:
+                try: log.debug(f'Caught exception: {e}')
+                except: pass
                 m1_block = ""
 
         # Pre-format D1 values to avoid invalid format specifier in f-string
@@ -967,7 +972,9 @@ PRIMARY (M15): ADX={tv_ind.get('adx','?')} RSI={tv_ind.get('rsi','?')} BB={tv_in
 Williams%R={tv_ind.get('williams_r','?')} Stoch_K={tv_ind.get('stoch_k','?')} Stoch_cross={tv_ind.get('stoch_cross','?')}
 """
                 prompt = prompt + tv_block
-        except Exception:
+        except Exception as e:
+            try: log.debug(f'Caught exception: {e}')
+            except: pass
             pass
 
         # ── AI signal: Gemini primary → OpenRouter fallback ───────────────────

@@ -17,13 +17,14 @@ Key mechanics:
 
 import json
 import sqlite3
-import logging
+from core.logger_factory import get_logger
+from core.utils import now_utc
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from core.paths import DATA_DIR, STATE_DIR
 
-log = logging.getLogger("pyramid")
+log = get_logger("pyramid")
 
 DB_PATH = DATA_DIR / "trade_memory.db"
 STATE_PATH = STATE_DIR / "pyramid_state.json"
@@ -73,7 +74,9 @@ def _load_state() -> dict:
     if STATE_PATH.exists():
         try:
             return json.loads(STATE_PATH.read_text())
-        except Exception:
+        except Exception as e:
+            try: log.debug(f'Caught exception: {e}')
+            except: pass
             pass
     return {"pyramids": {}}  # symbol -> pyramid data
 
@@ -129,7 +132,7 @@ class PyramidSession:
                 "ticket": first_ticket,
                 "price": first_entry_price,
                 "lot": PYRAMID_CFG["tranche_lot"],
-                "ts": datetime.now(timezone.utc).isoformat(),
+                "ts": now_utc().isoformat(),
             }
         ]
 
@@ -352,7 +355,7 @@ class PyramidSession:
             "ticket": ticket,
             "price": price,
             "lot": PYRAMID_CFG["tranche_lot"],
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": now_utc().isoformat(),
         })
         self.last_add_time = time.time()
 
@@ -757,7 +760,7 @@ class PyramidManager:
 
     def _record_tranche(self, symbol, direction, tranche_num, ticket,
                         lot, price, sl, tp, pips_from_first):
-        ts = datetime.now(timezone.utc).isoformat()
+        ts = now_utc().isoformat()
         try:
             with sqlite3.connect(str(DB_PATH)) as conn:
                 conn.execute("""
@@ -785,6 +788,3 @@ class PyramidManager:
         return summary
 
 
-if __name__ == "__main__":
-    mgr = PyramidManager()
-    print(f"Active pyramids: {mgr.get_summary()}")

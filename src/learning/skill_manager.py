@@ -7,9 +7,8 @@ New skills can be auto-generated from detected market patterns.
 """
 
 import json
-import os
 import re
-import logging
+from core.logger_factory import get_logger
 import requests
 from pathlib import Path
 from datetime import datetime, timezone
@@ -18,7 +17,7 @@ from core.ai_client import ask_nvidia as ask_openrouter
 from core.paths import SKILLS_DIR
 
 
-log = logging.getLogger("skills")
+log = get_logger("skills")
 
 SKILLS_DIR = SKILLS_DIR
 
@@ -421,10 +420,3 @@ Respond with ONLY JSON:
         self._skills_cache = None
 
 
-if __name__ == "__main__":
-    mgr = SkillManager()
-    print(f"Skills directory: {SKILLS_DIR}")
-    skills = mgr.list_skills()
-    print(f"Loaded {len(skills)} skills:")
-    for s in skills:
-        print(f"  {s['name']}: {s['description']} (WR: {s['win_rate']}%)")

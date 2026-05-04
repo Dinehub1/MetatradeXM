@@ -13,14 +13,14 @@ Usage:
 from __future__ import annotations
 
 import json
-import logging
+from core.logger_factory import get_logger
 import threading
 import time
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
-import os
-_WS_URL    = os.environ.get("TV_WS_URL", "ws://localhost:8887")
+from core.config import get_tv_config as _get_tv_cfg
+_WS_URL = _get_tv_cfg()["tv_ws_url"]
 _RECONNECT = 30   # seconds between reconnect attempts (don't spam on failure)
 
 

@@ -1,8 +1,8 @@
 import numpy as np
 import pandas as pd
-import logging
+from core.logger_factory import get_logger
 
-log = logging.getLogger("regime")
+log = get_logger("regime")
 
 class RegimeDetector:
     """

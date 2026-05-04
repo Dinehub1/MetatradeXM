@@ -2,8 +2,8 @@
   "consecutive_wins": 0,
   "consecutive_losses": 5,
   "peak_balance": 0.0,
-  "booked_profit_usd": 240.062,
-  "total_booked_trades": 116,
+  "booked_profit_usd": 263.126,
+  "total_booked_trades": 121,
   "partial_closes_done": {
     "736150665": [
       3,
@@ -247,6 +247,21 @@
       15
     ],
     "756241439": [
+      15
+    ],
+    "756261093": [
+      15
+    ],
+    "756264760": [
+      15
+    ],
+    "756303168": [
+      15
+    ],
+    "756461349": [
+      15
+    ],
+    "756495742": [
       15
     ]
   }

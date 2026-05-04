@@ -6,8 +6,7 @@ Runs daily reviews, adjusts scoring weights, improves/generates skills.
 """
 
 import json
-import logging
-import os
+from core.logger_factory import get_logger
 import time
 import requests
 from datetime import datetime, timezone
@@ -16,14 +15,15 @@ from pathlib import Path
 from learning.memory import TradeMemory
 from learning.skill_manager import SkillManager
 from core.paths import CONFIG_DIR
+from core.config import get_ollama_url, get_ollama_model
 
 
-log = logging.getLogger("improver")
+log = get_logger("improver")
 
 WEIGHTS_PATH     = CONFIG_DIR / "scoring_weights.json"
 LAST_REVIEW_FILE = Path(__file__).parent / ".last_review_date"  # persists across restarts
-OLLAMA_URL = "http://localhost:11434/api/chat"
-OLLAMA_MODEL = "minimax-m2.7:cloud"
+OLLAMA_URL = get_ollama_url()
+OLLAMA_MODEL = get_ollama_model()
 
 # Minimum weight floor — prevent score collapse from compounding daily decays
 WEIGHT_FLOOR = 0.85
@@ -66,7 +66,9 @@ class PerformanceAnalyzer:
                 last = LAST_REVIEW_FILE.read_text().strip()
                 if last == today:
                     return False
-            except Exception:
+            except Exception as e:
+                try: log.debug(f'Caught exception: {e}')
+                except: pass
                 pass
 
         # In-memory guard (secondary)
@@ -87,7 +89,9 @@ class PerformanceAnalyzer:
         # Persist to disk so restarting the process doesn't re-trigger today's review
         try:
             LAST_REVIEW_FILE.write_text(today)
-        except Exception:
+        except Exception as e:
+            try: log.debug(f'Caught exception: {e}')
+            except: pass
             pass
 
         log.info("=" * 50)
@@ -167,7 +171,7 @@ class PerformanceAnalyzer:
                 conditions = json.loads(o.get("conditions_json", "{}"))
                 session = conditions.get("session", "UNKNOWN")
                 by_session.setdefault(session, []).append(o)
-            except:
+            except (json.JSONDecodeError, ValueError):
                 continue
 
         for session, trades in by_session.items():
@@ -270,7 +274,7 @@ class PerformanceAnalyzer:
                 weights = json.loads(WEIGHTS_PATH.read_text())
             else:
                 weights = {}
-        except:
+        except (json.JSONDecodeError, IOError):
             weights = {}
 
         changes = []
@@ -363,6 +367,3 @@ class PerformanceAnalyzer:
         return "\n".join(report)
 
 
-if __name__ == "__main__":
-    analyzer = PerformanceAnalyzer()
-    print(analyzer.generate_performance_report())

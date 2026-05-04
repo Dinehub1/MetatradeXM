@@ -12,17 +12,18 @@ Inspired by Hermes skill-driven decision pattern.
 
 import json
 import sqlite3
-import logging
+from core.logger_factory import get_logger
 import requests
 from datetime import datetime, timezone
 from pathlib import Path
 from core.paths import DATA_DIR
+from core.config import get_ollama_url, get_ollama_model
 
 
-log = logging.getLogger("scaler")
+log = get_logger("scaler")
 
-OLLAMA_URL   = "http://localhost:11434/api/chat"
-OLLAMA_MODEL = "minimax-m2.7:cloud"
+OLLAMA_URL   = get_ollama_url()
+OLLAMA_MODEL = get_ollama_model()
 DB_PATH      = DATA_DIR / "trade_memory.db"
 
 # ── Scaling config (mirrors SKILL.md) ────────────────────────────────────────
@@ -66,7 +67,9 @@ def _count_scales(parent_ticket: str) -> int:
                 (str(parent_ticket),)
             ).fetchone()
             return row[0] if row else 0
-    except Exception:
+    except Exception as e:
+        try: log.debug(f'Caught exception: {e}')
+        except: pass
         return 0
 
 def _record_scale(parent_ticket, scale_ticket, symbol, direction,
@@ -336,11 +339,9 @@ Respond with ONLY JSON (no markdown):
                 placed = sum(1 for r in rows if r["scale_ticket"])
                 return {"total_attempts": total, "placed": placed,
                         "symbols": list({r["symbol"] for r in rows})}
-        except Exception:
+        except Exception as e:
+            try: log.debug(f'Caught exception: {e}')
+            except: pass
             return {"total_attempts": 0, "placed": 0, "symbols": []}
 
 
-if __name__ == "__main__":
-    scaler = PositionScaler()
-    stats = scaler.get_scale_stats()
-    print(f"Scale history: {stats}")
