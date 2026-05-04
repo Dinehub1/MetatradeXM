@@ -150,6 +150,12 @@ class TradeMemory:
             ts = now_utc().isoformat()
 
             with sqlite3.connect(self.db_path) as conn:
+                # Safely add event_type column if it doesn't exist (for existing DBs)
+                try:
+                    conn.execute("ALTER TABLE trade_outcomes ADD COLUMN event_type TEXT DEFAULT 'PRIMARY'")
+                except sqlite3.OperationalError:
+                    pass  # Column already exists
+
                 # Find the entry record
                 row = conn.execute(
                     "SELECT * FROM trade_entries WHERE ticket=? AND closed=0 ORDER BY id DESC LIMIT 1",
@@ -177,8 +183,8 @@ class TradeMemory:
                         INSERT INTO trade_outcomes
                         (ts, ticket, symbol, direction, entry_price, exit_price,
                          pips_result, confidence, factors_json, conditions_json,
-                         duration_min, outcome, skills_used)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         duration_min, outcome, skills_used, event_type)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PRIMARY')
                     """, (ts, str(ticket), symbol, direction, entry_price, exit_price,
                           pips_result, confidence, factors_json, conditions_json,
                           duration, outcome, skills_used))
@@ -198,16 +204,21 @@ class TradeMemory:
 
                     log.info(f"[MEMORY] Recorded outcome: {symbol} {direction} #{ticket} "
                              f"{outcome} {pips_result:+.1f} pips (duration: {duration:.0f}min)")
+                    return True
                 else:
-                    # No entry found — record outcome anyway
+                    # No entry found — record as GHOST/SECONDARY outcome
                     conn.execute("""
                         INSERT INTO trade_outcomes
                         (ts, ticket, symbol, direction, entry_price, exit_price,
                          pips_result, confidence, factors_json, conditions_json,
-                         duration_min, outcome, skills_used)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         duration_min, outcome, skills_used, event_type)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'GHOST')
                     """, (ts, str(ticket), symbol, direction, 0, exit_price,
                           pips_result, 0, "{}", "{}", 0, outcome, "[]"))
+
+                    log.info(f"[MEMORY] Recorded GHOST/SECONDARY outcome: {symbol} {direction} #{ticket} "
+                             f"{outcome} {pips_result:+.1f} pips (No primary entry found)")
+                    return False
 
     # ── Record filtered trade ────────────────────────────────────────────────
 

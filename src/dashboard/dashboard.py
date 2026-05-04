@@ -820,14 +820,26 @@ function fetchPoll(){
     document.getElementById('mc').textContent=mc;
     document.getElementById('lt').textContent=new Date().toLocaleTimeString();
     
-    // Merge status indicators into snapshot symbols
+    // Merge status indicators into snapshot symbols.
+    // status = /api/status (bot_status.json) — has score, signal, confidence, indicators.
+    // snap   = /api/live-snapshot (TV server)  — has timeframes (M15/H1/H4/D1).
+    // Merge both so live stream shows TFS tabs, SCORE, TREND STRONG, BB SQUEEZE.
     const mergedSymbols = snap.symbols || {};
     if (status.symbols) {
       for (const sym in status.symbols) {
         if (!mergedSymbols[sym]) mergedSymbols[sym] = {};
-        mergedSymbols[sym].indicators = status.symbols[sym].indicators;
-        mergedSymbols[sym].signal = status.symbols[sym].signal;
-        mergedSymbols[sym].confidence = status.symbols[sym].confidence;
+        const ss = status.symbols[sym];
+        // Indicators from bot status already include score/trend_strong/bb_squeeze
+        mergedSymbols[sym].indicators = ss.indicators;
+        mergedSymbols[sym].signal = ss.signal;
+        mergedSymbols[sym].confidence = ss.confidence;
+        // Timeframes from TV-server snapshot (already merged via /api/live-snapshot)
+        if (!mergedSymbols[sym].timeframes && ss.timeframes)
+          mergedSymbols[sym].timeframes = ss.timeframes;
+        // If timeframes present, inject score into M15 indicators so render shows it
+        if (mergedSymbols[sym].timeframes && mergedSymbols[sym].timeframes.M15
+            && ss.score !== undefined)
+          mergedSymbols[sym].timeframes.M15.score = ss.score;
       }
     }
     
@@ -1424,15 +1436,32 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
             except Exception as e:
                 snap['_bridge_error'] = str(e)
             
-            # Fallback: merge in local file data if bridge didn't return anything
+            # Always enrich with TV-server indicator/timeframe data from live_snapshot.json.
+            # The bridge only returns price/spread/ATR; the TV server computes M15/H1/H4/D1
+            # indicators. Merge them together so the live stream shows TFS, SCORE, TREND STRONG.
+            snap_file = BASE_DIR / 'state' / 'live_snapshot.json'
+            if snap_file.exists():
+                try:
+                    tv_snap = json.loads(snap_file.read_text())
+                    for sym, tv_data in tv_snap.get('symbols', {}).items():
+                        if sym not in snap['symbols']:
+                            snap['symbols'][sym] = {}
+                        # Inject timeframes (M15/H1/H4/D1 with all indicator fields)
+                        snap['symbols'][sym]['timeframes'] = tv_data.get('timeframes', {})
+                        # Only override indicators if bridge gave nothing
+                        if not snap['symbols'][sym].get('indicators'):
+                            snap['symbols'][sym]['indicators'] = tv_data.get('indicators', {})
+                except Exception as e:
+                    print(f"[DASHBOARD] Error merging TV snapshot: {e}")
+
+            # Last-resort fallback: if bridge returned nothing at all, use TV snapshot directly
             if not snap['symbols']:
-                snap_file = BASE_DIR / 'state' / 'live_snapshot.json'
                 if snap_file.exists():
                     try:
                         snap = json.loads(snap_file.read_text())
                     except Exception as e:
-                        print(f"[DASHBOARD] Error loading local snapshot fallback: {e}")
-                        
+                        print(f"[DASHBOARD] Error loading TV snapshot fallback: {e}")
+
             self._json(snap)
 
         elif path in ('/logs', '/logs.html'):

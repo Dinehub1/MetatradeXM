@@ -140,7 +140,7 @@ SYMBOLS = [
         "sl_atr_mult":     1.5,   # SL = 1.5 × M15 ATR
         "tp_atr_mult":     4.5,   # TP = 4.5 × M15 ATR (R:R 3.0)
         "trail_atr_mult":  1.0,   # trail distance = 1.0 × ATR
-        "max_sl_pips":     80,    # hard cap: prevents SL blowout during news spikes
+        "max_sl_pips":     25,    # hard cap: capped at 25 pips to align risk/reward
     },
     {
         "broker": "SILVER.i#",
@@ -164,7 +164,8 @@ SYMBOLS = [
         "trail_atr_mult":  1.0,   # 1.2→1.0: tighter trail for shorter moves
         "max_sl_pips":     60,    # hard cap: 60 pips @ pip=0.01; ATR 0.24×1.5=36 pips typical
         # 2026-05-04: RESTORED — London avg score -14.14 (0 BUY signals in 81 trades)
-        "allowed_sessions": ["NEW_YORK", "ASIAN", "LONDON_NY_OVERLAP"],  # block LONDON only
+        # 2026-05-04: Also block LONDON_NY_OVERLAP (silver structurally down during UK/EU hours)
+        "allowed_sessions": ["NEW_YORK", "ASIAN"],  # block LONDON + LONDON_NY_OVERLAP
     },
 ]
 
@@ -173,8 +174,8 @@ SYMBOLS = [
 # so ASIAN and NEW_YORK sessions will rarely execute. Kept for defence-in-depth.
 SESSION_CONFIG = {
     "ASIAN":             {"lot_mult": 0.3,  "min_conf": 0.75},  # 0.5→0.3 (thin markets)
-    "LONDON":            {"lot_mult": 0.8,  "min_conf": 0.60},  # 0.7→0.8 (best session)
-    "LONDON_NY_OVERLAP": {"lot_mult": 1.0,  "min_conf": 0.55},  # peak liquidity
+    "LONDON":            {"lot_mult": 0.8,  "min_conf": 0.70},  # raised 0.60→0.70 (lower liquidity, need higher quality)
+    "LONDON_NY_OVERLAP": {"lot_mult": 1.0,  "min_conf": 0.60},  # raised 0.55→0.60 (filter tail of marginal trades)
     "NEW_YORK":          {"lot_mult": 0.5,  "min_conf": 0.70},  # 0.7→0.5 (harder gate)
 }
 
@@ -634,40 +635,42 @@ def check_and_close_positions(
                                 pips = 0
                             current_price = getattr(pos, "price_current", getattr(pos, "price_open", 0))
                             # Pass symbol/direction to avoid UNKNOWN records in learning loop
-                            mem.record_outcome(
+                            is_primary = mem.record_outcome(
                                 str(ticket), current_price, round(pips, 1), outcome,
                                 symbol=sym_cfg["display"],
                                 direction=direction,
                             )
-                            # Update consecutive loss counter (Trading in the Zone edge tracking)
-                            if consec_losses is not None:
-                                disp = sym_cfg["display"]
-                                if outcome == "WIN":
-                                    consec_losses[disp] = 0
-                                else:
-                                    consec_losses[disp] = consec_losses.get(disp, 0) + 1
-                                _save_streaks(consec_losses)
+                            
+                            if is_primary:
+                                # Update consecutive loss counter (Trading in the Zone edge tracking)
+                                if consec_losses is not None:
+                                    disp = sym_cfg["display"]
+                                    if outcome == "WIN":
+                                        consec_losses[disp] = 0
+                                    else:
+                                        consec_losses[disp] = consec_losses.get(disp, 0) + 1
+                                    _save_streaks(consec_losses)
 
-                            # Wire skill outcome recording
-                            if skill_mgr:
-                                try:
-                                    import sqlite3 as _sql
-                                    with _sql.connect(str(mem.db_path)) as _conn:
-                                        _entry_row = _conn.execute(
-                                            "SELECT skills_used FROM trade_entries WHERE ticket=? ORDER BY id DESC LIMIT 1",
-                                            (str(ticket),)
-                                        ).fetchone()
-                                        if _entry_row and _entry_row[0]:
-                                            import json as _json
-                                            _skills = _json.loads(_entry_row[0])
-                                            if _skills:
-                                                for _sk in _skills:
-                                                    skill_mgr.record_outcome(_sk, outcome, round(pips, 1))
-                                except Exception as _se:
-                                    log.debug(f"Skill outcome record: {_se}")
+                                # Wire skill outcome recording
+                                if skill_mgr:
+                                    try:
+                                        import sqlite3 as _sql
+                                        with _sql.connect(str(mem.db_path)) as _conn:
+                                            _entry_row = _conn.execute(
+                                                "SELECT skills_used FROM trade_entries WHERE ticket=? ORDER BY id DESC LIMIT 1",
+                                                (str(ticket),)
+                                            ).fetchone()
+                                            if _entry_row and _entry_row[0]:
+                                                import json as _json
+                                                _skills = _json.loads(_entry_row[0])
+                                                if _skills:
+                                                    for _sk in _skills:
+                                                        skill_mgr.record_outcome(_sk, outcome, round(pips, 1))
+                                    except Exception as _se:
+                                        log.debug(f"Skill outcome record: {_se}")
 
-                            if capital_mgr:
-                                capital_mgr.record_outcome(outcome, profit, balance=balance)
+                                if capital_mgr:
+                                    capital_mgr.record_outcome(outcome, profit, balance=balance)
                         except Exception as e:
                             log.warning(f"Outcome record error: {e}")
                 else:
@@ -1327,16 +1330,21 @@ class ContinuousTrader:
                 except: pass
                 pass
 
-            # Update symbol status
+            # Update symbol status — enrich indicators with score/trend so dashboard shows them
+            _ind_base = dict(signal_data.get("indicators", {}))
+            _ind_base["score"]        = round(_score, 1)
+            _ind_base["trend_strong"] = _ind_base.get("adx", 0) > 25
+            _ind_base["bb_squeeze"]   = bool(_ind_base.get("bb_squeeze", False))
             symbols_status[disp] = {
                 "signal": direction,
                 "confidence": round(confidence, 4),
+                "score": round(_score, 1),
                 "reason": reason,
                 "session": session,
                 "ask": round(tick.ask, 5) if tick else None,
                 "bid": round(tick.bid, 5) if tick else None,
                 "positions": len(current_pos),
-                "indicators": signal_data.get("indicators", {}),
+                "indicators": _ind_base,
                 "h1_trend": signal_data.get("h1_trend", ""),
                 "h4_trend": signal_data.get("h4_trend", ""),
                 "broker_symbol": broker_sym,
