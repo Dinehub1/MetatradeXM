@@ -246,6 +246,21 @@ class CapitalManager:
         # Caller should pass current balance; this returns based on stored peak
         return 0.0  # needs current balance — use get_drawdown_from(balance)
 
+    def prune_partial_closes(self, open_tickets: set):
+        """Remove closed tickets from partial_closes_done to prevent unbounded growth.
+
+        Args:
+            open_tickets: set of currently open ticket IDs (as strings)
+        """
+        pcd = self.state.get("partial_closes_done", {})
+        stale = [t for t in pcd if t not in open_tickets]
+        if stale:
+            for t in stale:
+                del pcd[t]
+            _save_state(self.state)
+            log.info(f"[CAPITAL] Pruned {len(stale)} stale tickets from partial_closes_done "
+                     f"(remaining: {len(pcd)})")
+
     def book_profits(self, bridge, positions_by_sym: dict, symbols: dict,
                      dry_run: bool = False) -> list:
         """
@@ -256,6 +271,13 @@ class CapitalManager:
         """
         if not CAPITAL_CFG["partial_book_enabled"]:
             return []
+
+        # Prune stale tickets from partial_closes_done
+        all_open = set()
+        for sym_cfg in symbols.values():
+            for pos in positions_by_sym.get(sym_cfg["broker"], []):
+                all_open.add(str(getattr(pos, "ticket", "?")))
+        self.prune_partial_closes(all_open)
 
         actions = []
 
