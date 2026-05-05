@@ -2,7 +2,7 @@
 """MT5 AI Trading Bot — Futuristic Dashboard v3.0
 Port: 8889 | Chart.js | Multi-symbol | Real-time | Glassmorphism | Threaded
 """
-import http.server, json, sqlite3, os
+import http.server, json, sqlite3, os, time
 from datetime import datetime, timezone
 from socketserver import ThreadingMixIn
 from pathlib import Path
@@ -35,6 +35,31 @@ except ImportError:
     _bridge = None
     def get_bridge():
         return None
+
+# ── Supabase client initialization ──────────────────────────────────────────────
+try:
+    from dotenv import load_dotenv
+    load_dotenv(BASE_DIR / ".env")
+    from core.supabase_db import SupabaseDB
+    _supabase = SupabaseDB()
+except Exception as e:
+    _supabase = None
+    print(f"[WARNING] Supabase init failed: {e}")
+
+# ── Response caching (TTL-based) ────────────────────────────────────────────────
+_response_cache = {}
+CACHE_TTL = 60  # seconds
+
+def _get_cached(key: str, fetch_func):
+    """Get cached response or compute fresh one."""
+    now = time.time()
+    if key in _response_cache:
+        cached_data, timestamp = _response_cache[key]
+        if now - timestamp < CACHE_TTL:
+            return cached_data
+    result = fetch_func()
+    _response_cache[key] = (result, now)
+    return result
 
 def _current_session() -> str:
     h = datetime.now(timezone.utc).hour
@@ -537,6 +562,89 @@ HTML = r"""<!DOCTYPE html>
       </div>
     </div>
   </div>
+
+  <!-- ── Trade History & Analytics Section ────────────────────────── -->
+  <div style="padding: 30px; background: linear-gradient(135deg, rgba(10,14,23,0.5), rgba(242,201,76,0.02)); border-top: 1px solid var(--border);">
+    <h2 style="font-size: 1.5em; margin-bottom: 20px; color: var(--text-main);">📊 Trade History & Analytics</h2>
+
+    <!-- Performance Cards -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px; margin-bottom: 30px;">
+      <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 20px;">
+        <div style="font-size: 0.85em; color: var(--text-muted); margin-bottom: 10px;">TOTAL TRADES</div>
+        <div style="font-size: 2.2em; font-weight: 600; color: var(--gold);" id="perf-total">—</div>
+        <div style="font-size: 0.9em; color: var(--text-muted); margin-top: 10px;" id="perf-wr">Win Rate: —</div>
+      </div>
+
+      <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 20px;">
+        <div style="font-size: 0.85em; color: var(--text-muted); margin-bottom: 10px;">AVERAGE PIPS</div>
+        <div style="font-size: 2.2em; font-weight: 600; color: var(--silver);" id="perf-avg">—</div>
+        <div style="font-size: 0.9em; color: var(--text-muted); margin-top: 10px;" id="perf-total-pips">Total: —</div>
+      </div>
+
+      <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 20px;">
+        <div style="font-size: 0.85em; color: var(--text-muted); margin-bottom: 10px;">BEST vs WORST TRADE</div>
+        <div style="font-size: 1.8em; font-weight: 600; margin-top: 5px;">
+          <span style="color: var(--green);" id="perf-best">—</span> / <span style="color: var(--red);" id="perf-worst">—</span>
+        </div>
+        <div style="font-size: 0.9em; color: var(--text-muted); margin-top: 10px;">pips</div>
+      </div>
+
+      <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 20px;">
+        <div style="font-size: 0.85em; color: var(--text-muted); margin-bottom: 10px;">SYMBOL PERFORMANCE</div>
+        <div id="perf-symbols" style="font-size: 0.9em; color: var(--text-muted);">—</div>
+      </div>
+    </div>
+
+    <!-- Equity Curve Chart -->
+    <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin-bottom: 30px;">
+      <div style="font-size: 1.1em; font-weight: 600; color: var(--text-main); margin-bottom: 15px;">Equity Curve (Cumulative P&L)</div>
+      <canvas id="equityChart" height="60"></canvas>
+    </div>
+
+    <!-- Trade History Table -->
+    <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin-bottom: 30px; overflow-x: auto;">
+      <div style="font-size: 1.1em; font-weight: 600; color: var(--text-main); margin-bottom: 15px;">Trade History (Last 50)</div>
+      <table id="tradesTable" style="width: 100%; font-size: 0.85em; border-collapse: collapse;">
+        <thead>
+          <tr style="border-bottom: 1px solid var(--border); color: var(--text-muted);">
+            <th style="text-align: left; padding: 10px;">Time</th>
+            <th style="text-align: center; padding: 10px;">Symbol</th>
+            <th style="text-align: center; padding: 10px;">Dir</th>
+            <th style="text-align: right; padding: 10px;">Entry</th>
+            <th style="text-align: right; padding: 10px;">Exit</th>
+            <th style="text-align: right; padding: 10px;">Pips</th>
+            <th style="text-align: right; padding: 10px;">P&L ($)</th>
+            <th style="text-align: center; padding: 10px;">Duration</th>
+            <th style="text-align: center; padding: 10px;">Confidence</th>
+            <th style="text-align: center; padding: 10px;">Result</th>
+          </tr>
+        </thead>
+        <tbody id="tradeRows">
+          <tr><td colspan="10" style="text-align: center; padding: 20px; color: var(--text-muted);">Loading trades...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Factor Heatmap -->
+    <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 20px;">
+      <div style="font-size: 1.1em; font-weight: 600; color: var(--text-main); margin-bottom: 15px;">Factor Effectiveness (Win Rate %)</div>
+      <table id="factorsTable" style="width: 100%; font-size: 0.8em; border-collapse: collapse;">
+        <thead>
+          <tr style="border-bottom: 1px solid var(--border); color: var(--text-muted);">
+            <th style="text-align: left; padding: 10px;">Factor</th>
+            <th style="text-align: center; padding: 10px;">Win Rate %</th>
+            <th style="text-align: center; padding: 10px;">Trades</th>
+            <th style="text-align: center; padding: 10px;">Avg When Win</th>
+            <th style="text-align: center; padding: 10px;">Avg When Loss</th>
+          </tr>
+        </thead>
+        <tbody id="factorRows">
+          <tr><td colspan="5" style="text-align: center; padding: 20px; color: var(--text-muted);">Loading factors...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
 </main>
 
 <script>
@@ -969,6 +1077,166 @@ setInterval(()=>{Object.keys(latest).forEach(sym=>{
   const el=document.querySelector(`#c-${sym} .age`);
   const d=latest[sym];
   if(el&&d?._last_update)el.textContent=Math.round(Date.now()/1000-d._last_update)+'s ago'})},1000);
+
+// ── Trade History & Analytics Updates ──────────────────────────────
+let equityChart = null;
+
+async function loadTradeHistory() {
+  try {
+    const res = await fetch('/api/trades/history');
+    const data = await res.json();
+    const trades = (data.trades || []).slice(0, 50);
+
+    const tbody = document.getElementById('tradeRows');
+    tbody.innerHTML = trades.length === 0
+      ? '<tr><td colspan="10" style="text-align:center;padding:20px;color:var(--text-muted);">No trades yet</td></tr>'
+      : trades.map(t => {
+        const time = t.ts ? new Date(t.ts).toLocaleString() : '—';
+        const pnlColor = t.outcome === 'WIN' ? 'color:var(--green)' : 'color:var(--red)';
+        const rowBg = t.outcome === 'WIN' ? 'background:rgba(0,255,136,0.05)' : 'background:rgba(255,59,92,0.05)';
+        return `<tr style="${rowBg};border-bottom:1px solid var(--border)">
+          <td style="padding:10px">${time}</td>
+          <td style="padding:10px;text-align:center">${t.symbol}</td>
+          <td style="padding:10px;text-align:center;color:${t.direction==='BUY'?'var(--green)':'var(--red)'}">${t.direction}</td>
+          <td style="padding:10px;text-align:right">${t.entry_price.toFixed(2)}</td>
+          <td style="padding:10px;text-align:right">${t.exit_price.toFixed(2)}</td>
+          <td style="padding:10px;text-align:right">${t.pips.toFixed(1)}</td>
+          <td style="padding:10px;text-align:right;${pnlColor}">${t.outcome === 'WIN' ? '+' : ''}${t.pnl_usd.toFixed(2)}</td>
+          <td style="padding:10px;text-align:center">${Math.round(t.duration_min)}m</td>
+          <td style="padding:10px;text-align:center">${(t.confidence*100).toFixed(0)}%</td>
+          <td style="padding:10px;text-align:center;color:${t.outcome === 'WIN' ? 'var(--green)' : 'var(--red)'}">${t.outcome}</td>
+        </tr>`;
+      }).join('');
+  } catch (e) {
+    console.error('Trade history load failed:', e);
+  }
+}
+
+async function loadPerformance() {
+  try {
+    const res = await fetch('/api/trades/performance');
+    const p = await res.json();
+
+    document.getElementById('perf-total').textContent = p.total_trades || '—';
+    document.getElementById('perf-wr').textContent = `Win Rate: ${p.win_rate || 0}% (${p.wins || 0}W / ${p.losses || 0}L)`;
+    document.getElementById('perf-avg').textContent = (p.avg_pips || 0).toFixed(1);
+    document.getElementById('perf-total-pips').textContent = `Total: ${(p.total_pips || 0).toFixed(1)} pips`;
+    document.getElementById('perf-best').textContent = (p.best_trade_pips || 0).toFixed(1);
+    document.getElementById('perf-worst').textContent = (p.worst_trade_pips || 0).toFixed(1);
+
+    const symHtml = Object.entries(p.by_symbol || {})
+      .map(([sym, s]) => `<div>${sym}: ${s.win_rate}% (${s.wins}/${s.losses+s.wins})</div>`)
+      .join('');
+    document.getElementById('perf-symbols').innerHTML = symHtml || '—';
+
+    // Draw equity curve
+    drawEquityCurve();
+  } catch (e) {
+    console.error('Performance load failed:', e);
+  }
+}
+
+async function drawEquityCurve() {
+  try {
+    const res = await fetch('/api/trades/history');
+    const data = await res.json();
+    const trades = data.trades || [];
+
+    let cumPnL = 0;
+    const cumulativePnL = [];
+    const labels = [];
+
+    trades.reverse().forEach((t, idx) => {
+      cumPnL += (t.exit_price - t.entry_price);
+      cumulativePnL.push(cumPnL);
+      labels.push((idx + 1).toString());
+    });
+
+    const canvas = document.getElementById('equityChart');
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+
+    if (equityChart) equityChart.destroy();
+    equityChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: 'Cumulative P&L (USD)',
+          data: cumulativePnL,
+          borderColor: cumulativePnL[cumulativePnL.length-1] > 0 ? 'var(--green)' : 'var(--red)',
+          backgroundColor: cumulativePnL[cumulativePnL.length-1] > 0
+            ? 'rgba(0,255,136,0.1)'
+            : 'rgba(255,59,92,0.1)',
+          tension: 0.4,
+          fill: true,
+          borderWidth: 2,
+          pointRadius: 0,
+          pointHoverRadius: 6,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: {
+            grid: { color: 'rgba(255,255,255,0.05)' },
+            ticks: { color: 'var(--text-muted)' }
+          },
+          x: {
+            grid: { display: false },
+            ticks: { color: 'var(--text-muted)' }
+          }
+        }
+      }
+    });
+  } catch (e) {
+    console.error('Equity curve draw failed:', e);
+  }
+}
+
+async function loadFactors() {
+  try {
+    const res = await fetch('/api/trades/factors');
+    const factors = await res.json();
+
+    const tbody = document.getElementById('factorRows');
+    const entries = Object.entries(factors || {})
+      .sort((a, b) => b[1].win_rate - a[1].win_rate)
+      .slice(0, 15);
+
+    tbody.innerHTML = entries.length === 0
+      ? '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text-muted);">No factor data</td></tr>'
+      : entries.map(([name, data]) => {
+        const bgIntensity = Math.min(data.win_rate / 100 * 0.3, 0.3);
+        return `<tr style="background:rgba(242,201,76,${bgIntensity});border-bottom:1px solid var(--border)">
+          <td style="padding:10px">${name}</td>
+          <td style="padding:10px;text-align:center;font-weight:600;color:${data.win_rate > 50 ? 'var(--green)' : 'var(--red)'}">${data.win_rate.toFixed(1)}%</td>
+          <td style="padding:10px;text-align:center">${data.sample_size}</td>
+          <td style="padding:10px;text-align:center">${(data.avg_when_win || 0).toFixed(2)}</td>
+          <td style="padding:10px;text-align:center">${(data.avg_when_loss || 0).toFixed(2)}</td>
+        </tr>`;
+      }).join('');
+  } catch (e) {
+    console.error('Factors load failed:', e);
+  }
+}
+
+// Load all analytics on page load
+window.addEventListener('load', () => {
+  loadTradeHistory();
+  loadPerformance();
+  loadFactors();
+});
+
+// Refresh every 30 seconds
+setInterval(() => {
+  loadTradeHistory();
+  loadPerformance();
+  loadFactors();
+}, 30000);
 </script>
 </body>
 </html>"""
@@ -1540,6 +1808,125 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
                 positions = []
 
             self._json({'positions': positions})
+
+        elif path == '/api/trades/history':
+            # ── API: Complete trade history (entries merged with outcomes) ──────────
+            trades = []
+            try:
+                if _supabase:
+                    def fetch_trades():
+                        # Fetch all outcomes (completed trades)
+                        outcomes = _supabase.get_all_outcomes(limit=100)
+                        result = []
+                        for outcome in outcomes:
+                            try:
+                                trade_record = {
+                                    'ticket': outcome.get('ticket'),
+                                    'symbol': outcome.get('symbol'),
+                                    'direction': outcome.get('direction'),
+                                    'entry_price': round(outcome.get('entry_price', 0), 5),
+                                    'exit_price': round(outcome.get('exit_price', 0), 5),
+                                    'pips': outcome.get('pips_result', 0),
+                                    'pnl_usd': round(outcome.get('exit_price', 0) - outcome.get('entry_price', 0), 2),
+                                    'duration_min': outcome.get('duration_min', 0),
+                                    'confidence': outcome.get('confidence', 0),
+                                    'outcome': outcome.get('outcome', 'UNKNOWN'),
+                                    'factors': outcome.get('factors_json', {}),
+                                    'ts': outcome.get('ts'),
+                                    'status': 'CLOSED'
+                                }
+                                result.append(trade_record)
+                            except Exception as e:
+                                print(f"[DASHBOARD] Error processing trade: {e}")
+                        return result
+                    trades = _get_cached('trades_history', fetch_trades)
+            except Exception as e:
+                print(f"[DASHBOARD] Error fetching trade history: {e}")
+                trades = []
+            self._json({'trades': trades, 'count': len(trades)})
+
+        elif path == '/api/trades/performance':
+            # ── API: Performance metrics (win rate, pips, P&L by category) ────────
+            perf = {}
+            try:
+                if _supabase:
+                    def fetch_performance():
+                        outcomes = _supabase.get_all_outcomes(limit=500)
+
+                        # Initialize counters
+                        total_trades = len(outcomes)
+                        wins = sum(1 for o in outcomes if o.get('outcome') == 'WIN')
+                        losses = sum(1 for o in outcomes if o.get('outcome') == 'LOSS')
+                        win_rate = (wins / total_trades * 100) if total_trades > 0 else 0
+
+                        # Calculate total pips and P&L
+                        total_pips = sum(float(o.get('pips_result', 0)) for o in outcomes)
+                        total_pnl = sum(float(o.get('exit_price', 0) - o.get('entry_price', 0)) for o in outcomes)
+                        avg_pips = (total_pips / total_trades) if total_trades > 0 else 0
+
+                        # Best/worst trades
+                        if outcomes:
+                            pips_list = [float(o.get('pips_result', 0)) for o in outcomes]
+                            best_trade = max(pips_list)
+                            worst_trade = min(pips_list)
+                        else:
+                            best_trade = worst_trade = 0
+
+                        # By symbol
+                        by_symbol = {}
+                        for o in outcomes:
+                            sym = o.get('symbol', 'UNKNOWN')
+                            if sym not in by_symbol:
+                                by_symbol[sym] = {'wins': 0, 'losses': 0, 'total_pips': 0}
+                            by_symbol[sym]['total_pips'] += float(o.get('pips_result', 0))
+                            if o.get('outcome') == 'WIN':
+                                by_symbol[sym]['wins'] += 1
+                            else:
+                                by_symbol[sym]['losses'] += 1
+
+                        for sym in by_symbol:
+                            total = by_symbol[sym]['wins'] + by_symbol[sym]['losses']
+                            by_symbol[sym]['win_rate'] = round(by_symbol[sym]['wins'] / total * 100 if total > 0 else 0, 1)
+
+                        return {
+                            'total_trades': total_trades,
+                            'wins': wins,
+                            'losses': losses,
+                            'win_rate': round(win_rate, 1),
+                            'total_pips': round(total_pips, 1),
+                            'avg_pips': round(avg_pips, 1),
+                            'total_pnl_usd': round(total_pnl, 2),
+                            'best_trade_pips': round(best_trade, 1),
+                            'worst_trade_pips': round(worst_trade, 1),
+                            'by_symbol': by_symbol
+                        }
+                    perf = _get_cached('trades_performance', fetch_performance)
+            except Exception as e:
+                print(f"[DASHBOARD] Error fetching performance: {e}")
+                perf = {}
+            self._json(perf)
+
+        elif path == '/api/trades/factors':
+            # ── API: Factor effectiveness analysis ───────────────────────────────
+            factors = {}
+            try:
+                if _supabase:
+                    def fetch_factors():
+                        stats = _supabase.get_factor_stats()
+                        result = {}
+                        for factor_name, stats_data in stats.items():
+                            result[factor_name] = {
+                                'win_rate': round(stats_data['win_rate'] * 100, 1),
+                                'sample_size': stats_data['sample_size'],
+                                'avg_when_win': round(stats_data['avg_when_win'], 2),
+                                'avg_when_loss': round(stats_data['avg_when_loss'], 2),
+                            }
+                        return result
+                    factors = _get_cached('trades_factors', fetch_factors)
+            except Exception as e:
+                print(f"[DASHBOARD] Error fetching factors: {e}")
+                factors = {}
+            self._json(factors)
 
         else:
             self.send_response(404)
