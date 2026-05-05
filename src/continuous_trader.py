@@ -959,20 +959,9 @@ class ContinuousTrader:
             log.warning(f"  [CAPITAL] Failed to init: {e}")
             self.capital = None
 
-        # ── TradingView live data client (optional — quiet if unavailable) ──
+        # ── TradingView live data client (DISABLED — using broker candles only) ──
         self.tv = None
-        try:
-            from bridges.tv_client import get_tv_client
-            self.tv = get_tv_client()
-            if self.tv.wait_for_data("XAUUSD", timeout=5):
-                log.info("  [TV] ✅ Live TradingView indicators connected")
-            else:
-                log.info("  [TV] TradingView not available — using broker candles")
-        except Exception as e:
-            try: log.debug(f'Caught exception: {e}')
-            except: pass
-            log.info("  [TV] TradingView not available — using broker candles")
-            self.tv = None
+        # TradingView client removed — uses broker MT5 candles exclusively
 
         # Cache for cross-symbol correlation
         self._symbol_signals = {}
@@ -1380,6 +1369,8 @@ class ContinuousTrader:
             log.info(
                 f"SIGNAL | {disp} | {direction} {confidence:.0%} | score {_score:+.1f} | {_compact_text(reason)}"
             )
+            # Log all signals to Supabase for dashboard display
+            _log_signal(broker_sym, direction, confidence, reason, "ANALYSIS")
             log.info(
                 f"DETAIL | {disp} | trend D1={signal_data.get('d1_trend', '?')} H4={signal_data.get('h4_trend', '?')} "
                 f"H1={signal_data.get('h1_trend', '?')} M15={_ind.get('ema_trend', '?')}"
