@@ -83,6 +83,7 @@ class SupabaseRealtimeListener:
         def on_change(payload):
             event_type = payload.get("type")
             new_data = payload.get("new")
+            old_data = payload.get("old")
 
             if event_type == "INSERT":
                 log.info(f"[REALTIME] New trade entry: {new_data}")
@@ -92,6 +93,10 @@ class SupabaseRealtimeListener:
                 log.info(f"[REALTIME] Trade entry closed/updated: {new_data}")
                 if callback:
                     callback("UPDATE", new_data)
+            elif event_type == "DELETE":
+                log.info(f"[REALTIME] Trade entry deleted: {old_data}")
+                if callback:
+                    callback("DELETE", old_data)
 
         self.listeners["trade_entries"] = (
             self.client.realtime.on(
