@@ -208,12 +208,14 @@ def get_existing_tickets(client, table: str) -> set:
     page = 0
     page_size = 1000
     while True:
-        resp = client.table(table).select("ticket").range(
-            page * page_size, (page + 1) * page_size - 1
-        ).execute()
+        start = page * page_size
+        end   = start + page_size - 1
+        resp = client.table(table).select("ticket").range(start, end).execute()
         for row in resp.data:
-            existing.add(str(row["ticket"]))
-        if len(resp.data) < page_size:
+            if row.get("ticket"):
+                existing.add(str(row["ticket"]))
+        fetched = len(resp.data)
+        if fetched < page_size:
             break
         page += 1
     return existing
