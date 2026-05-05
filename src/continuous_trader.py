@@ -123,6 +123,7 @@ SYMBOLS = [
     {
         "broker": "GOLD.i#",
         "display": "XAUUSD",
+        "enabled": True,
         "pip": 0.10,
         "digits": 2,
         "contract_size": 100,
@@ -132,7 +133,7 @@ SYMBOLS = [
         # 2026-05-03: Score threshold raised 9→12. At 9, too many marginal signals
         # passed — every single hour was net-negative. Require 3+ confirming factors.
         "score_threshold": 12,    # min score magnitude to consider trade (was 9)
-        "min_confidence":  0.65,  # 0.55→0.65: tightened after RSI-extreme losses (need stronger conviction)
+        "min_confidence":  0.70,  # 0.65→0.70: data analysis shows 70%+ confidence has 59% WR, is profitable
         "adx_min":         20,    # min ADX (18→20: slight tightening for trend confirmation)
         "rsi_oversold":    25,
         "rsi_overbought":  75,
@@ -141,10 +142,12 @@ SYMBOLS = [
         "tp_atr_mult":     4.5,   # TP = 4.5 × M15 ATR (R:R 3.0)
         "trail_atr_mult":  1.0,   # trail distance = 1.0 × ATR
         "max_sl_pips":     25,    # hard cap: capped at 25 pips to align risk/reward
+        "risk_per_trade_pct": 0.005,
     },
     {
         "broker": "SILVER.i#",
         "display": "XAGUSD",
+        "enabled": False,
         "pip": 0.01,
         "digits": 3,
         "contract_size": 5000,
@@ -156,7 +159,7 @@ SYMBOLS = [
         # Gold-tuned thresholds, and 4.5× TP that Silver never reaches.
         # Strategy: NEW_YORK mean-reversion + ASIAN ranging only. London blocked.
         "score_threshold": 15,    # 30→15: max score ~23; 15 requires 3+ aligned factors
-        "min_confidence":  0.62,  # 0.80→0.62: calibrated (stricter than Gold's 0.55)
+        "min_confidence":  0.70,  # 0.62→0.70: data analysis shows 70%+ confidence filters out losing trades
         "adx_min":         22,    # 30→22: Silver ADX range 26-32; 30 blocked everything
         "rsi_oversold":    25,    # 20→25: Silver rarely hits 20; 25 = usable signal
         "rsi_overbought":  75,    # 80→75: Silver rarely hits 80; 75 = usable signal
@@ -167,17 +170,20 @@ SYMBOLS = [
         # 2026-05-04: RESTORED — London avg score -14.14 (0 BUY signals in 81 trades)
         # 2026-05-04: Also block LONDON_NY_OVERLAP (silver structurally down during UK/EU hours)
         "allowed_sessions": ["NEW_YORK", "ASIAN"],  # block LONDON + LONDON_NY_OVERLAP
+        "risk_per_trade_pct": 0.003,
     },
 ]
 
 # ── Session-Aware Risk Configuration ─────────────────────────────────────────
-# 2026-05-03: Aligned with live data. TimeOfDayFilter hard-blocks 17-01 UTC,
-# so ASIAN and NEW_YORK sessions will rarely execute. Kept for defence-in-depth.
+# 2026-05-05: All sessions now require 70%+ confidence per data analysis showing:
+# • 80%+ confidence: 62% WR, profitable
+# • 70%+ confidence: 59% WR, profitable
+# • Below 70%: losing trades
 SESSION_CONFIG = {
-    "ASIAN":             {"lot_mult": 0.3,  "min_conf": 0.75},  # 0.5→0.3 (thin markets)
-    "LONDON":            {"lot_mult": 0.8,  "min_conf": 0.70},  # raised 0.60→0.70 (lower liquidity, need higher quality)
-    "LONDON_NY_OVERLAP": {"lot_mult": 1.0,  "min_conf": 0.60},  # raised 0.55→0.60 (filter tail of marginal trades)
-    "NEW_YORK":          {"lot_mult": 0.5,  "min_conf": 0.70},  # 0.7→0.5 (harder gate)
+    "ASIAN":             {"lot_mult": 0.3,  "min_conf": 0.70},  # 0.75→0.70 (align with profitability threshold)
+    "LONDON":            {"lot_mult": 0.8,  "min_conf": 0.70},  # maintained (already optimal)
+    "LONDON_NY_OVERLAP": {"lot_mult": 1.0,  "min_conf": 0.70},  # 0.60→0.70 (filter out losing marginal trades)
+    "NEW_YORK":          {"lot_mult": 0.5,  "min_conf": 0.70},  # maintained (already optimal)
 }
 
 CONFIG = {
@@ -193,6 +199,7 @@ CONFIG = {
     "max_total_positions": 4,  # 6→4: tighter blast radius
     "dry_run": False,
     "use_ai": True,
+    "enable_pyramiding": False,
     "max_reconnect_attempts": 5,
     "reconnect_backoff_s": 10,
 }
@@ -921,14 +928,18 @@ class ContinuousTrader:
             log.warning(f"  [SCALER] Failed to init: {e}")
             self.scaler = None
 
-        try:
-            from risk.pyramid_manager import PyramidManager
+        if CONFIG.get("enable_pyramiding", False):
+            try:
+                from risk.pyramid_manager import PyramidManager
 
-            self.pyramid = PyramidManager(memory=self.memory)
-            log.info(f"  [PYRAMID] 🔺 Smart 10-tranche pyramid system initialized")
-        except Exception as e:
-            log.warning(f"  [PYRAMID] Failed to init: {e}")
+                self.pyramid = PyramidManager(memory=self.memory)
+                log.info(f"  [PYRAMID] 🔺 Smart pyramid system initialized")
+            except Exception as e:
+                log.warning(f"  [PYRAMID] Failed to init: {e}")
+                self.pyramid = None
+        else:
             self.pyramid = None
+            log.info("  [PYRAMID] Disabled for live trading until expectancy improves")
 
         try:
             from risk.smart_exit import SmartExitManager
@@ -1319,6 +1330,9 @@ class ContinuousTrader:
 
         total_open = sum(len(v) for v in positions_by_sym.values())
         for sym_cfg in SYMBOLS:
+            if not sym_cfg.get("enabled", True):
+                log.info(f"ACTION | {sym_cfg['display']} | disabled | expectancy not yet good enough for live trading")
+                continue
             broker_sym = sym_cfg["broker"]
             disp = sym_cfg["display"]
 
@@ -1863,7 +1877,7 @@ class ContinuousTrader:
                     _regime_mult *= 0.5   # halve size when RSI is extreme
 
                 _final_lot = round(max(_kelly_lot * _regime_mult, 0.01), 2)
-                _final_lot = min(_final_lot, 0.10)  # hard ceiling for safety
+                _final_lot = min(_final_lot, 0.05)  # hard ceiling for safety while edge is being rebuilt
                 order["lot"] = _final_lot
                 log.info(
                     f"ACTION | {disp} | conviction sizing | kelly={_kelly_lot} "

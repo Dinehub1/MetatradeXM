@@ -108,6 +108,13 @@ class PerformanceAnalyzer:
         patterns = self._detect_patterns(outcomes)
         for p in patterns:
             log.info(f"[PATTERN] {p['description']} (confidence: {p['confidence']:.0%})")
+            # Log all detected patterns to learning log
+            self.memory.log_learning(
+                f"pattern_{p.get('type', 'unknown')}",
+                p['description'],
+                data=p,
+                applied=False
+            )
 
         # 3. Adjust scoring weights
         adjustments = self._compute_weight_adjustments(factor_stats, outcomes)
@@ -155,6 +162,22 @@ class PerformanceAnalyzer:
                          f"win_avg={data['avg_when_win']:+.1f} "
                          f"loss_avg={data['avg_when_loss']:+.1f} "
                          f"(n={data['sample_size']})")
+
+                # Log strong and weak factors to learning log for feedback
+                if data['win_rate'] >= 0.65:
+                    self.memory.log_learning(
+                        "factor_strong",
+                        f"{name} has {data['win_rate']:.0%} WR — increase weight",
+                        data={name: data},
+                        applied=False
+                    )
+                elif data['win_rate'] <= 0.35 and data['sample_size'] >= 10:
+                    self.memory.log_learning(
+                        "factor_weak",
+                        f"{name} has only {data['win_rate']:.0%} WR — consider reducing weight",
+                        data={name: data},
+                        applied=False
+                    )
 
     def _detect_patterns(self, outcomes: list) -> list:
         """Detect recurring profitable/losing patterns in trade outcomes."""
