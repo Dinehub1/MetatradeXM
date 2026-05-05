@@ -345,18 +345,34 @@ def _log_signal(
     reason: str,
     action: str,
     ticket: int = 0,
+    score: float = 0.0,
+    indicators: dict = None,
+    factor_scores: dict = None,
+    trends: dict = None,
 ):
     """Write signal event to Supabase for dashboard display."""
     try:
+        payload = {
+            "direction": direction,
+            "confidence": round(confidence, 4),
+            "reason": reason[:500],
+            "action": action,
+            "ticket": ticket,
+            "score": round(score, 2),
+        }
+        if indicators:
+            payload["indicators"] = {
+                k: (round(float(v), 5) if isinstance(v, (int, float)) else v)
+                for k, v in indicators.items()
+                if v is not None
+            }
+        if factor_scores:
+            payload["factor_scores"] = factor_scores
+        if trends:
+            payload["trends"] = trends
         _require_supabase_live().log_live_event(
             "signal",
-            {
-                "direction": direction,
-                "confidence": round(confidence, 4),
-                "reason": reason[:500],
-                "action": action,
-                "ticket": ticket,
-            },
+            payload,
             source="continuous_trader",
             symbol=symbol,
         )
@@ -1369,8 +1385,19 @@ class ContinuousTrader:
             log.info(
                 f"SIGNAL | {disp} | {direction} {confidence:.0%} | score {_score:+.1f} | {_compact_text(reason)}"
             )
-            # Log all signals to Supabase for dashboard display
-            _log_signal(broker_sym, direction, confidence, reason, "ANALYSIS")
+            # Log all signals to Supabase for dashboard display (use display symbol)
+            _log_signal(
+                disp, direction, confidence, reason, "ANALYSIS",
+                score=_score,
+                indicators=_ind,
+                factor_scores=_fs,
+                trends={
+                    "d1": signal_data.get("d1_trend", ""),
+                    "h4": signal_data.get("h4_trend", ""),
+                    "h1": signal_data.get("h1_trend", ""),
+                    "m15": _ind.get("ema_trend", ""),
+                },
+            )
             log.info(
                 f"DETAIL | {disp} | trend D1={signal_data.get('d1_trend', '?')} H4={signal_data.get('h4_trend', '?')} "
                 f"H1={signal_data.get('h1_trend', '?')} M15={_ind.get('ema_trend', '?')}"

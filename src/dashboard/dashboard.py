@@ -227,14 +227,72 @@ def _positions_from_supabase() -> list:
     return positions
 
 def _logs_from_supabase(limit: int = 150) -> list:
+    import sys as _sys
+    print(f"[DEBUG_LOGS_ENTRY] v2 called limit={limit}", file=_sys.stderr, flush=True)
     db = _require_supabase()
     logs = []
     for event in db.get_live_events(limit=limit):
         payload = event.get("payload") or {}
         ts = event.get("ts") or event.get("created_at") or ""
-        symbol = f" | {event.get('symbol')}" if event.get("symbol") else ""
-        detail = payload.get("message") or payload.get("reason") or json.dumps(payload, default=str)
-        logs.append(f"{ts} [{event.get('severity', 'INFO')}] {event.get('source')}:{event.get('event_type')}{symbol} | {detail}")
+        ts_short = str(ts)[:19].replace("T", " ")
+        raw_sym = event.get("symbol") or ""
+        symbol = _BROKER_TO_DISPLAY.get(raw_sym, raw_sym)
+        event_type = event.get("event_type", "")
+        print(f"[DEBUG_LOGS] et={event_type!r} sym={symbol!r}", file=_sys.stderr, flush=True)
+        if event_type == "signal" and symbol:
+            direction = payload.get("direction", "HOLD")
+            conf = round(float(payload.get("confidence", 0)) * 100)
+            score = float(payload.get("score", 0))
+            reason = payload.get("reason", "")
+            ind = payload.get("indicators") or {}
+            fs = payload.get("factor_scores") or {}
+            tr = payload.get("trends") or {}
+            # SIGNAL line — matches JS regex: SIGNAL | SYMBOL | DIR CONF% | score X
+            logs.append(
+                f"{ts_short} [INFO ] [trader      ] SIGNAL | {symbol} | {direction} {conf}%"
+                f" | score {score:+.1f} | {reason[:300]}"
+            )
+            # DETAIL line 1: trends
+            if tr:
+                logs.append(
+                    f"{ts_short} [INFO ] [trader      ] DETAIL | {symbol} | trend"
+                    f" D1={tr.get('d1','?')} H4={tr.get('h4','?')}"
+                    f" H1={tr.get('h1','?')} M15={tr.get('m15','?')}"
+                )
+            # DETAIL line 2: ADX / RSI / MACD / BB / ATR
+            if ind:
+                adx = float(ind.get("adx", 0))
+                adx_lbl = "TREND" if adx >= 25 else "RANGE"
+                logs.append(
+                    f"{ts_short} [INFO ] [trader      ] DETAIL | {symbol} | ADX {adx:.1f} {adx_lbl}"
+                    f" | RSI {float(ind.get('rsi', 50)):.1f}"
+                    f" | MACD {ind.get('macd_signal', 'N/A')}"
+                    f" | BB {ind.get('bb_position', 'N/A')}"
+                    f" | ATR {float(ind.get('atr', 0)):.5f}"
+                )
+            # DETAIL line 3: Price / Change / Stoch / Score / Factors
+            if ind:
+                factors_str = " ".join(
+                    f"{k}={float(v):+.1f}" for k, v in fs.items()
+                    if k != "adx_regime" and isinstance(v, (int, float))
+                ) if fs else ""
+                logs.append(
+                    f"{ts_short} [INFO ] [trader      ] DETAIL | {symbol}"
+                    f" | Price {float(ind.get('price', 0)):.5f}"
+                    f" | Change {float(ind.get('price_change', 0)):+.3f}%"
+                    f" | Stoch {float(ind.get('stoch_k', 50)):.0f}/{float(ind.get('stoch_d', 50)):.0f} NONE"
+                    f" | Score {score:+.1f} | Factors {factors_str}"
+                )
+            # ACTION line when not a plain analysis hold
+            action = payload.get("action", "")
+            if action and action not in ("ANALYSIS", "HOLD"):
+                logs.append(
+                    f"{ts_short} [INFO ] [trader      ] ACTION | {symbol} | {action.lower()}"
+                )
+        else:
+            sym_part = f" | {symbol}" if symbol else ""
+            detail = payload.get("message") or payload.get("reason") or json.dumps(payload, default=str)
+            logs.append(f"{ts} [{event.get('severity', 'INFO')}] {event.get('source')}:{event_type}{sym_part} | {detail}")
     return logs
 
 def _normalize_symbol(symbol: str) -> str:
