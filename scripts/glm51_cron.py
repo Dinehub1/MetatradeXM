@@ -21,7 +21,6 @@ import logging
 import logging.handlers
 import argparse
 import signal
-import sqlite3
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
@@ -39,7 +38,8 @@ if _env.exists():
             k, v = line.split("=", 1)
             os.environ.setdefault(k.strip(), v.strip())
 
-from core.paths import LOG_DIR, DATA_DIR, STATE_DIR
+from core.paths import LOG_DIR, STATE_DIR
+from core.supabase_db import SupabaseDB
 
 # ── Logging ──
 LOG_FILE = LOG_DIR / "glm51_analysis.log"
@@ -54,7 +54,7 @@ logging.basicConfig(
 log = logging.getLogger("glm51")
 
 # Silence noisy libs
-for n in ("socketio", "engineio", "metaapi_cloud_sdk", "urllib3", "requests", "websocket"):
+for n in ("socketio", "engineio", "urllib3", "requests", "websocket"):
     logging.getLogger(n).setLevel(logging.WARNING)
 
 # ── GLM 5.1 Config ──
@@ -63,7 +63,6 @@ GLM_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 GLM_MODEL = "z-ai/glm-5.1"
 REPORTS_DIR = ROOT / "data" / "glm51_reports"
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-TRADE_MEMORY_DB = DATA_DIR / "trade_memory.db"
 STATUS_FILE = STATE_DIR / "glm51_status.json"
 
 # ── Graceful shutdown ──
@@ -152,7 +151,7 @@ def collect_market_data() -> dict:
     if not connect_with_retry(bridge, max_attempts=3):
         raise ConnectionError("Cannot connect to broker")
 
-    analyzer = MarketAnalyzer(use_claude=False)  # no AI call — just indicators
+    analyzer = MarketAnalyzer(use_ai=False)  # no AI call — just indicators
     data = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "symbols": {},
@@ -284,11 +283,6 @@ def collect_market_data() -> dict:
     return data
 
 
-def _rows_to_dicts(cursor, rows):
-    cols = [c[0] for c in cursor.description] if cursor.description else []
-    return [dict(zip(cols, row)) for row in rows]
-
-
 def collect_trade_analysis(limit: int = 200) -> dict:
     """Pull all available trade memory and summarize it for GLM."""
     result = {
@@ -309,114 +303,113 @@ def collect_trade_analysis(limit: int = 200) -> dict:
         "current_streak": {"outcome": None, "count": 0},
     }
 
-    if not TRADE_MEMORY_DB.exists():
-        result["error"] = f"Trade memory DB not found: {TRADE_MEMORY_DB}"
-        return result
-
     try:
-        with sqlite3.connect(TRADE_MEMORY_DB) as conn:
-            conn.row_factory = sqlite3.Row
+        db = SupabaseDB()
+        client = db.client
 
-            cur = conn.execute("""
-                SELECT ts, ticket, symbol, direction, entry_price, exit_price,
-                       pips_result, confidence, duration_min, outcome, skills_used
-                FROM trade_outcomes
-                ORDER BY id DESC
-                LIMIT ?
-            """, (limit,))
-            closed_trades = [dict(r) for r in cur.fetchall()]
+        closed_trades = (
+            client.table("trade_outcomes")
+            .select("ts,ticket,symbol,direction,entry_price,exit_price,pips_result,confidence,duration_min,outcome,skills_used")
+            .order("id", desc=True)
+            .limit(limit)
+            .execute()
+            .data
+            or []
+        )
+        open_entries = (
+            client.table("trade_entries")
+            .select("ts,ticket,symbol,direction,entry_price,confidence,skills_used,closed")
+            .eq("closed", 0)
+            .order("id", desc=True)
+            .limit(50)
+            .execute()
+            .data
+            or []
+        )
+        filtered = (
+            client.table("filtered_trades")
+            .select("ts,symbol,direction,confidence,filter_reasons")
+            .order("id", desc=True)
+            .limit(50)
+            .execute()
+            .data
+            or []
+        )
 
-            cur = conn.execute("""
-                SELECT ts, ticket, symbol, direction, entry_price, confidence, skills_used, closed
-                FROM trade_entries
-                WHERE closed=0
-                ORDER BY id DESC
-                LIMIT 50
-            """)
-            open_entries = [dict(r) for r in cur.fetchall()]
+        result["closed_trades"] = closed_trades
+        result["open_entries"] = open_entries
+        result["filtered_trades"] = filtered
 
-            cur = conn.execute("""
-                SELECT ts, symbol, direction, confidence, filter_reasons
-                FROM filtered_trades
-                ORDER BY id DESC
-                LIMIT 50
-            """)
-            filtered = [dict(r) for r in cur.fetchall()]
+        total = len(closed_trades)
+        wins = sum(1 for t in closed_trades if t.get("outcome") == "WIN")
+        losses = sum(1 for t in closed_trades if t.get("outcome") == "LOSS")
+        total_pips = sum(float(t.get("pips_result") or 0) for t in closed_trades)
+        result["summary"] = {
+            "total_closed": total,
+            "wins": wins,
+            "losses": losses,
+            "win_rate": round((wins / total) * 100, 1) if total else 0.0,
+            "total_pips": round(total_pips, 2),
+            "avg_pips": round(total_pips / total, 2) if total else 0.0,
+        }
 
-            result["closed_trades"] = closed_trades
-            result["open_entries"] = open_entries
-            result["filtered_trades"] = filtered
+        for trade in closed_trades:
+            symbol = trade.get("symbol") or "UNKNOWN"
+            direction = trade.get("direction") or "UNKNOWN"
+            session = _infer_session_from_ts(trade.get("ts"))
+            pips = float(trade.get("pips_result") or 0)
+            outcome = trade.get("outcome") or "UNKNOWN"
 
-            total = len(closed_trades)
-            wins = sum(1 for t in closed_trades if t.get("outcome") == "WIN")
-            losses = sum(1 for t in closed_trades if t.get("outcome") == "LOSS")
-            total_pips = sum(float(t.get("pips_result") or 0) for t in closed_trades)
-            result["summary"] = {
-                "total_closed": total,
-                "wins": wins,
-                "losses": losses,
-                "win_rate": round((wins / total) * 100, 1) if total else 0.0,
-                "total_pips": round(total_pips, 2),
-                "avg_pips": round(total_pips / total, 2) if total else 0.0,
-            }
+            sym = result["by_symbol"].setdefault(symbol, {
+                "total": 0, "wins": 0, "losses": 0, "pips": 0.0,
+            })
+            sym["total"] += 1
+            sym["pips"] += pips
+            if outcome == "WIN":
+                sym["wins"] += 1
+            elif outcome == "LOSS":
+                sym["losses"] += 1
 
-            for trade in closed_trades:
-                symbol = trade.get("symbol") or "UNKNOWN"
-                direction = trade.get("direction") or "UNKNOWN"
-                session = _infer_session_from_ts(trade.get("ts"))
-                pips = float(trade.get("pips_result") or 0)
-                outcome = trade.get("outcome") or "UNKNOWN"
+            dir_bucket = result["by_direction"].setdefault(direction, {
+                "total": 0, "wins": 0, "losses": 0, "pips": 0.0,
+            })
+            dir_bucket["total"] += 1
+            dir_bucket["pips"] += pips
+            if outcome == "WIN":
+                dir_bucket["wins"] += 1
+            elif outcome == "LOSS":
+                dir_bucket["losses"] += 1
 
-                sym = result["by_symbol"].setdefault(symbol, {
-                    "total": 0, "wins": 0, "losses": 0, "pips": 0.0,
-                })
-                sym["total"] += 1
-                sym["pips"] += pips
-                if outcome == "WIN":
-                    sym["wins"] += 1
-                elif outcome == "LOSS":
-                    sym["losses"] += 1
+            ses = result["by_session"].setdefault(session, {
+                "total": 0, "wins": 0, "losses": 0, "pips": 0.0,
+            })
+            ses["total"] += 1
+            ses["pips"] += pips
+            if outcome == "WIN":
+                ses["wins"] += 1
+            elif outcome == "LOSS":
+                ses["losses"] += 1
 
-                dir_bucket = result["by_direction"].setdefault(direction, {
-                    "total": 0, "wins": 0, "losses": 0, "pips": 0.0,
-                })
-                dir_bucket["total"] += 1
-                dir_bucket["pips"] += pips
-                if outcome == "WIN":
-                    dir_bucket["wins"] += 1
-                elif outcome == "LOSS":
-                    dir_bucket["losses"] += 1
+        for bucket in (result["by_symbol"], result["by_direction"], result["by_session"]):
+            for stats in bucket.values():
+                stats["win_rate"] = round((stats["wins"] / stats["total"]) * 100, 1) if stats["total"] else 0.0
+                stats["avg_pips"] = round(stats["pips"] / stats["total"], 2) if stats["total"] else 0.0
+                stats["pips"] = round(stats["pips"], 2)
 
-                ses = result["by_session"].setdefault(session, {
-                    "total": 0, "wins": 0, "losses": 0, "pips": 0.0,
-                })
-                ses["total"] += 1
-                ses["pips"] += pips
-                if outcome == "WIN":
-                    ses["wins"] += 1
-                elif outcome == "LOSS":
-                    ses["losses"] += 1
-
-            for bucket in (result["by_symbol"], result["by_direction"], result["by_session"]):
-                for stats in bucket.values():
-                    stats["win_rate"] = round((stats["wins"] / stats["total"]) * 100, 1) if stats["total"] else 0.0
-                    stats["avg_pips"] = round(stats["pips"] / stats["total"], 2) if stats["total"] else 0.0
-                    stats["pips"] = round(stats["pips"], 2)
-
-            streak_outcome = None
-            streak_count = 0
-            for trade in closed_trades:
-                outcome = trade.get("outcome")
-                if outcome not in {"WIN", "LOSS"}:
-                    continue
-                if streak_outcome is None:
-                    streak_outcome = outcome
-                    streak_count = 1
-                elif outcome == streak_outcome:
-                    streak_count += 1
-                else:
-                    break
-            result["current_streak"] = {"outcome": streak_outcome, "count": streak_count}
+        streak_outcome = None
+        streak_count = 0
+        for trade in closed_trades:
+            outcome = trade.get("outcome")
+            if outcome not in {"WIN", "LOSS"}:
+                continue
+            if streak_outcome is None:
+                streak_outcome = outcome
+                streak_count = 1
+            elif outcome == streak_outcome:
+                streak_count += 1
+            else:
+                break
+        result["current_streak"] = {"outcome": streak_outcome, "count": streak_count}
     except Exception as e:
         result["error"] = str(e)
 

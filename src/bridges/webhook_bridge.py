@@ -1,7 +1,7 @@
 """
 WebhookBridge — HTTP bridge to Windows MT5 webhook server.
 
-Drop-in replacement for MetaApiBridge — same public method signatures.
+Primary execution bridge for the Windows MT5 webhook service.
 Connects to the Flask server running on the Windows machine where MT5 is installed.
 
 Config:
@@ -41,7 +41,7 @@ _TIMEOUT = 15
 class WebhookBridge:
     """
     HTTP bridge to Windows MT5 webhook server.
-    Drop-in replacement for MetaApiBridge — same public method signatures.
+    Provides the shared bridge interface used by the trader and dashboard.
     """
 
     def __init__(self, url: str = None):
@@ -243,6 +243,7 @@ class WebhookBridge:
                     type=p.get("type_id", 0),  # 0=BUY, 1=SELL
                     volume=p.get("volume", 0),
                     price_open=p.get("price_open", 0),
+                    price_current=p.get("price_current", p.get("price_open", 0)),
                     sl=p.get("sl", 0),
                     tp=p.get("tp", 0),
                     profit=p.get("profit", 0),

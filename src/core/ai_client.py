@@ -433,5 +433,3 @@ def ask_nvidia(
         log.warning(f"  [AI] {tier}/{model} failed ({msg}){suffix}")
 
     return None
-
-

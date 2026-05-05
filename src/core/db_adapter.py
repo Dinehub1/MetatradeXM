@@ -1,8 +1,8 @@
 """
-db_adapter.py — Abstract database adapter for SQLite and Supabase
+db_adapter.py — Abstract database adapter interface for Supabase-backed storage
 
 Provides a unified interface for all database operations, allowing seamless
-switching between local SQLite (development) and Supabase PostgreSQL (production).
+keeping higher-level modules decoupled from the Supabase implementation details.
 """
 
 from abc import ABC, abstractmethod
@@ -17,14 +17,15 @@ class DatabaseAdapter(ABC):
     def record_entry(self, ticket: str, symbol: str, direction: str,
                      entry_price: float, confidence: float,
                      factors: dict = None, conditions: dict = None,
-                     skills_used: list = None):
+                     skills_used: list = None, volume: float = None):
         """Record when a new trade is opened."""
         pass
 
     @abstractmethod
     def record_outcome(self, ticket: str, exit_price: float,
                        pips_result: float, outcome: str,
-                       symbol: str = "UNKNOWN", direction: str = "UNKNOWN"):
+                       symbol: str = "UNKNOWN", direction: str = "UNKNOWN",
+                       profit_usd: float = None, volume: float = None):
         """Record when a trade closes."""
         pass
 

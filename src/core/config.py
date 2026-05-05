@@ -107,34 +107,6 @@ def get_nvidia_config() -> dict:
     }
 
 
-def get_gemini_config() -> dict:
-    """Get Google Gemini API configuration."""
-    return {
-        "api_key": get_config("GEMINI_API_KEY", ""),
-        "model": get_config("GEMINI_MODEL", "gemini-2.0-flash"),
-    }
-
-
-# ─── Local AI Configuration ────────────────────────────────────────────────────
-
-def get_ollama_config() -> dict:
-    """Get Ollama (local AI) configuration."""
-    return {
-        "url": get_config("OLLAMA_URL", "http://localhost:11434/api/chat"),
-        "model": get_config("OLLAMA_MODEL", "minimax-m2.7:cloud"),
-    }
-
-
-def get_ollama_url() -> str:
-    """Get Ollama API endpoint URL."""
-    return get_config("OLLAMA_URL", "http://localhost:11434/api/chat")
-
-
-def get_ollama_model() -> str:
-    """Get Ollama model name."""
-    return get_config("OLLAMA_MODEL", "minimax-m2.7:cloud")
-
-
 # ─── Trading Configuration ────────────────────────────────────────────────────
 
 def get_trading_config() -> dict:

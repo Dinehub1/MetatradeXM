@@ -2,7 +2,7 @@
 """MT5 AI Trading Bot — Futuristic Dashboard v3.0
 Port: 8889 | Chart.js | Multi-symbol | Real-time | Glassmorphism | Threaded
 """
-import http.server, json, sqlite3, os, time
+import http.server, json, os, time, threading
 from datetime import datetime, timezone
 from socketserver import ThreadingMixIn
 from pathlib import Path
@@ -10,7 +10,6 @@ import sys
 
 PORT         = 8889
 BASE_DIR     = Path(__file__).resolve().parent.parent.parent   # src/dashboard/ -> src/ -> project root
-DB_FILE      = BASE_DIR / "data" / "trades.db"
 STATUS_FILE  = BASE_DIR / "state" / "bot_status.json"
 CANDLES_FILE = BASE_DIR / "state" / "candles_cache.json"
 
@@ -19,20 +18,37 @@ _PM2_LOG     = Path("/home/ubuntu/.pm2/logs/metatradeXM-bot-out.log")
 _BOT_LOG     = BASE_DIR / "logs" / "bot.log"
 LOG_FILE     = _PM2_LOG if _PM2_LOG.exists() else _BOT_LOG
 
-# ── MT5 Bridge initialization ────────────────────────────────────────────────────
+# ── Live bridge initialization ───────────────────────────────────────────────────
 sys.path.insert(0, str(BASE_DIR / "src"))
 try:
-    from bridges.mt5_bridge import MT5Bridge
+    from core.config import get_webhook_config as _get_wh_cfg
     _bridge = None
+    _bridge_lock = threading.Lock()
+
+    def _build_bridge():
+        _wh = _get_wh_cfg()
+        ws_url = (_wh.get("ws_url") or "").strip()
+        http_url = (_wh.get("webhook_url") or "").strip()
+        if ws_url and http_url:
+            from bridges.ws_bridge import WSBridge
+            return WSBridge(ws_url, http_url)
+        if http_url:
+            from bridges.webhook_bridge import WebhookBridge
+            return WebhookBridge(http_url)
+        from bridges.mt5_bridge import MT5Bridge
+        return MT5Bridge()
+
     def get_bridge():
         global _bridge
-        if _bridge is None:
-            _bridge = MT5Bridge()
-            if not _bridge.connect():
-                _bridge = None
+        with _bridge_lock:
+            if _bridge is None:
+                _bridge = _build_bridge()
+                if not _bridge.connect():
+                    _bridge = None
         return _bridge
 except ImportError:
     _bridge = None
+    _bridge_lock = threading.Lock()
     def get_bridge():
         return None
 
@@ -46,9 +62,22 @@ except Exception as e:
     _supabase = None
     print(f"[WARNING] Supabase init failed: {e}")
 
+_SYNC_THREAD = None
+_SYNC_STOP = threading.Event()
+_BROKER_TO_DISPLAY = {
+    "GOLD.i#": "XAUUSD",
+    "SILVER.i#": "XAGUSD",
+    "XAUUSD": "XAUUSD",
+    "XAGUSD": "XAGUSD",
+}
+_DISPLAY_TO_BROKER = {
+    "XAUUSD": "GOLD.i#",
+    "XAGUSD": "SILVER.i#",
+}
+
 # ── Response caching (TTL-based) ────────────────────────────────────────────────
 _response_cache = {}
-CACHE_TTL = 60  # seconds
+CACHE_TTL = 2  # seconds; live dashboard should feel immediate
 
 def _get_cached(key: str, fetch_func):
     """Get cached response or compute fresh one."""
@@ -67,6 +96,249 @@ def _current_session() -> str:
     if 13 <= h < 17: return "LONDON_NY_OVERLAP"
     if 17 <= h < 22: return "NEW_YORK"
     return "ASIAN"
+
+def _num(value, default=0.0):
+    try:
+        if value is None:
+            return default
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+def _epoch(value) -> int:
+    if not value:
+        return 0
+    try:
+        if isinstance(value, (int, float)):
+            return int(value)
+        return int(datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp())
+    except Exception:
+        return 0
+
+def _age_s(value) -> int:
+    ts = _epoch(value)
+    if not ts:
+        return 0
+    return max(0, int(time.time() - ts))
+
+def _require_supabase():
+    if _supabase is None:
+        raise RuntimeError("Supabase is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY.")
+    return _supabase
+
+def _live_snapshot_from_supabase() -> dict:
+    db = _require_supabase()
+    rows = db.get_live_market_snapshots()
+    snap = {"session": _current_session(), "symbols": {}, "source": "supabase"}
+    newest = 0
+
+    for sym, row in rows.items():
+        raw = row.get("raw_json") or {}
+        indicators = row.get("indicators_json") or raw.get("indicators") or {}
+        timeframes = row.get("timeframes_json") or raw.get("timeframes") or {}
+        ts = row.get("updated_at") or row.get("ts")
+        newest = max(newest, _epoch(ts))
+
+        sym_data = {
+            "price": _num(row.get("price") or indicators.get("price")),
+            "bid": _num(row.get("bid"), None),
+            "ask": _num(row.get("ask"), None),
+            "spread": _num(row.get("spread"), None),
+            "digits": row.get("digits"),
+            "atr": _num(row.get("atr") or indicators.get("atr"), None),
+            "daily_high": _num(row.get("daily_high"), None),
+            "daily_low": _num(row.get("daily_low"), None),
+            "signal": row.get("signal") or raw.get("signal"),
+            "confidence": _num(row.get("confidence") or raw.get("confidence"), 0),
+            "score": _num(row.get("score") or indicators.get("score"), 0),
+            "session": row.get("session") or raw.get("session") or snap["session"],
+            "indicators": indicators,
+            "timeframes": timeframes,
+            "_last_update": _epoch(ts),
+            "_age_s": _age_s(ts),
+            "source": row.get("source") or "supabase",
+        }
+        if sym_data["bid"] is None:
+            sym_data.pop("bid")
+        if sym_data["ask"] is None:
+            sym_data.pop("ask")
+        snap["symbols"][sym] = sym_data
+
+    if newest:
+        snap["_updated"] = newest
+        snap["_age_s"] = max(0, int(time.time() - newest))
+    return snap
+
+def _status_from_supabase() -> dict:
+    db = _require_supabase()
+    account = db.get_live_account_snapshot()
+    snap = _live_snapshot_from_supabase()
+    newest = account.get("updated_at") or account.get("ts") or snap.get("_updated")
+
+    symbols = {}
+    for sym, row in snap.get("symbols", {}).items():
+        symbols[sym] = {
+            "signal": row.get("signal") or "HOLD",
+            "confidence": row.get("confidence") or 0,
+            "score": row.get("score") or 0,
+            "session": row.get("session"),
+            "indicators": row.get("indicators") or {},
+            "timeframes": row.get("timeframes") or {},
+            "bid": row.get("bid"),
+            "ask": row.get("ask"),
+        }
+
+    return {
+        "state": "running" if symbols else "waiting_for_supabase_live_data",
+        "session": snap.get("session"),
+        "source": "supabase",
+        "_status_age_s": _age_s(newest),
+        "_stale": _age_s(newest) > 120 if newest else True,
+        "account": {
+            "balance": _num(account.get("balance"), 0),
+            "equity": _num(account.get("equity"), 0),
+            "margin": _num(account.get("margin"), 0),
+            "margin_free": _num(account.get("margin_free"), 0),
+            "currency": account.get("currency") or "USD",
+            "leverage": account.get("leverage") or 0,
+        },
+        "symbols": symbols,
+    }
+
+def _positions_from_supabase() -> list:
+    db = _require_supabase()
+    positions = []
+    for row in db.get_live_positions():
+        raw = row.get("raw_json") or {}
+        entry = _num(row.get("entry_price") or raw.get("open_price") or raw.get("entry_price"), 0)
+        current = _num(row.get("current_price") or raw.get("current_price"), entry)
+        positions.append({
+            "ticket": row.get("ticket"),
+            "symbol": row.get("symbol") or raw.get("symbol", ""),
+            "direction": row.get("direction") or raw.get("direction", ""),
+            "entry_price": round(entry, 5),
+            "current_price": round(current, 5),
+            "profit_loss_usd": round(_num(row.get("profit_loss_usd") or raw.get("profit"), 0), 2),
+            "profit_loss_pct": round(_num(row.get("profit_loss_pct"), 0), 2),
+            "lot_size": _num(row.get("volume") or raw.get("volume") or raw.get("lot_size"), 0),
+            "entry_time": row.get("entry_time") or raw.get("entry_time", ""),
+            "status": row.get("status") or "OPEN",
+        })
+    return positions
+
+def _logs_from_supabase(limit: int = 150) -> list:
+    db = _require_supabase()
+    logs = []
+    for event in db.get_live_events(limit=limit):
+        payload = event.get("payload") or {}
+        ts = event.get("ts") or event.get("created_at") or ""
+        symbol = f" | {event.get('symbol')}" if event.get("symbol") else ""
+        detail = payload.get("message") or payload.get("reason") or json.dumps(payload, default=str)
+        logs.append(f"{ts} [{event.get('severity', 'INFO')}] {event.get('source')}:{event.get('event_type')}{symbol} | {detail}")
+    return logs
+
+def _normalize_symbol(symbol: str) -> str:
+    return _BROKER_TO_DISPLAY.get(symbol or "", symbol or "")
+
+def _publish_live_bridge_to_supabase():
+    if _supabase is None:
+        return
+    bridge = get_bridge()
+    if bridge is None:
+        return
+
+    account = bridge.get_account_info()
+    if account:
+        _supabase.upsert_live_account_snapshot({
+            "balance": getattr(account, "balance", 0),
+            "equity": getattr(account, "equity", 0),
+            "margin": getattr(account, "margin", 0),
+            "margin_free": getattr(account, "margin_free", 0),
+            "currency": getattr(account, "currency", "USD"),
+            "leverage": getattr(account, "leverage", 0),
+            "ts": datetime.now(timezone.utc).isoformat(),
+        }, source="dashboard_bridge")
+
+    positions = []
+    for pos in bridge.get_open_positions() or []:
+        direction = "BUY" if getattr(pos, "type", 0) == 0 else "SELL"
+        broker_symbol = getattr(pos, "symbol", "")
+        display_symbol = _normalize_symbol(broker_symbol)
+        entry_price = float(getattr(pos, "price_open", 0) or 0)
+        current_price = float(getattr(pos, "price_current", entry_price) or entry_price)
+        pnl_usd = float(getattr(pos, "profit", 0) or 0)
+        pnl_pct = 0.0
+        if entry_price > 0:
+            if direction == "BUY":
+                pnl_pct = ((current_price - entry_price) / entry_price) * 100
+            else:
+                pnl_pct = ((entry_price - current_price) / entry_price) * 100
+        positions.append({
+            "ticket": getattr(pos, "ticket", ""),
+            "symbol": display_symbol,
+            "direction": direction,
+            "volume": float(getattr(pos, "volume", 0) or 0),
+            "entry_price": entry_price,
+            "current_price": current_price,
+            "profit_loss_usd": pnl_usd,
+            "profit_loss_pct": pnl_pct,
+            "sl": float(getattr(pos, "sl", 0) or 0),
+            "tp": float(getattr(pos, "tp", 0) or 0),
+            "entry_time": datetime.fromtimestamp(getattr(pos, "time", 0), tz=timezone.utc).isoformat() if getattr(pos, "time", 0) else "",
+            "status": "OPEN",
+            "broker_symbol": broker_symbol,
+        })
+    _supabase.replace_live_positions(positions, source="dashboard_bridge")
+
+    for display_symbol, broker_symbol in _DISPLAY_TO_BROKER.items():
+        tick = bridge.get_tick(broker_symbol)
+        if not tick:
+            continue
+        indicators = {}
+        price = float(getattr(tick, "bid", 0) or 0)
+        if price:
+            indicators["price"] = price
+        _supabase.upsert_live_market_snapshot(
+            display_symbol,
+            broker_symbol=broker_symbol,
+            payload={
+                "price": price,
+                "bid": float(getattr(tick, "bid", 0) or 0),
+                "ask": float(getattr(tick, "ask", 0) or 0),
+                "time": getattr(tick, "time", 0),
+                "session": _current_session(),
+                "indicators": indicators,
+            },
+            source="dashboard_bridge",
+        )
+
+def _live_sync_loop():
+    while not _SYNC_STOP.is_set():
+        try:
+            _publish_live_bridge_to_supabase()
+        except Exception as e:
+            try:
+                if _supabase:
+                    _supabase.log_live_event(
+                        "dashboard_bridge_error",
+                        {"message": str(e)},
+                        source="dashboard_bridge",
+                        severity="ERROR",
+                    )
+            except Exception:
+                pass
+        _SYNC_STOP.wait(5)
+
+def _start_live_bridge_sync():
+    global _SYNC_THREAD
+    if _supabase is None or _SYNC_THREAD is not None:
+        return
+    _SYNC_THREAD = threading.Thread(
+        target=_live_sync_loop,
+        name="dashboard-live-sync",
+        daemon=True,
+    )
+    _SYNC_THREAD.start()
 
 # ── Auth removed — dashboard is open access ─────────────────────────────────
 
@@ -610,6 +882,7 @@ HTML = r"""<!DOCTYPE html>
             <th style="text-align: left; padding: 10px;">Time (Most Recent)</th>
             <th style="text-align: center; padding: 10px;">Symbol</th>
             <th style="text-align: center; padding: 10px;">Dir</th>
+            <th style="text-align: center; padding: 10px;">Lots</th>
             <th style="text-align: right; padding: 10px;">Entry</th>
             <th style="text-align: right; padding: 10px;">Exit</th>
             <th style="text-align: right; padding: 10px;">Pips</th>
@@ -620,7 +893,7 @@ HTML = r"""<!DOCTYPE html>
           </tr>
         </thead>
         <tbody id="tradeRows">
-          <tr><td colspan="10" style="text-align: center; padding: 20px; color: var(--text-muted);">Loading trades...</td></tr>
+          <tr><td colspan="11" style="text-align: center; padding: 20px; color: var(--text-muted);">Loading trades...</td></tr>
         </tbody>
       </table>
     </div>
@@ -804,7 +1077,7 @@ HTML = r"""<!DOCTYPE html>
       });
 
       tbody.innerHTML = sortedTrades.length === 0
-        ? '<tr><td colspan="10" style="text-align:center;padding:20px;color:var(--text-muted);">No trades yet</td></tr>'
+        ? '<tr><td colspan="11" style="text-align:center;padding:20px;color:var(--text-muted);">No trades yet</td></tr>'
         : sortedTrades.map(t => {
           const time = t.ts ? new Date(t.ts).toLocaleString() : '—';
           const pnlColor = t.outcome === 'WIN' ? 'color:var(--green)' : 'color:var(--red)';
@@ -813,14 +1086,15 @@ HTML = r"""<!DOCTYPE html>
           return `<tr style="${rowBg};border-bottom:1px solid var(--border)">
             <td style="padding:10px;font-size:0.85em">${time}</td>
             <td style="padding:10px;text-align:center;font-weight:600">${t.symbol}</td>
-            <td style="padding:10px;text-align:center;color:${t.direction==='BUY'?'var(--green)':'var(--red)';font-weight:600">${t.direction}</td>
+            <td style="padding:10px;text-align:center;color:${t.direction==='BUY'?'var(--green)':'var(--red)'};font-weight:600">${t.direction}</td>
+            <td style="padding:10px;text-align:center">${(t.volume || 0).toFixed(2)}</td>
             <td style="padding:10px;text-align:right">${t.entry_price.toFixed(2)}</td>
             <td style="padding:10px;text-align:right">${t.exit_price.toFixed(2)}</td>
             <td style="padding:10px;text-align:right;${pipsColor};font-weight:600">${t.pips >= 0 ? '+' : ''}${t.pips.toFixed(1)}</td>
             <td style="padding:10px;text-align:right;${pnlColor};font-weight:600">${t.outcome === 'WIN' ? '+' : ''}${t.pnl_usd.toFixed(2)}</td>
             <td style="padding:10px;text-align:center">${Math.round(t.duration_min)}m</td>
             <td style="padding:10px;text-align:center">${(t.confidence*100).toFixed(0)}%</td>
-            <td style="padding:10px;text-align:center;color:${t.outcome === 'WIN' ? 'var(--green)' : 'var(--red)';font-weight:600">${t.outcome}</td>
+            <td style="padding:10px;text-align:center;color:${t.outcome === 'WIN' ? 'var(--green)' : 'var(--red)'};font-weight:600">${t.outcome}</td>
           </tr>`;
         }).join('');
     } catch (e) {
@@ -874,7 +1148,7 @@ HTML = r"""<!DOCTYPE html>
       const labels = [];
 
       [...trades].reverse().forEach((t, idx) => {
-        cumPnL += (t.exit_price - t.entry_price);
+        cumPnL += (t.pnl_usd || 0);
         cumulativePnL.push(cumPnL);
         labels.push((idx + 1).toString());
       });
@@ -1040,7 +1314,7 @@ main{padding:20px 24px;display:flex;flex-direction:column;gap:18px}
 <header>
   <div class="logo">MetatradeXM <span>/ Live Stream</span></div>
   <div id="pill" class="pill wait"><span class="dot"></span><span id="pillTxt">Connecting…</span></div>
-  <span class="mono" style="font-size:11px;color:var(--muted)" id="wsEndpoint">ws://206.72.198.54:5002</span>
+  <span class="mono" style="font-size:11px;color:var(--muted)" id="wsEndpoint">Supabase live source</span>
   <div class="ml" style="display:flex;gap:8px;align-items:center">
     <span style="font-size:11px;color:var(--muted)">Msgs: <b id="mc" style="color:var(--text)">0</b></span>
     <span style="font-size:11px;color:var(--muted)">Last: <b id="lt" class="mono" style="color:var(--cyan)">—</b></span>
@@ -1049,21 +1323,23 @@ main{padding:20px 24px;display:flex;flex-direction:column;gap:18px}
   </div>
 </header>
 <main>
-  <div id="banner" class="wait"><span id="bi">⏳</span><span id="bm">Connecting to live indicator stream…</span></div>
+  <div id="banner" class="wait"><span id="bi">⏳</span><span id="bm">Connecting to Supabase live source…</span></div>
   <div class="grid2" id="grid"></div>
   <div class="raw-card">
-    <div class="raw-hdr">📡 Raw WebSocket Messages
+    <div class="raw-hdr">📡 Supabase Live Events
       <span style="margin-left:auto;font-size:10px;cursor:pointer;color:var(--cyan)" onclick="clrLog()">clear</span>
     </div>
     <div class="raw-body" id="log"><div style="color:var(--muted);padding:6px 0">Waiting…</div></div>
   </div>
 </main>
 <script>
-const WS='ws://206.72.198.54:5002?token=__AUTH_TOKEN__', POLL='/api/live-snapshot';
+const WS=null, POLL='/api/live-snapshot';
 let ws=null,mc=0,log=[],latest={},atf={},rt=null,usePoll=false;
 
 function connect(){
-  setState('wait');
+  setState('ok');
+  startPoll();
+  if(!WS){addLog('system','Using Supabase-backed HTTP live source');return}
   try{
     ws=new WebSocket(WS);
     ws.onopen=()=>{setState('ok');addLog('system','WebSocket connected to '+WS);usePoll=false};
@@ -1223,9 +1499,9 @@ function setState(s){
   const labels={ok:'Live',bad:'Disconnected',wait:'Connecting…'};
   const icons={ok:'🟢',bad:'🔴',wait:'⏳'};
   const msgs={
-    ok:'✅ Connected — streaming live indicators from '+WS,
+    ok:'Connected — streaming live dashboard data from Supabase',
     bad:'⚡ Connection lost — will retry in 5s (or using HTTP poll fallback)',
-    wait:'⏳ Connecting to '+WS+'…'};
+    wait:'Connecting to Supabase live source…'};
   p.className='pill '+s;t.textContent=labels[s];
   ban.className=s;document.getElementById('bi').textContent=icons[s];
   document.getElementById('bm').textContent=msgs[s]}
@@ -1257,7 +1533,7 @@ async function loadTradeHistory() {
 
     const tbody = document.getElementById('tradeRows');
     tbody.innerHTML = trades.length === 0
-      ? '<tr><td colspan="10" style="text-align:center;padding:20px;color:var(--text-muted);">No trades yet</td></tr>'
+      ? '<tr><td colspan="11" style="text-align:center;padding:20px;color:var(--text-muted);">No trades yet</td></tr>'
       : trades.map(t => {
         const time = t.ts ? new Date(t.ts).toLocaleString() : '—';
         const pnlColor = t.outcome === 'WIN' ? 'color:var(--green)' : 'color:var(--red)';
@@ -1266,6 +1542,7 @@ async function loadTradeHistory() {
           <td style="padding:10px">${time}</td>
           <td style="padding:10px;text-align:center">${t.symbol}</td>
           <td style="padding:10px;text-align:center;color:${t.direction==='BUY'?'var(--green)':'var(--red)'}">${t.direction}</td>
+          <td style="padding:10px;text-align:center">${(t.volume || 0).toFixed(2)}</td>
           <td style="padding:10px;text-align:right">${t.entry_price.toFixed(2)}</td>
           <td style="padding:10px;text-align:right">${t.exit_price.toFixed(2)}</td>
           <td style="padding:10px;text-align:right">${t.pips.toFixed(1)}</td>
@@ -1315,7 +1592,7 @@ async function drawEquityCurve() {
     const labels = [];
 
     trades.reverse().forEach((t, idx) => {
-      cumPnL += (t.exit_price - t.entry_price);
+      cumPnL += (t.pnl_usd || 0);
       cumulativePnL.push(cumPnL);
       labels.push((idx + 1).toString());
     });
@@ -1740,72 +2017,50 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(body)
 
         elif path == '/api/status':
-            data = {'state': 'stopped'}
-            if STATUS_FILE.exists():
-                try:
-                    import time as _t
-                    data = json.loads(STATUS_FILE.read_text())
-                    # Inject staleness: how many seconds since bot last wrote status
-                    age_s = int(_t.time() - STATUS_FILE.stat().st_mtime)
-                    data['_status_age_s'] = age_s
-                    if age_s > 120:
-                        data['_stale'] = True
-                        data['state'] = f"stale ({age_s}s ago)"
-                except Exception as e:
-                    try: log.debug(f'Caught exception: {e}')
-                    except: pass
-                    data = {'state': 'error'}
-                    
-            # Inject real MT5 account info
             try:
-                bridge = get_bridge()
-                if bridge:
-                    acc = bridge.get_account_info()
-                    if acc:
-                        data['account'] = {
-                            'balance': getattr(acc, 'balance', 0.0),
-                            'equity': getattr(acc, 'equity', 0.0),
-                            'margin': getattr(acc, 'margin', 0.0),
-                            'margin_free': getattr(acc, 'margin_free', 0.0),
-                            'currency': getattr(acc, 'currency', 'USD'),
-                            'leverage': getattr(acc, 'leverage', 100)
-                        }
+                data = _get_cached("live_status", _status_from_supabase)
+                self._json(data)
             except Exception as e:
-                data['account_error'] = str(e)
-                
-            self._json(data)
+                self._json({'state': 'error', 'source': 'supabase', 'error': str(e)}, 503)
 
         elif path == '/api/history':
-            rows = []
-            if DB_FILE.exists():
-                try:
-                    conn = sqlite3.connect(str(DB_FILE))
-                    conn.row_factory = sqlite3.Row
-                    rows = [dict(r) for r in conn.execute(
-                        'SELECT ts, symbol, direction, confidence, reason, action, ticket '
-                        'FROM signals ORDER BY id DESC LIMIT 200'
-                    ).fetchall()]
-                    conn.close()
-                except Exception as e:
-                    try: log.debug(f'Caught exception: {e}')
-                    except: pass
-                    rows = []
-            self._json(rows)
+            try:
+                events = _require_supabase().get_live_events(limit=200)
+                rows = []
+                for event in events:
+                    payload = event.get("payload") or {}
+                    rows.append({
+                        "ts": event.get("ts"),
+                        "symbol": event.get("symbol") or payload.get("symbol"),
+                        "direction": payload.get("direction") or payload.get("signal"),
+                        "confidence": payload.get("confidence"),
+                        "reason": payload.get("reason") or payload.get("message"),
+                        "action": event.get("event_type"),
+                        "ticket": payload.get("ticket"),
+                    })
+                self._json(rows)
+            except Exception as e:
+                self._json({'source': 'supabase', 'error': str(e)}, 503)
 
         elif path == '/api/candles':
-            data = {}
-            if CANDLES_FILE.exists():
-                try:
-                    data = json.loads(CANDLES_FILE.read_text())
-                except Exception as e:
-                    try: log.debug(f'Caught exception: {e}')
-                    except: pass
-                    data = {}
-            self._json(data)
+            try:
+                snap = _get_cached("live_snapshot", _live_snapshot_from_supabase)
+                rows = _require_supabase().get_live_market_snapshots()
+                data = {}
+                for sym, payload in snap.get("symbols", {}).items():
+                    raw = (rows.get(sym) or {}).get("raw_json") or {}
+                    data[sym] = {
+                        "candles": raw.get("candles", {}),
+                        "updated": payload.get("_last_update"),
+                        "source": "supabase",
+                    }
+                self._json(data)
+            except Exception as e:
+                self._json({'source': 'supabase', 'error': str(e)}, 503)
 
         elif path in ('/live', '/live.html'):
             # ── Live indicator stream viewer ──────────────────────────────────
-            # Connects to Windows MT5 bridge (206.72.198.54:5002) and displays all indicators live
+            # Reads dashboard-ready live market/AI data from Supabase.
             from dotenv import load_dotenv
             from core.config import get_webhook_config as _get_wh
             load_dotenv(BASE_DIR / ".env")
@@ -1819,86 +2074,10 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(body)
 
         elif path == '/api/live-snapshot':
-            # ── Live tick data from Windows MT5 server ────────────────────────
-            snap = {'session': _current_session(), 'symbols': {}}
-            
             try:
-                bridge = get_bridge()
-                if bridge:
-                    # Map display names to broker symbol names (XM Global uses GOLD.i# / SILVER.i#)
-                    _SYM_MAP = {'XAUUSD': 'GOLD.i#', 'XAGUSD': 'SILVER.i#'}
-                    for sym, broker_sym in _SYM_MAP.items():
-                        tick = bridge.get_tick(broker_sym)
-                        si   = bridge.get_symbol_info(broker_sym)
-                        if tick:
-                            sym_data = {
-                                'price': getattr(tick, 'bid', 0.0),
-                                'ask':   getattr(tick, 'ask', 0.0),
-                                'bid':   getattr(tick, 'bid', 0.0),
-                                'time':  getattr(tick, 'time', 0),
-                            }
-                            # Spread in points
-                            if si:
-                                digits = getattr(si, 'digits', 2)
-                                point  = getattr(si, 'point', 0.01)
-                                raw_spread = getattr(si, 'spread', 0)
-                                sym_data['spread'] = raw_spread
-                                sym_data['digits'] = digits
-                            # Compute ATR from last 14 H1 candles
-                            try:
-                                candles = bridge.get_candles(broker_sym, 'H1', 15)
-                                if candles is not None and len(candles) >= 2:
-                                    highs = candles['h'].values
-                                    lows  = candles['l'].values
-                                    closes = candles['c'].values
-                                    tr_vals = []
-                                    for i in range(1, len(highs)):
-                                        tr = max(
-                                            highs[i] - lows[i],
-                                            abs(highs[i] - closes[i-1]),
-                                            abs(lows[i] - closes[i-1])
-                                        )
-                                        tr_vals.append(tr)
-                                    if tr_vals:
-                                        sym_data['atr'] = round(sum(tr_vals) / len(tr_vals), 5)
-                                    # Also add daily high/low from D1
-                                    d1 = bridge.get_candles(broker_sym, 'D1', 1)
-                                    if d1 is not None and len(d1) >= 1:
-                                        sym_data['daily_high'] = float(d1['h'].values[-1])
-                                        sym_data['daily_low']  = float(d1['l'].values[-1])
-                            except Exception as e:
-                                print(f"[DASHBOARD] Error computing ATR: {e}")
-                            snap['symbols'][sym] = sym_data
+                self._json(_get_cached("live_snapshot", _live_snapshot_from_supabase))
             except Exception as e:
-                snap['_bridge_error'] = str(e)
-            
-            # Always enrich with TV-server indicator/timeframe data from live_snapshot.json.
-            # The bridge only returns price/spread/ATR; the TV server computes M15/H1/H4/D1
-            # indicators. Merge them together so the live stream shows TFS, SCORE, TREND STRONG.
-            snap_file = BASE_DIR / 'state' / 'live_snapshot.json'
-            if snap_file.exists():
-                try:
-                    tv_snap = json.loads(snap_file.read_text())
-                    for sym, tv_data in tv_snap.get('symbols', {}).items():
-                        if sym not in snap['symbols']:
-                            snap['symbols'][sym] = {}
-                        # Inject timeframes (M15/H1/H4/D1 with all indicator fields)
-                        snap['symbols'][sym]['timeframes'] = tv_data.get('timeframes', {})
-                        # Only override indicators if bridge gave nothing
-                        if not snap['symbols'][sym].get('indicators'):
-                            snap['symbols'][sym]['indicators'] = tv_data.get('indicators', {})
-                except Exception as e:
-                    print(f"[DASHBOARD] Error merging TV snapshot: {e}")
-
-            # Last-resort fallback: if bridge returned nothing at all, use TV snapshot directly
-            if not snap['symbols']:
-                if snap_file.exists():
-                    try:
-                        snap = json.loads(snap_file.read_text())
-                    except Exception as e:
-                        print(f"[DASHBOARD] Error loading TV snapshot fallback: {e}")
-
-            self._json(snap)
+                self._json({'session': _current_session(), 'symbols': {}, 'source': 'supabase', 'error': str(e)}, 503)
 
         elif path in ('/logs', '/logs.html'):
             # ── Trading Logs Viewer ────────────────────────────────────────────
@@ -1910,72 +2089,18 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(body)
 
         elif path == '/api/logs':
-            # ── API: Last 150 trading log lines from PM2 or bot.log ─────────
-            logs = []
             try:
-                with open(LOG_FILE, 'r', errors='replace') as f:
-                    lines = f.readlines()[-150:]
-                logs = [l.rstrip('\n') for l in lines]
+                logs = _get_cached("live_logs", lambda: _logs_from_supabase(150))
+                self._json({'logs': logs, 'source': 'supabase:live_events'})
             except Exception as e:
-                logs = [f'Error reading {LOG_FILE}: {e}']
-            self._json({'logs': logs, 'source': str(LOG_FILE)})
+                self._json({'logs': [f'Supabase live_events error: {e}'], 'source': 'supabase', 'error': str(e)}, 503)
 
         elif path == '/api/open-positions':
-            # ── API: Current open positions from MT5 account ────────────────────
-            positions = []
             try:
-                bridge = get_bridge()
-                if bridge is None:
-                    positions = []
-                else:
-                    open_pos = bridge.get_open_positions()
-                    for p in open_pos:
-                        try:
-                            direction = "BUY" if getattr(p, "type", 0) == 0 else "SELL"
-                            price_open = getattr(p, "price_open", 0.0)
-                            profit = getattr(p, "profit", 0.0)
-                            volume = getattr(p, "volume", 0.0)
-                            symbol = getattr(p, "symbol", "")
-                            ticket = getattr(p, "ticket", 0)
-
-                            # Get current price from tick
-                            tick = bridge.get_tick(symbol)
-                            if tick:
-                                current_price = tick.bid if direction == "BUY" else tick.ask
-                            else:
-                                current_price = price_open
-
-                            # Calculate P&L percentage
-                            if direction == "BUY":
-                                pnl_pct = ((current_price - price_open) / price_open * 100) if price_open > 0 else 0
-                            else:
-                                pnl_pct = ((price_open - current_price) / price_open * 100) if price_open > 0 else 0
-
-                            # Get entry time from position (MT5 provides time_setup)
-                            entry_time = getattr(p, "time_setup", 0)
-                            if entry_time:
-                                entry_dt = datetime.fromtimestamp(entry_time, tz=timezone.utc).isoformat()
-                            else:
-                                entry_dt = ""
-
-                            positions.append({
-                                'ticket': ticket,
-                                'symbol': symbol,
-                                'direction': direction,
-                                'entry_price': round(price_open, 5),
-                                'current_price': round(current_price, 5),
-                                'profit_loss_usd': round(profit, 2),
-                                'profit_loss_pct': round(pnl_pct, 2),
-                                'lot_size': volume,
-                                'entry_time': entry_dt,
-                                'status': 'OPEN'
-                            })
-                        except Exception as e:
-                            print(f"[DASHBOARD] Error processing position {getattr(p, 'ticket', '?')}: {e}")
+                positions = _get_cached("live_positions", _positions_from_supabase)
+                self._json({'positions': positions, 'source': 'supabase'})
             except Exception as e:
-                positions = []
-
-            self._json({'positions': positions})
+                self._json({'positions': [], 'source': 'supabase', 'error': str(e)}, 503)
 
         elif path == '/api/trades/history':
             # ── API: Complete trade history (entries merged with outcomes) ──────────
@@ -1988,16 +2113,21 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
                         result = []
                         for outcome in outcomes:
                             try:
+                                entry_price = _num(outcome.get('entry_price'), 0)
+                                exit_price = _num(outcome.get('exit_price'), 0)
+                                if entry_price <= 0:
+                                    continue
                                 trade_record = {
                                     'ticket': outcome.get('ticket'),
                                     'symbol': outcome.get('symbol'),
                                     'direction': outcome.get('direction'),
-                                    'entry_price': round(outcome.get('entry_price', 0), 5),
-                                    'exit_price': round(outcome.get('exit_price', 0), 5),
-                                    'pips': outcome.get('pips_result', 0),
-                                    'pnl_usd': round(outcome.get('exit_price', 0) - outcome.get('entry_price', 0), 2),
-                                    'duration_min': outcome.get('duration_min', 0),
-                                    'confidence': outcome.get('confidence', 0),
+                                    'entry_price': round(entry_price, 5),
+                                    'exit_price': round(exit_price, 5),
+                                    'pips': _num(outcome.get('pips_result'), 0),
+                                    'pnl_usd': round(_num(outcome.get('profit_usd'), 0), 2),
+                                    'volume': _num(outcome.get('volume'), 0),
+                                    'duration_min': _num(outcome.get('duration_min'), 0),
+                                    'confidence': _num(outcome.get('confidence'), 0),
                                     'outcome': outcome.get('outcome', 'UNKNOWN'),
                                     'factors': outcome.get('factors_json', {}),
                                     'ts': outcome.get('ts'),
@@ -2020,6 +2150,13 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
                 if _supabase:
                     def fetch_performance():
                         outcomes = _supabase.get_all_outcomes(limit=500)
+                        filtered_outcomes = []
+                        for o in outcomes:
+                            entry_price = _num(o.get('entry_price'), 0)
+                            if entry_price <= 0:
+                                continue
+                            filtered_outcomes.append(o)
+                        outcomes = filtered_outcomes
 
                         # Initialize counters
                         total_trades = len(outcomes)
@@ -2028,13 +2165,16 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
                         win_rate = (wins / total_trades * 100) if total_trades > 0 else 0
 
                         # Calculate total pips and P&L
-                        total_pips = sum(float(o.get('pips_result', 0)) for o in outcomes)
-                        total_pnl = sum(float(o.get('exit_price', 0) - o.get('entry_price', 0)) for o in outcomes)
+                        total_pips = sum(_num(o.get('pips_result'), 0) for o in outcomes)
+                        total_pnl = 0.0
+                        for o in outcomes:
+                            override = overrides.get(str(o.get('ticket')))
+                            total_pnl += _num((override or {}).get('profit_usd'), _num(o.get('profit_usd'), _num(o.get('exit_price'), 0) - _num(o.get('entry_price'), 0)))
                         avg_pips = (total_pips / total_trades) if total_trades > 0 else 0
 
                         # Best/worst trades
                         if outcomes:
-                            pips_list = [float(o.get('pips_result', 0)) for o in outcomes]
+                            pips_list = [_num(o.get('pips_result'), 0) for o in outcomes]
                             best_trade = max(pips_list)
                             worst_trade = min(pips_list)
                         else:
@@ -2046,7 +2186,7 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
                             sym = o.get('symbol', 'UNKNOWN')
                             if sym not in by_symbol:
                                 by_symbol[sym] = {'wins': 0, 'losses': 0, 'total_pips': 0}
-                            by_symbol[sym]['total_pips'] += float(o.get('pips_result', 0))
+                            by_symbol[sym]['total_pips'] += _num(o.get('pips_result'), 0)
                             if o.get('outcome') == 'WIN':
                                 by_symbol[sym]['wins'] += 1
                             else:
@@ -2110,11 +2250,12 @@ class ThreadedHTTPServer(ThreadingMixIn, http.server.HTTPServer):
 
 # ── Entry Point ────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
+    _start_live_bridge_sync()
     srv = ThreadedHTTPServer(('0.0.0.0', PORT), DashHandler)
     print(f"\n{'='*58}")
     print(f"  MT5 AI Trading Dashboard  v3.0  [THREADED]")
     print(f"  Open  →  http://92.4.71.177:{PORT}")
-    print(f"  DB    →  {DB_FILE}")
+    print(f"  DB    →  Supabase")
     print(f"  Start: python3 continuous_trader.py")
     print(f"{'='*58}\n")
     try:

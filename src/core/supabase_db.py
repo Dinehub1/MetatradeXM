@@ -45,21 +45,24 @@ class SupabaseDB(DatabaseAdapter):
     def record_entry(self, ticket: str, symbol: str, direction: str,
                      entry_price: float, confidence: float,
                      factors: dict = None, conditions: dict = None,
-                     skills_used: list = None):
+                     skills_used: list = None, volume: float = None):
         """Record when a new trade is opened."""
         ts = now_utc()
         data = {
             "ts": ts.isoformat(),
             "ticket": str(ticket),
             "symbol": symbol,
+            "broker_symbol": (conditions or {}).get("broker_symbol"),
             "direction": direction,
             "entry_price": entry_price,
             "confidence": confidence,
             "factors_json": self._safe_json(factors or {}),
             "conditions_json": self._safe_json(conditions or {}),
             "skills_used": skills_used or [],
+            "volume": volume,
             "closed": 0,
         }
+        data = {k: v for k, v in data.items() if v is not None}
 
         response = self.client.table("trade_entries").insert(data).execute()
         if response.data:
@@ -71,7 +74,8 @@ class SupabaseDB(DatabaseAdapter):
 
     def record_outcome(self, ticket: str, exit_price: float,
                        pips_result: float, outcome: str,
-                       symbol: str = "UNKNOWN", direction: str = "UNKNOWN"):
+                       symbol: str = "UNKNOWN", direction: str = "UNKNOWN",
+                       profit_usd: float = None, volume: float = None):
         """Record when a trade closes. Links back to entry data."""
         ts = now_utc()
 
@@ -96,6 +100,9 @@ class SupabaseDB(DatabaseAdapter):
             factors_json = entry["factors_json"] or {}
             conditions_json = entry["conditions_json"] or {}
             skills_used = entry["skills_used"] or []
+            broker_symbol = entry.get("broker_symbol") or conditions_json.get("broker_symbol")
+            if volume is None:
+                volume = entry.get("volume")
 
             # Calculate duration
             try:
@@ -104,15 +111,17 @@ class SupabaseDB(DatabaseAdapter):
             except (ValueError, TypeError):
                 duration = 0
 
-            # Insert trade outcome
             outcome_data = {
                 "ts": ts.isoformat(),
                 "ticket": str(ticket),
                 "symbol": symbol,
+                "broker_symbol": broker_symbol,
                 "direction": direction,
                 "entry_price": entry_price,
                 "exit_price": exit_price,
                 "pips_result": pips_result,
+                "profit_usd": profit_usd,
+                "volume": volume,
                 "confidence": confidence,
                 "factors_json": factors_json,
                 "conditions_json": conditions_json,
@@ -120,7 +129,7 @@ class SupabaseDB(DatabaseAdapter):
                 "outcome": outcome,
                 "skills_used": skills_used,
             }
-            self.client.table("trade_outcomes").insert(outcome_data).execute()
+            self._upsert_trade_outcome(str(ticket), outcome_data)
 
             # Mark entry as closed
             self.client.table("trade_entries").update({"closed": 1}).eq(
@@ -151,10 +160,13 @@ class SupabaseDB(DatabaseAdapter):
                 "ts": ts.isoformat(),
                 "ticket": str(ticket),
                 "symbol": symbol,
+                "broker_symbol": None,
                 "direction": direction,
                 "entry_price": 0,
                 "exit_price": exit_price,
                 "pips_result": pips_result,
+                "profit_usd": profit_usd,
+                "volume": volume,
                 "confidence": 0,
                 "factors_json": {},
                 "conditions_json": {},
@@ -162,6 +174,109 @@ class SupabaseDB(DatabaseAdapter):
                 "outcome": outcome,
                 "skills_used": [],
             }
+            self._upsert_trade_outcome(str(ticket), outcome_data)
+
+    def sync_broker_history(self, deals: list):
+        """Reconcile recent MT5 deal history into Supabase by position id."""
+        if not deals:
+            return 0
+
+        opened = {}
+        closed = {}
+        for deal in deals:
+            try:
+                position_id = str(deal.get("position_id") or deal.get("order") or "")
+                if not position_id:
+                    continue
+                if deal.get("entry") == 0:
+                    opened[position_id] = deal
+                elif deal.get("entry") == 1:
+                    bucket = closed.setdefault(position_id, {
+                        "profit_usd": 0.0,
+                        "exit_price": deal.get("price", 0),
+                        "volume": 0.0,
+                        "closed_at": deal.get("time"),
+                        "comment": deal.get("comment", ""),
+                    })
+                    bucket["profit_usd"] += float(deal.get("profit", 0) or 0)
+                    bucket["volume"] += float(deal.get("volume", 0) or 0)
+                    bucket["exit_price"] = deal.get("price", bucket["exit_price"])
+                    bucket["closed_at"] = max(bucket["closed_at"] or 0, deal.get("time") or 0)
+                    bucket["comment"] = deal.get("comment") or bucket["comment"]
+            except Exception as e:
+                log.debug(f"Broker history parse error: {e}")
+
+        synced = 0
+        for ticket, close_info in closed.items():
+            entry = opened.get(ticket)
+            if not entry:
+                continue
+
+            entry_price = float(entry.get("price", 0) or 0)
+            volume = float(entry.get("volume", 0) or close_info.get("volume") or 0)
+            profit_usd = float(close_info.get("profit_usd", 0) or 0)
+            exit_price = float(close_info.get("exit_price", 0) or 0)
+            symbol = self._normalize_symbol(entry.get("symbol", ""))
+            broker_symbol = entry.get("symbol")
+            direction = "BUY" if int(entry.get("type", 0)) == 0 else "SELL"
+            ts = datetime.fromtimestamp(int(close_info.get("closed_at") or now_utc().timestamp()), tz=timezone.utc).isoformat()
+
+            pips_result = None
+            pip_size = self._pip_size_for_symbol(symbol)
+            contract_size = 100 if symbol == "XAUUSD" else 5000 if symbol == "XAGUSD" else 100
+            pip_value = pip_size * contract_size * volume if volume else 0
+            if pip_value:
+                pips_result = round(profit_usd / pip_value, 1)
+
+            entry_update = {
+                "closed": 1,
+                "volume": volume,
+                "broker_symbol": broker_symbol,
+            }
+            self.client.table("trade_entries").update(entry_update).eq("ticket", ticket).execute()
+
+            existing = (
+                self.client.table("trade_outcomes")
+                .select("id")
+                .eq("ticket", ticket)
+                .order("id", desc=True)
+                .limit(1)
+                .execute()
+            )
+            outcome_data = {
+                "ts": ts,
+                "ticket": ticket,
+                "symbol": symbol,
+                "broker_symbol": broker_symbol,
+                "direction": direction,
+                "entry_price": entry_price,
+                "exit_price": exit_price,
+                "pips_result": pips_result,
+                "profit_usd": profit_usd,
+                "volume": volume,
+                "outcome": "WIN" if profit_usd > 0 else "LOSS" if profit_usd < 0 else "FLAT",
+            }
+            outcome_data = {k: v for k, v in outcome_data.items() if v is not None}
+            self._upsert_trade_outcome(ticket, outcome_data)
+            synced += 1
+
+        return synced
+
+    def _upsert_trade_outcome(self, ticket: str, outcome_data: dict):
+        """Keep a single latest outcome row per ticket to avoid duplicate learning rows."""
+        existing = (
+            self.client.table("trade_outcomes")
+            .select("id")
+            .eq("ticket", str(ticket))
+            .order("id", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if existing.data:
+            self.client.table("trade_outcomes").update(outcome_data).eq(
+                "id", existing.data[0]["id"]
+            ).execute()
+        else:
             self.client.table("trade_outcomes").insert(outcome_data).execute()
 
     # ── Record filtered trade ────────────────────────────────────────────────
@@ -424,6 +539,194 @@ class SupabaseDB(DatabaseAdapter):
         response = query.execute()
         return response.data or []
 
+    # ── Live dashboard source of truth ───────────────────────────────────────
+
+    def upsert_live_market_snapshot(
+        self,
+        symbol: str,
+        *,
+        broker_symbol: str = None,
+        payload: dict = None,
+        source: str = "bot",
+    ):
+        """Upsert the latest market/AI snapshot for one dashboard symbol."""
+        payload = payload or {}
+        existing = {}
+        try:
+            response = (
+                self.client.table("live_market_snapshots")
+                .select("indicators_json,timeframes_json,raw_json")
+                .eq("symbol", symbol)
+                .limit(1)
+                .execute()
+            )
+            existing = (response.data or [{}])[0] if response.data else {}
+        except Exception:
+            existing = {}
+
+        existing_raw = existing.get("raw_json") or {}
+        indicators = payload.get("indicators") or existing.get("indicators_json") or {}
+        timeframes = payload.get("timeframes") or existing.get("timeframes_json") or {}
+        raw_json = dict(existing_raw)
+        raw_json.update(payload)
+        if "candles" not in payload and "candles" in existing_raw:
+            raw_json["candles"] = existing_raw["candles"]
+        if "timeframes" not in payload and "timeframes" in existing_raw:
+            raw_json["timeframes"] = existing_raw["timeframes"]
+        ts = payload.get("ts") or payload.get("time")
+        if isinstance(ts, (int, float)):
+            ts = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+        if not ts:
+            ts = now_utc().isoformat()
+
+        data = {
+            "symbol": symbol,
+            "broker_symbol": broker_symbol or payload.get("broker_symbol"),
+            "ts": ts,
+            "price": payload.get("price") or indicators.get("price"),
+            "bid": payload.get("bid"),
+            "ask": payload.get("ask"),
+            "spread": payload.get("spread") or indicators.get("spread"),
+            "digits": payload.get("digits"),
+            "atr": payload.get("atr") or indicators.get("atr"),
+            "daily_high": payload.get("daily_high"),
+            "daily_low": payload.get("daily_low"),
+            "signal": payload.get("signal"),
+            "confidence": payload.get("confidence"),
+            "score": payload.get("score") or indicators.get("score"),
+            "session": payload.get("session"),
+            "indicators_json": self._safe_json(indicators),
+            "timeframes_json": self._safe_json(timeframes),
+            "raw_json": self._safe_json(raw_json),
+            "source": source,
+            "updated_at": now_utc().isoformat(),
+        }
+        data = {k: v for k, v in data.items() if v is not None}
+        self.client.table("live_market_snapshots").upsert(data, on_conflict="symbol").execute()
+
+    def get_live_market_snapshots(self) -> dict:
+        """Return latest market/AI snapshots keyed by display symbol."""
+        response = (
+            self.client.table("live_market_snapshots")
+            .select("*")
+            .order("updated_at", desc=True)
+            .execute()
+        )
+        rows = response.data or []
+        return {row.get("symbol"): row for row in rows if row.get("symbol")}
+
+    def upsert_live_account_snapshot(self, account: dict, source: str = "bot"):
+        """Upsert the singleton latest account snapshot."""
+        account = account or {}
+        data = {
+            "id": 1,
+            "ts": account.get("ts") or now_utc().isoformat(),
+            "balance": account.get("balance"),
+            "equity": account.get("equity"),
+            "margin": account.get("margin"),
+            "margin_free": account.get("margin_free", account.get("free")),
+            "currency": account.get("currency", "USD"),
+            "leverage": account.get("leverage"),
+            "raw_json": self._safe_json(account),
+            "source": source,
+            "updated_at": now_utc().isoformat(),
+        }
+        data = {k: v for k, v in data.items() if v is not None}
+        self.client.table("live_account_snapshots").upsert(data, on_conflict="id").execute()
+
+    def get_live_account_snapshot(self) -> dict:
+        response = (
+            self.client.table("live_account_snapshots")
+            .select("*")
+            .eq("id", 1)
+            .limit(1)
+            .execute()
+        )
+        return (response.data or [{}])[0] if response.data else {}
+
+    def replace_live_positions(self, positions: list, source: str = "bot"):
+        """Replace the live open-position set with the current broker truth."""
+        now = now_utc().isoformat()
+        rows = []
+        for p in positions or []:
+            rows.append({
+                "ticket": str(p.get("ticket", "")),
+                "symbol": p.get("symbol"),
+                "direction": p.get("direction"),
+                "volume": p.get("volume", p.get("lot_size")),
+                "entry_price": p.get("entry_price", p.get("open_price")),
+                "current_price": p.get("current_price"),
+                "profit_loss_usd": p.get("profit_loss_usd", p.get("profit")),
+                "profit_loss_pct": p.get("profit_loss_pct"),
+                "sl": p.get("sl"),
+                "tp": p.get("tp"),
+                "entry_time": p.get("entry_time"),
+                "status": p.get("status", "OPEN"),
+                "raw_json": self._safe_json(p),
+                "source": source,
+                "updated_at": now,
+            })
+
+        self.client.table("live_positions").delete().neq("ticket", "__never__").execute()
+        if rows:
+            self.client.table("live_positions").insert(rows).execute()
+
+    def get_live_positions(self) -> list:
+        response = (
+            self.client.table("live_positions")
+            .select("*")
+            .order("updated_at", desc=True)
+            .execute()
+        )
+        return response.data or []
+
+    def log_live_event(
+        self,
+        event_type: str,
+        payload: dict,
+        *,
+        source: str = "bot",
+        symbol: str = None,
+        severity: str = "INFO",
+    ):
+        data = {
+            "ts": now_utc().isoformat(),
+            "event_type": event_type,
+            "source": source,
+            "symbol": symbol,
+            "severity": severity,
+            "payload": self._safe_json(payload or {}),
+        }
+        self.client.table("live_events").insert(data).execute()
+
+    def log_runtime_event(
+        self,
+        event_type: str,
+        payload: dict,
+        *,
+        source: str,
+        symbol: str = None,
+        severity: str = "INFO",
+    ):
+        """Record non-dashboard runtime events into the Supabase live event stream."""
+        return self.log_live_event(
+            event_type,
+            payload,
+            source=source,
+            symbol=symbol,
+            severity=severity,
+        )
+
+    def get_live_events(self, limit: int = 150) -> list:
+        response = (
+            self.client.table("live_events")
+            .select("*")
+            .order("id", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        return response.data or []
+
     def get_factor_stats(self) -> dict:
         """Compute win rate per factor value range."""
         response = (
@@ -484,6 +787,16 @@ class SupabaseDB(DatabaseAdapter):
         }
         self.client.table("learning_log").insert(entry_data).execute()
         log.info(f"[MEMORY] Learning: [{insight_type}] {insight_text}")
+
+    def get_recent_learning(self, limit: int = 5) -> list:
+        response = (
+            self.client.table("learning_log")
+            .select("insight_type,insight_text")
+            .order("id", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        return response.data or []
 
     def get_pattern_summary(self, symbol: str) -> dict:
         """Get hourly and daily pattern summary for a symbol."""
@@ -555,6 +868,22 @@ class SupabaseDB(DatabaseAdapter):
         if 16 <= hour < 22:
             return "NEW_YORK"
         return "ASIAN"
+
+    @staticmethod
+    def _normalize_symbol(symbol: str) -> str:
+        mapping = {
+            "GOLD.i#": "XAUUSD",
+            "SILVER.i#": "XAGUSD",
+        }
+        return mapping.get(symbol, symbol)
+
+    @staticmethod
+    def _pip_size_for_symbol(symbol: str) -> float:
+        if symbol == "XAUUSD":
+            return 0.1
+        if symbol == "XAGUSD":
+            return 0.01
+        return 0.0001
 
     def close(self):
         """Close database connection (no-op for Supabase)."""

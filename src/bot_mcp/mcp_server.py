@@ -13,13 +13,13 @@ Usage:
 
 import sys
 import json
-import sqlite3
 import argparse
 import logging
 from core.logger_factory import get_logger
 from core.utils import now_utc
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from core.supabase_db import SupabaseDB
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -37,8 +37,6 @@ from core.paths import ROOT_DIR
 BOT_DIR = ROOT_DIR
 STATUS_FILE = ROOT_DIR / "state" / "bot_status.json"
 STATE_FILE = ROOT_DIR / "state" / "trader_state.json"
-TRADES_DB = ROOT_DIR / "data" / "trades.db"
-TRADE_MEMORY_DB = ROOT_DIR / "data" / "trade_memory.db"
 SCORING_WEIGHTS = ROOT_DIR / "config" / "scoring_weights.json"
 SKILLS_DIR = ROOT_DIR / "skills"
 
@@ -62,35 +60,8 @@ def _load_json(path: Path, default=None):
         return default if default is not None else {}
 
 
-def _rows_to_dicts(columns, rows):
-    """Convert sqlite3 rows to list of dicts."""
-    result = []
-    for row in rows:
-        d = dict(zip(columns, row))
-        # JSON-decode string fields
-        for key in ("factors_json", "conditions_json", "skills_used", "filter_reasons"):
-            if key in d and isinstance(d[key], str):
-                try:
-                    d[key] = json.loads(d[key])
-                except Exception as e:
-                    try: log.debug(f'Caught exception: {e}')
-                    except: pass
-                    pass
-        result.append(d)
-    return result
-
-
-def _query(db_path: Path, sql: str, params=()):
-    try:
-        with sqlite3.connect(db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            cur = conn.execute(sql, params)
-            cols = [c[0] for c in cur.description] if cur.description else []
-            rows = cur.fetchall()
-            return _rows_to_dicts(cols, rows)
-    except Exception as e:
-        log.error(f"DB error on {db_path}: {e}")
-        return []
+def _db() -> SupabaseDB:
+    return SupabaseDB()
 
 
 # ── MCP Tools ────────────────────────────────────────────────────────────────
@@ -111,7 +82,7 @@ def get_status() -> dict:
 @mcp.tool()
 def get_trades(limit: int = 50, symbol: str = None) -> dict:
     """
-    Return recent trades from trade_memory.db (trade_outcomes table).
+    Return recent trades from Supabase trade_outcomes.
 
     Args:
         limit: Max number of trades (default 50, max 500)
@@ -120,31 +91,7 @@ def get_trades(limit: int = 50, symbol: str = None) -> dict:
     log.info(f"[get_trades] limit={limit}, symbol={symbol}")
     limit = min(limit, 500)
 
-    if symbol:
-        rows = _query(TRADE_MEMORY_DB,
-            "SELECT * FROM trade_outcomes WHERE symbol=? ORDER BY ts DESC LIMIT ?",
-            (symbol, limit))
-    else:
-        rows = _query(TRADE_MEMORY_DB,
-            "SELECT * FROM trade_outcomes ORDER BY ts DESC LIMIT ?",
-            (limit,))
-
-    # When trade_outcomes is empty, fall back to trade_entries (open/unrecorded trades)
-    if not rows:
-        if symbol:
-            entries = _query(TRADE_MEMORY_DB,
-                "SELECT id, ts, ticket, symbol, direction, entry_price, confidence, "
-                "skills_used, closed FROM trade_entries WHERE symbol=? ORDER BY ts DESC LIMIT ?",
-                (symbol, limit))
-        else:
-            entries = _query(TRADE_MEMORY_DB,
-                "SELECT id, ts, ticket, symbol, direction, entry_price, confidence, "
-                "skills_used, closed FROM trade_entries ORDER BY ts DESC LIMIT ?",
-                (limit,))
-        for e in entries:
-            e["source"] = "trade_entries"
-            e["outcome"] = "OPEN" if not e.get("closed") else "UNKNOWN"
-        return {"trades": entries, "count": len(entries), "note": "trade_outcomes empty — showing trade_entries"}
+    rows = _db().get_all_outcomes(symbol=symbol, limit=limit)
 
     return {"trades": rows, "count": len(rows)}
 
@@ -160,11 +107,11 @@ def get_performance_summary(days: int = 7) -> dict:
     log.info(f"[get_performance_summary] days={days}")
     days = min(days, 90)
 
-    trades = _query(TRADE_MEMORY_DB,
-        """SELECT * FROM trade_outcomes
-           WHERE ts >= datetime('now', ?)
-           ORDER BY ts DESC""",
-        (f"-{days} days",))
+    cutoff = (now_utc() - timedelta(days=days)).isoformat()
+    trades = [
+        trade for trade in _db().get_all_outcomes(limit=1000)
+        if (trade.get("ts") or "") >= cutoff
+    ]
 
     if not trades:
         return {"days": days, "trades": [], "summary": {

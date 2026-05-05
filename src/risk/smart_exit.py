@@ -21,17 +21,13 @@ Each ticket evaluates exactly one terminal action per cycle (early
 return). Trailing-stop modifications are non-terminal (just tighten SL).
 """
 
-import sqlite3
 import time
 from datetime import datetime, timezone
-from pathlib import Path
 
 from core.logger_factory import get_logger
-from core.paths import DATA_DIR
+from core.supabase_db import SupabaseDB
 
 log = get_logger("smart_exit")
-
-DB_PATH = DATA_DIR / "trade_memory.db"
 
 # ── Exit Configuration ───────────────────────────────────────────────────────
 # All thresholds in pips unless suffixed _usd, _hours, _minutes.
@@ -70,32 +66,26 @@ EXIT_CFG = {
 # ── DB helpers ───────────────────────────────────────────────────────────────
 
 def _ensure_tables():
-    with sqlite3.connect(str(DB_PATH)) as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS smart_exits (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                ts          TEXT NOT NULL,
-                ticket      TEXT NOT NULL,
-                symbol      TEXT NOT NULL,
-                direction   TEXT NOT NULL,
-                exit_type   TEXT NOT NULL,
-                profit_pips REAL,
-                profit_usd  REAL,
-                reason      TEXT,
-                ai_input    TEXT
-            )
-        """)
+    return None
 
 
 def _record_exit(ticket, symbol, direction, exit_type, pips, usd, reason):
     ts = datetime.now(timezone.utc).isoformat()
     try:
-        with sqlite3.connect(str(DB_PATH)) as conn:
-            conn.execute("""
-                INSERT INTO smart_exits (ts, ticket, symbol, direction, exit_type,
-                    profit_pips, profit_usd, reason)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (ts, str(ticket), symbol, direction, exit_type, pips, usd, reason))
+        SupabaseDB().log_runtime_event(
+            "smart_exit",
+            {
+                "ts": ts,
+                "ticket": str(ticket),
+                "direction": direction,
+                "exit_type": exit_type,
+                "profit_pips": pips,
+                "profit_usd": usd,
+                "reason": reason,
+            },
+            source="smart_exit",
+            symbol=symbol,
+        )
     except Exception as e:
         log.warning(f"[SMART EXIT] DB record failed: {e}")
 
@@ -151,30 +141,30 @@ class SmartExitManager:
     def get_exit_stats(self) -> dict:
         """Return last-50 smart-exit performance stats."""
         try:
-            with sqlite3.connect(str(DB_PATH)) as conn:
-                conn.row_factory = sqlite3.Row
-                rows = conn.execute(
-                    "SELECT * FROM smart_exits ORDER BY id DESC LIMIT 50"
-                ).fetchall()
-                if not rows:
-                    return {"total": 0}
+            rows = [
+                e for e in SupabaseDB().get_live_events(limit=200)
+                if e.get("event_type") == "smart_exit"
+            ][:50]
+            if not rows:
+                return {"total": 0}
 
-                total = len(rows)
-                by_type = {}
-                total_pips = total_usd = 0.0
-                for r in rows:
-                    et = r["exit_type"]
-                    by_type[et] = by_type.get(et, 0) + 1
-                    total_pips += r["profit_pips"] or 0
-                    total_usd  += r["profit_usd"]  or 0
+            total = len(rows)
+            by_type = {}
+            total_pips = total_usd = 0.0
+            for row in rows:
+                payload = row.get("payload") or {}
+                et = payload.get("exit_type", "UNKNOWN")
+                by_type[et] = by_type.get(et, 0) + 1
+                total_pips += payload.get("profit_pips") or 0
+                total_usd += payload.get("profit_usd") or 0
 
-                return {
-                    "total":      total,
-                    "by_type":    by_type,
-                    "total_pips": round(total_pips, 1),
-                    "total_usd":  round(total_usd, 2),
-                    "avg_pips":   round(total_pips / total, 1) if total else 0,
-                }
+            return {
+                "total": total,
+                "by_type": by_type,
+                "total_pips": round(total_pips, 1),
+                "total_usd": round(total_usd, 2),
+                "avg_pips": round(total_pips / total, 1) if total else 0,
+            }
         except Exception as e:
             log.debug(f"[SMART EXIT] stats query failed: {e}")
             return {"total": 0}

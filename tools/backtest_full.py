@@ -98,7 +98,7 @@ def run_backtest(csv: str, symbol: str, start_idx: int = 300,
     h1 = resample(candles, "1h")  if use_multi_tf else None
     h4 = resample(candles, "4h")  if use_multi_tf else None
 
-    analyzer = MarketAnalyzer(use_claude=False)
+    analyzer = MarketAnalyzer(use_ai=False)
 
     trades   = []
     in_trade = None

@@ -2,7 +2,7 @@
 skill_manager.py — Self-Improving Trading Skill System (Hermes-inspired)
 
 Trading strategies are "skills" stored as SKILL.md files with YAML frontmatter.
-Skills track their own performance and get improved by Ollama AI periodically.
+Skills track their own performance and can be improved from trading outcomes.
 New skills can be auto-generated from detected market patterns.
 """
 
@@ -287,7 +287,7 @@ class SkillManager:
 
     def improve_skill(self, skill_name: str, outcomes: list = None) -> dict:
         """
-        Use Ollama to analyze skill performance and suggest improvements.
+        Analyze skill performance and suggest improvements.
         Returns improvement suggestions dict.
         """
         skills = self._load_all_skills()
@@ -418,5 +418,4 @@ Respond with ONLY JSON:
     def invalidate_cache(self):
         """Force reload of skills on next access."""
         self._skills_cache = None
-
 

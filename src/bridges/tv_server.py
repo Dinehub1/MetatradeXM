@@ -128,16 +128,18 @@ class TVIndicatorServer:
     def _refresh_all(self):
         """Blocking: fetch candles + compute indicators for every symbol/timeframe."""
         from core.analyzer import MarketAnalyzer
-        ma = MarketAnalyzer(use_claude=False)
+        ma = MarketAnalyzer(use_ai=False)
 
         updated: dict = {}
         for display, broker_sym in _SYMBOLS:
             timeframes: dict = {}
+            candles_by_tf: dict = {}
             for tf, count in _TF_CANDLES.items():
                 try:
                     df = self._bridge.get_candles(broker_sym, tf, count)
                     if df is not None and len(df) >= 30:
                         timeframes[tf] = ma._compute_indicators(df)
+                        candles_by_tf[tf] = self._serialize_candles(df.tail(120))
                 except Exception as e:
                     log.debug("[TVServer] %s/%s candle error: %s", display, tf, e)
 
@@ -149,6 +151,7 @@ class TVIndicatorServer:
             self._latest[display] = {
                 "indicators": indicators,
                 "timeframes": timeframes,
+                "candles": candles_by_tf,
                 "_last_update": time.time(),
             }
             updated[display] = self._latest[display]
@@ -157,6 +160,7 @@ class TVIndicatorServer:
             _adx = self._latest.get("XAUUSD", {}).get("indicators", {}).get("adx", "?")
             _rsi = self._latest.get("XAUUSD", {}).get("indicators", {}).get("rsi", "?")
             log.info("[TVServer] Indicators refreshed — XAUUSD ADX=%s RSI=%s", _adx, _rsi)
+            self._publish_supabase(updated)
             # Persist snapshot to disk so dashboard /api/live-snapshot can read it
             try:
                 from core.paths import STATE_DIR
@@ -174,6 +178,46 @@ class TVIndicatorServer:
                 "type": "snapshot",
                 "data": {"session": self._session(), "symbols": dict(self._latest)},
             })
+
+    def _publish_supabase(self, updated: dict):
+        """Best-effort publish of indicator snapshots to Supabase."""
+        try:
+            from core.supabase_db import SupabaseDB
+            db = SupabaseDB()
+            broker_map = dict(_SYMBOLS)
+            for symbol, payload in updated.items():
+                merged = dict(payload)
+                merged["session"] = self._session()
+                db.upsert_live_market_snapshot(
+                    symbol,
+                    broker_symbol=broker_map.get(symbol),
+                    payload=merged,
+                    source="tv_server",
+                )
+            db.log_live_event(
+                "indicator_snapshot",
+                {"symbols": list(updated.keys()), "session": self._session()},
+                source="tv_server",
+            )
+        except Exception as e:
+            log.debug("[TVServer] Supabase publish skipped: %s", e)
+
+    @staticmethod
+    def _serialize_candles(df):
+        candles = []
+        for row in df.to_dict("records"):
+            ts = row.get("time")
+            if hasattr(ts, "isoformat"):
+                ts = ts.isoformat()
+            candles.append({
+                "time": ts,
+                "o": row.get("o"),
+                "h": row.get("h"),
+                "l": row.get("l"),
+                "c": row.get("c"),
+                "vol": row.get("vol"),
+            })
+        return candles
 
     # ── Broadcast ───────────────────────────────────────────────────────────────
 

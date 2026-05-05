@@ -1,54 +1,43 @@
 #!/usr/bin/env python3
-"""Quick verification: compare MetaApi candle data vs live tick price."""
-import os, sys
+"""Quick verification: compare Windows bridge ticks with Supabase live snapshots."""
+import os
+import sys
 from pathlib import Path
 
-ROOT = Path(__file__).parent
-_env = ROOT / ".env"
-if _env.exists():
-    for line in _env.read_text().splitlines():
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "src"))
+
+env_file = ROOT / ".env"
+if env_file.exists():
+    for line in env_file.read_text().splitlines():
         line = line.strip()
         if line and not line.startswith("#") and "=" in line:
-            k, v = line.split("=", 1)
-            os.environ[k.strip()] = v.strip()
+            key, value = line.split("=", 1)
+            os.environ[key.strip()] = value.strip().strip('"').strip("'")
 
-from bridges.metaapi_bridge import MetaApiBridge
+from continuous_trader import make_bridge, connect_with_retry
+from core.supabase_db import SupabaseDB
 
-bridge = MetaApiBridge()
-print("Connecting to MetaApi...")
-if not bridge.connect():
-    print("FAILED to connect")
-    sys.exit(1)
 
-for sym in ["GOLD.i#", "SILVER.i#"]:
-    print(f"\n{'='*60}")
-    print(f"  {sym}")
-    print(f"{'='*60}")
+def main():
+    bridge = make_bridge()
+    if not connect_with_retry(bridge, max_attempts=2):
+        raise SystemExit("FAILED to connect to Windows bridge")
 
-    # Live tick
-    tick = bridge.get_tick(sym)
-    if tick:
-        print(f"  LIVE TICK: ask={tick.ask:.5f}  bid={tick.bid:.5f}")
-    else:
-        print(f"  LIVE TICK: FAILED")
+    db = SupabaseDB()
+    rows = {row["symbol"]: row for row in db.get_live_market_snapshots()}
 
-    # M15 candles — last 5
-    df = bridge.get_candles(sym, "M15", 500)
-    if df is not None and len(df) > 0:
-        print(f"  CANDLES: {len(df)} bars loaded")
-        print(f"  FIRST candle: {df.iloc[0]['time']}  close={df.iloc[0]['c']}")
-        print(f"  LAST  candle: {df.iloc[-1]['time']}  close={df.iloc[-1]['c']}")
-        print(f"\n  Last 5 candles:")
-        for _, row in df.tail(5).iterrows():
-            print(f"    {row['time']}  O={row['o']:.2f}  H={row['h']:.2f}  L={row['l']:.2f}  C={row['c']:.2f}  V={row['vol']}")
+    for broker_symbol, display_symbol in [("GOLD.i#", "XAUUSD"), ("SILVER.i#", "XAGUSD")]:
+        tick = bridge.get_tick(broker_symbol)
+        snap = rows.get(display_symbol, {})
+        print(f"\n{'='*60}")
+        print(f"  {display_symbol} / {broker_symbol}")
+        print(f"{'='*60}")
+        print(f"  BRIDGE TICK: bid={getattr(tick, 'bid', 0)} ask={getattr(tick, 'ask', 0)}")
+        print(f"  SUPABASE  : price={snap.get('price')} updated_at={snap.get('updated_at')}")
 
-        gap = abs(tick.ask - df.iloc[-1]['c']) if tick else 0
-        print(f"\n  ⚡ GAP: tick={tick.ask:.2f} vs last_candle_close={df.iloc[-1]['c']:.2f} = ${gap:.2f} difference")
-        if gap > 10:
-            print(f"  🚨 STALE DATA! Gap is ${gap:.2f} — candle data is outdated!")
-        else:
-            print(f"  ✅ Data looks fresh (gap < $10)")
-    else:
-        print(f"  CANDLES: FAILED or empty")
+    bridge.disconnect()
 
-bridge.disconnect()
+
+if __name__ == "__main__":
+    main()

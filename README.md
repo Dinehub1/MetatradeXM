@@ -7,13 +7,13 @@ An autonomous, multi-symbol automated trading system (XAUUSD + XAGUSD) that comb
 - **Real-Time Data Pipeline**: Receives market ticks directly from MetaTrader 5 via webhook (not polling) for sub-millisecond latency
 - **Hybrid Decision Engine**: 
   - **Deterministic**: 9-factor scoring logic analyzing H4, H1, and M15 timeframes (RSI, MACD, ADX, Stochastic, Bollinger Bands, ATR)
-  - **AI Confirmation**: NVIDIA Claude API (fallback: Gemini) validates signals with quantitative reasoning
+  - **AI Confirmation**: NVIDIA API validates signals with quantitative reasoning
 - **Smart Analytics**: Real-time scoring with multi-timeframe confluence detection and regime-aware filtering
-- **Self-Improving Memory**: Analyzes past trades in SQLite, detects profit/loss patterns, auto-adjusts strategy weights
+- **Self-Improving Memory**: Analyzes past trades in Supabase, detects profit/loss patterns, auto-adjusts strategy weights
 - **Adaptive Exit Management**: Momentum-reversal exits, breakeven stops, time-decay closing, trailing stops, and smart position pyramiding
 - **Risk & Capital Management**: Dynamic position sizing, correlation filtering, max loss limits, session-aware capital allocation
 - **Live Dashboard**: Real-time web UI (Flask, port 8889) for P&L tracking, system health, and AI decision transparency
-- **Cross-Platform**: Runs on macOS, Linux, or Windows via MetaApi Cloud SDK (no native MT5 required)
+- **Windows MT5 Bridge**: Runs the bot from macOS/Linux while using the Windows MT5 webhook/WebSocket bridge for broker data and execution
 
 ## System Architecture
 
@@ -26,14 +26,14 @@ MetaTrader 5 Webhook
 ├─────────────────────────────────────┤
 │ Core Modules:                       │
 │  • analyzer.py (9-factor scoring)   │
-│  • ai_client.py (NVIDIA/Gemini API) │
+│  • ai_client.py (NVIDIA API)        │
 │  • bridges/ (MT5 connectors)        │
 │  • risk/ (exit, pyramid, scaling)   │
 │  • learning/ (self-improvement)     │
 └─────────────────────────────────────┘
     ↓ (orders)
     ↓
-MetaApi Cloud SDK → MetaTrader 5 Account
+Windows MT5 Webhook/WebSocket Bridge → MetaTrader 5 Account
 ```
 
 Read the full architecture overview in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -58,8 +58,7 @@ deployment/           - Scripts & operations
 ├── scripts/          - start_trading_cycle.sh, auto_recovery.sh
 └── docs/             - Deployment & operations guides
 
-data/                 - Databases & results
-├── databases/        - trade_memory.db, trades.db
+data/                 - Historical files & results
 ├── histories/        - Price data
 ├── backtests/        - Backtest results
 └── glm51_reports/    - AI analysis reports
@@ -75,8 +74,9 @@ archive/             - Inactive/old files
 ### 1. Requirements
 
 - **Python 3.9+**
-- **NVIDIA API Key** (for Claude trade confirmation; fallback: Gemini API)
-- **MetaApi Cloud Account** + MT5 Account configured with webhook server
+- **NVIDIA API Key** (for trade confirmation)
+- **Supabase project** for trade memory, dashboard state, and analytics
+- **Windows MT5 webhook/WebSocket bridge** running on ports `5001` and `5002`
 - **MetaTrader 5 Webhook Bridge** running on your Windows VM/broker server
 
 ### 2. Setup
@@ -90,16 +90,14 @@ cp .env.example .env
 
 # Edit .env and add:
 # - NVIDIA_API_KEY (required for trade confirmation)
-# - METAAPI_TOKEN (for cloud MT5 access)
-# - METAAPI_ACCOUNT_ID (your trading account)
-# - WIN_WS_URL (MetaTrader webhook WebSocket URL)
-# - WIN_WEBHOOK_URL (webhook HTTP endpoint)
+# - WIN_WEBHOOK_URL (Windows webhook HTTP endpoint, usually port 5001)
+# - WIN_WS_URL (Windows webhook WebSocket URL, usually port 5002)
 ```
 
 **Data Sources:**
 - **Live Ticks**: MetaTrader 5 webhook (real-time, event-driven)
-- **AI Decisions**: NVIDIA Claude API (primary) → Gemini API (fallback)
-- **Trade Execution**: MetaApi Cloud SDK (cross-platform MT5 bridge)
+- **AI Decisions**: NVIDIA API
+- **Trade Execution**: Windows MT5 webhook HTTP bridge
 
 For detailed setup, see [docs/SETUP.md](docs/SETUP.md).
 
@@ -160,18 +158,17 @@ The startup script auto-manages:
 
 ## AI Integration
 
-**Primary AI Provider**: NVIDIA Claude API
+**AI Provider**: NVIDIA API
 - Validates trade signals with quantitative reasoning
 - Cost-effective inference with fast response times
 
-**Fallback Provider**: Google Gemini API
-- Used if NVIDIA unavailable
-- Same trade confirmation logic
+If NVIDIA is unavailable, the system falls back to deterministic indicator logic instead of a second AI provider.
 
 **API Keys Required** in `.env`:
 ```
 NVIDIA_API_KEY=your-api-key
-GEMINI_API_KEY=optional-fallback
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=your-anon-key
 ```
 
 ## Data Sources
@@ -187,6 +184,6 @@ GEMINI_API_KEY=optional-fallback
 - Regime detection (trend/range, volatility)
 
 **Self-Improvement**
-- SQLite trade memory database
+- Supabase trade memory database
 - Pattern detection on closed trades
 - Auto-adjustment of strategy weights

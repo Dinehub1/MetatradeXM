@@ -105,7 +105,6 @@ log = logging.getLogger("trader")
 for _noisy in (
     "socketio",
     "engineio",
-    "metaapi_cloud_sdk",
     "asyncio",
     "urllib3",
     "requests",
@@ -125,6 +124,7 @@ SYMBOLS = [
         "broker": "GOLD.i#",
         "display": "XAUUSD",
         "pip": 0.10,
+        "digits": 2,
         "contract_size": 100,
         "sl_pips": 35,           # fallback if ATR unavailable
         "tp_pips": 70,
@@ -146,6 +146,7 @@ SYMBOLS = [
         "broker": "SILVER.i#",
         "display": "XAGUSD",
         "pip": 0.01,
+        "digits": 3,
         "contract_size": 5000,
         "sl_pips": 25,
         "tp_pips": 80,
@@ -231,11 +232,88 @@ def _sanitize(obj):
 
 
 _HERMES_DIR = Path.home() / ".hermes"
+_SUPABASE_LIVE = None
+_SUPABASE_LIVE_FAILED = False
+
+
+def _get_supabase_live():
+    """Lazy Supabase client for live dashboard writes."""
+    global _SUPABASE_LIVE, _SUPABASE_LIVE_FAILED
+    if _SUPABASE_LIVE_FAILED:
+        return None
+    if _SUPABASE_LIVE is not None:
+        return _SUPABASE_LIVE
+    try:
+        from core.supabase_db import SupabaseDB
+        _SUPABASE_LIVE = SupabaseDB()
+        return _SUPABASE_LIVE
+    except Exception as e:
+        _SUPABASE_LIVE_FAILED = True
+        log.warning(f"Supabase live dashboard disabled: {e}")
+        return None
+
+
+def _require_supabase_live():
+    db = _get_supabase_live()
+    if db is None:
+        raise RuntimeError(
+            "Supabase is required. Set SUPABASE_URL and SUPABASE_ANON_KEY; "
+            "local SQLite fallback has been removed."
+        )
+    return db
+
+
+def _publish_status_to_supabase(clean: dict):
+    """Publish bot/account/position/AI state to the Supabase dashboard source."""
+    db = _get_supabase_live()
+    if not db:
+        return
+    try:
+        session = clean.get("session")
+        account = dict(clean.get("account") or {})
+        account["ts"] = clean.get("ts")
+        db.upsert_live_account_snapshot(account, source="continuous_trader")
+
+        db.replace_live_positions(clean.get("open_positions") or [], source="continuous_trader")
+
+        for symbol, sym_data in (clean.get("symbols") or {}).items():
+            payload = dict(sym_data or {})
+            payload["session"] = session
+            payload["ts"] = clean.get("ts")
+            db.upsert_live_market_snapshot(
+                symbol,
+                broker_symbol=payload.get("broker_symbol"),
+                payload=payload,
+                source="continuous_trader",
+            )
+
+        db.log_live_event(
+            "bot_status",
+            {
+                "state": clean.get("state"),
+                "cycle": clean.get("cycle"),
+                "session": session,
+                "next_analysis_in": clean.get("next_analysis_in"),
+                "open_positions": len(clean.get("open_positions") or []),
+                "symbols": {
+                    sym: {
+                        "signal": data.get("signal"),
+                        "confidence": data.get("confidence"),
+                        "score": data.get("score"),
+                    }
+                    for sym, data in (clean.get("symbols") or {}).items()
+                },
+            },
+            source="continuous_trader",
+        )
+    except Exception as e:
+        log.debug(f"Supabase live dashboard publish error: {e}")
 
 def _write_status(data: dict):
     try:
         clean = _sanitize(data)
         STATUS_FILE.write_text(json.dumps(clean, indent=2))
+        _publish_status_to_supabase(clean)
         # Keep hermes status snapshots in sync so Hermes agent sees fresh data
         _hermes_payload = json.dumps({
             "bot": clean,
@@ -261,32 +339,20 @@ def _log_signal(
     action: str,
     ticket: int = 0,
 ):
-    """Write signal to trades.db for dashboard display."""
-    import sqlite3
-
-    DB_FILE = ROOT_DIR / "data" / "trades.db"
+    """Write signal event to Supabase for dashboard display."""
     try:
-        with sqlite3.connect(str(DB_FILE)) as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS signals (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    ts TEXT, symbol TEXT, direction TEXT,
-                    confidence REAL, reason TEXT, action TEXT,
-                    ticket INTEGER, order_json TEXT
-                )""")
-            conn.execute(
-                "INSERT INTO signals (ts, symbol, direction, confidence, reason, action, ticket) "
-                "VALUES (?,?,?,?,?,?,?)",
-                (
-                    datetime.now(timezone.utc).isoformat(),
-                    symbol,
-                    direction,
-                    round(confidence, 4),
-                    reason[:200],
-                    action,
-                    ticket,
-                ),
-            )
+        _require_supabase_live().log_live_event(
+            "signal",
+            {
+                "direction": direction,
+                "confidence": round(confidence, 4),
+                "reason": reason[:500],
+                "action": action,
+                "ticket": ticket,
+            },
+            source="continuous_trader",
+            symbol=symbol,
+        )
     except Exception as e:
         log.debug(f"Signal log error: {e}")
 
@@ -437,15 +503,7 @@ def make_bridge():
         log.info(f"[BRIDGE] Using Windows MT5 Webhook → {webhook_url}")
         return WebhookBridge(webhook_url)
 
-    # # Priority 3: MetaApi Cloud Bridge (DISABLED — kept as backup)
-    # token = os.environ.get("METAAPI_TOKEN", "")
-    # account_id = os.environ.get("METAAPI_ACCOUNT_ID", "")
-    # if token and account_id:
-    #     from bridges.metaapi_bridge import MetaApiBridge
-    #     log.info("[BRIDGE] Using MetaApi Cloud Bridge")
-    #     return MetaApiBridge(token, account_id)
-
-    # Priority 4: Direct MT5 (Windows-only)
+    # Priority 3: Direct MT5 (Windows-only fallback)
     from bridges.mt5_bridge import MT5Bridge
     log.info("[BRIDGE] Using Direct MT5 Bridge (Windows-only)")
     return MT5Bridge()
@@ -639,6 +697,8 @@ def check_and_close_positions(
                                 str(ticket), current_price, round(pips, 1), outcome,
                                 symbol=sym_cfg["display"],
                                 direction=direction,
+                                profit_usd=profit,
+                                volume=_vol,
                             )
                             
                             if is_primary:
@@ -654,18 +714,17 @@ def check_and_close_positions(
                                 # Wire skill outcome recording
                                 if skill_mgr:
                                     try:
-                                        import sqlite3 as _sql
-                                        with _sql.connect(str(mem.db_path)) as _conn:
-                                            _entry_row = _conn.execute(
-                                                "SELECT skills_used FROM trade_entries WHERE ticket=? ORDER BY id DESC LIMIT 1",
-                                                (str(ticket),)
-                                            ).fetchone()
-                                            if _entry_row and _entry_row[0]:
-                                                import json as _json
-                                                _skills = _json.loads(_entry_row[0])
-                                                if _skills:
-                                                    for _sk in _skills:
-                                                        skill_mgr.record_outcome(_sk, outcome, round(pips, 1))
+                                        _resp = (
+                                            mem.adapter.client.table("trade_entries")
+                                            .select("skills_used")
+                                            .eq("ticket", str(ticket))
+                                            .order("id", desc=True)
+                                            .limit(1)
+                                            .execute()
+                                        )
+                                        _skills = ((_resp.data or [{}])[0].get("skills_used") or [])
+                                        for _sk in _skills:
+                                            skill_mgr.record_outcome(_sk, outcome, round(pips, 1))
                                     except Exception as _se:
                                         log.debug(f"Skill outcome record: {_se}")
 
@@ -709,7 +768,7 @@ def build_order_params(
     if price <= 0:
         log.warning(f"Invalid price {price} for {sym_cfg['display']} — rejecting order")
         return None
-    digits = 2 if pip >= 0.01 else 5
+    digits = int(sym_cfg.get("digits", 2 if pip >= 0.10 else 3 if pip >= 0.01 else 5))
 
     # ── ATR-based SL/TP (per-symbol multipliers + regime adjustment) ──────
     # Validate ATR: must be positive number (not NaN, 0, or negative)
@@ -755,9 +814,10 @@ def build_order_params(
     kelly_f = max(0.0, p - ((1 - p) / b))
     quarter_kelly = kelly_f / 4.0   # quarter-Kelly = much safer than half
 
-    # Base risk: 1% of balance (capped if no balance available)
+    # Base risk: 0.5% of balance with a modest Kelly bump for stronger signals.
     balance = sym_cfg.get("_account_balance", 0) or 1000.0
-    risk_pct = 0.01 * (1 + quarter_kelly)   # 1.0%–1.25% scaling
+    base_risk_pct = float(sym_cfg.get("risk_per_trade_pct", 0.005))
+    risk_pct = base_risk_pct * (1 + quarter_kelly)
     risk_dollars = balance * risk_pct
 
     # Pip value per lot ($10/pip for gold, $50/pip for silver)
@@ -815,13 +875,11 @@ class ContinuousTrader:
         # ── Self-improving systems ──────────────────────────────────────
         try:
             from learning.memory import TradeMemory
-            from pathlib import Path
 
             self.memory = TradeMemory()
-            # Validate that memory system works by checking DB path exists
-            if not Path(self.memory.db_path).exists():
-                raise RuntimeError(f"Memory database not created at {self.memory.db_path}")
-            log.info("  [MEMORY] Trade memory system initialized")
+            if not getattr(self.memory, "adapter", None):
+                raise RuntimeError("Supabase memory adapter not initialized")
+            log.info("  [MEMORY] Supabase trade memory initialized")
         except Exception as e:
             log.error(f"  [MEMORY] CRITICAL: Cannot start without working memory system: {e}")
             raise RuntimeError(f"Memory system initialization failed: {e}") from e
@@ -962,7 +1020,7 @@ class ContinuousTrader:
         try:
             from core.analyzer import MarketAnalyzer
 
-            analyzer = MarketAnalyzer(use_claude=CONFIG["use_ai"])
+            analyzer = MarketAnalyzer(use_ai=CONFIG["use_ai"])
 
             # Prefetch memory context for AI reasoning.
             # Use indicators cached from the PREVIOUS cycle so the AI sees
@@ -1146,6 +1204,8 @@ class ContinuousTrader:
                             tk, 0.0, round(_pips, 1), outcome,
                             symbol=_sc["display"],
                             direction=info["direction"],
+                            profit_usd=pr,
+                            volume=_vol,
                         )
                         # Notify pyramid manager
                         if self.pyramid:
@@ -1222,6 +1282,16 @@ class ContinuousTrader:
         """Executes pyramid tranche checks and scales into winning positions."""
         if self.pyramid and self.pyramid.active_pyramid_count() > 0:
             try:
+                for symbol, session in list(self.pyramid.sessions.items()):
+                    signal = self._symbol_signals.get(symbol) or {}
+                    signal_dir = signal.get("direction", "HOLD")
+                    signal_conf = float(signal.get("confidence") or 0.0)
+                    if signal_dir != session.direction or signal_conf < 0.65:
+                        log.info(
+                            f"   [PYRAMID] {symbol} paused | signal={signal_dir} conf={signal_conf:.0%} "
+                            f"session_dir={session.direction}"
+                        )
+                        return positions_by_sym
                 _sym_lookup = {s["display"]: s for s in SYMBOLS}
                 pyramid_actions = self.pyramid.check_pyramids(self.bridge, _sym_lookup, positions_by_sym)
                 if pyramid_actions:
@@ -1886,8 +1956,11 @@ class ContinuousTrader:
                                         "indicators", {}
                                     ).get("rsi", 0),
                                     "h4_trend": signal_data.get("h4_trend", ""),
+                                    "broker_symbol": broker_sym,
+                                    "comment": order.get("comment"),
                                 },
                                 skills_used=skills_used,
+                                volume=order.get("lot"),
                             )
 
                         self.state["total_trades"] += 1
@@ -2056,6 +2129,7 @@ class ContinuousTrader:
                             "direction": d,
                             "volume": getattr(p, "volume", 0),
                             "open_price": op,
+                            "current_price": getattr(p, "price_current", op),
                             "profit": round(pr, 2),
                             "sl": getattr(p, "sl", 0),
                             "tp": getattr(p, "tp", 0),

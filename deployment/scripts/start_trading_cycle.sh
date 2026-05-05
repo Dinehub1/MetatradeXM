@@ -21,7 +21,7 @@ header() {
 cat << 'EOF'
 ╔══════════════════════════════════════════════════════════╗
 ║         MT5 AI TRADING SYSTEM — XAUUSD + XAGUSD         ║
-║            Powered by MetaApi + Ollama AI                ║
+║       Powered by Windows Bridge + NVIDIA AI              ║
 ╚══════════════════════════════════════════════════════════╝
 EOF
 }

@@ -5,7 +5,7 @@ Writes one JSONL record per analysis cycle covering every stage of the pipeline:
 
   Stage 1  RAW_DATA      TradingView live indicators per timeframe (M15/H1/H4/D1)
   Stage 2  CALCULATIONS  Factor scores F1-F12, composite score, regime
-  Stage 3  AI_CONTEXT    Summary of what was sent to Gemini (key numbers)
+  Stage 3  AI_CONTEXT    Summary of what was sent to NVIDIA (key numbers)
   Stage 4  DECISION      Final BUY/SELL/HOLD + confidence + reason
 
 View with:

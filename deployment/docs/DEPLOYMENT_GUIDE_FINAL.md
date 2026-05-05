@@ -24,7 +24,7 @@
 - Pip division by zero (error logging)
 - Async file I/O (non-blocking saves)
 - AI JSON schema validation (reject malformed)
-- AI fallback chain re-enabled (Gemini T2/T3)
+- NVIDIA-only AI flow with deterministic indicator fallback
 - SSRF vulnerability fix (URL validation)
 
 **Total: 13 Critical/High Issues Fixed**
@@ -120,15 +120,15 @@ tail -f logs/trading.log | grep -E "(ERROR|WARN|CRITICAL)"
 [INFO] [BRIDGE] Using Windows MT5 Webhook → http://...
 [INFO] 🔌 Connecting to MetaTrader (attempt 1/5)...
 [INFO] ✅ Bridge connected
-[INFO] [AI] Active tiers: T1-NVIDIA → T2-NVIDIA-B → T2-Gemini-Pro → T3-Gemini-Flash
+[INFO] [AI] Active path: NVIDIA confirmation with indicator fallback if needed
 [INFO] [KELLY] p=0.70 b=3.00 | qK=0.045 | risk=1.0% | lot=0.01
 ```
 
 ### Warnings to Watch For (Monitor but expected)
 
 ```
-[WARNING] [AI] No Gemini API key configured. Set GEMINI_API_KEY for fallback tier.
-→ Normal if you don't have Gemini key (NVIDIA will be T1, Gemini missing as T2)
+[WARNING] [AI] NVIDIA unavailable, using indicator fallback
+→ Investigate NVIDIA connectivity if this persists
 
 [DEBUG] Invalid ATR (0.0) for XAUUSD — using fallback fixed stops
 → Normal during market gaps or startup
@@ -205,7 +205,7 @@ python3 continuous_trader.py
 
 **If: Memory system fails**
 ```
-→ Delete data/trades.db (will be recreated)
+→ Verify Supabase connectivity and restart the bot
 → Verify learning/ folder exists
 → Run: python3 -c "from learning.memory import TradeMemory; TradeMemory()"
 ```
@@ -227,8 +227,9 @@ python3 continuous_trader.py
 NVIDIA_API_KEY=nvapi-...  # Required
 INVOKE_URL=https://integrate.api.nvidia.com/v1/chat/completions
 
-# Optional but recommended (fallback)
-GEMINI_API_KEY=AIza...    # For fallback tier
+# Supabase Configuration
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=your-anon-key
 
 # Broker Configuration
 WIN_WEBHOOK_URL=http://localhost:5001  # Or your Windows webhook server
@@ -258,7 +259,7 @@ DRY_RUN=false
 ### After Week 2 Fixes ✅
 - File I/O: Async queue, <1ms main thread impact
 - Bridge connection: Test at startup (fail-fast)
-- API failures: Auto-fallback to Gemini
+- API failures: fallback to deterministic indicator logic
 - Stale prices: Rejected if >30s old
 - Latency improvement: -50-200ms per position close
 
@@ -278,7 +279,7 @@ state/loss_streaks.json
 state/peak_profits.json
 
 # Database
-data/trades.db
+Supabase project tables
 
 # Check logs:
 tail -f logs/trading.log

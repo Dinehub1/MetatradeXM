@@ -39,8 +39,8 @@ Complete guide to set up Supabase as your cloud database for MetatradeXM across 
 
 1. In Supabase, go to **SQL Editor**
 2. Click **"New Query"**
-3. Copy & paste the entire contents of `migrations/001_supabase_schema.sql`
-4. Click **"Run"** (green play button)
+3. Copy & paste the contents of `migrations/001_supabase_schema.sql`, then run migrations `002`, `003`, and `004_live_dashboard_source.sql`
+4. Click **"Run"** (green play button) for each migration
 5. Wait for tables to be created ✅
 
 ### 4. Configure Your Project
@@ -53,13 +53,12 @@ cat > /home/user/MetatradeXM/.env << 'EOF'
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
-# MetaApi (your existing credentials)
-METAAPI_TOKEN=your_metaapi_token
-METAAPI_ACCOUNT_ID=your_account_id
+# NVIDIA AI
+NVIDIA_API_KEY=your_nvidia_key
 
-# Ollama (local AI)
-OLLAMA_HOST=http://localhost:11434
-OLLAMA_MODEL=minimax-m2.7:cloud
+# Windows bridge
+WIN_WEBHOOK_URL=http://your-windows-host:5001
+WIN_WS_URL=ws://your-windows-host:5002
 
 # Trading
 DRY_RUN=false
@@ -81,11 +80,7 @@ pip install -r requirements.txt
 python3 scripts/migrate_to_supabase.py
 ```
 
-This script:
-- Reads your local `data/trade_memory.db` (SQLite)
-- Transfers all trade history to Supabase
-- Preserves all data: trade outcomes, entries, patterns, learning logs
-- **Does NOT delete your local .db file** (you can keep it as backup)
+This script is now a placeholder because the project is already Supabase-only.
 
 ### 7. Start Trading!
 
@@ -93,7 +88,7 @@ This script:
 python3 start_trading_cycle.sh
 ```
 
-Your bot will now use Supabase instead of SQLite. All three environments (Mac, Ubuntu, Windows) will share the same database.
+Your bot now uses Supabase as the only shared database across Mac, Ubuntu, and Windows.
 
 ---
 
@@ -118,7 +113,7 @@ pip install --upgrade supabase postgrest-py
 # 4. Test connection
 python3 -c "from src.core.supabase_db import SupabaseDB; db = SupabaseDB(); print('✅ Connected to Supabase!')"
 
-# 5. Migrate data (if you have trade_memory.db)
+# 5. Confirm Supabase-only setup
 python3 scripts/migrate_to_supabase.py
 
 # 6. Run bot
@@ -234,13 +229,12 @@ Create `.env` in project root:
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
-# ── OPTIONAL: MetaApi (your existing credentials) ──
-METAAPI_TOKEN=your_token
-METAAPI_ACCOUNT_ID=your_account_id
+# ── REQUIRED: NVIDIA AI ────────────────────────────
+NVIDIA_API_KEY=your_nvidia_key
 
-# ── OPTIONAL: Local Ollama ─────────────────────────
-OLLAMA_HOST=http://localhost:11434
-OLLAMA_MODEL=minimax-m2.7:cloud
+# ── REQUIRED: Windows bridge ───────────────────────
+WIN_WEBHOOK_URL=http://your-windows-host:5001
+WIN_WS_URL=ws://your-windows-host:5002
 
 # ── Optional: Trading Mode ────────────────────────
 DRY_RUN=false              # Set to true for paper trading
@@ -255,9 +249,12 @@ LOG_LEVEL=INFO             # DEBUG, INFO, WARNING, ERROR
 3. **Settings > API**
 4. Copy **Project URL** and **Anon Public Key**
 
-**MetaApi Token & Account ID:**
-- Already in your project from before (if you have them)
-- Or from [MetaApi Dashboard](https://app.metaapi.cloud)
+**NVIDIA API Key:**
+- Configure your NVIDIA API key in `.env`
+
+**Windows bridge URLs:**
+- `WIN_WEBHOOK_URL` should point to your Windows HTTP bridge on port `5001`
+- `WIN_WS_URL` should point to your Windows WebSocket bridge on port `5002`
 
 ---
 
@@ -344,16 +341,11 @@ echo "SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." >> .env
 
 ### "Migration says 0 records migrated"
 
-**Problem:** Script runs but migrates 0 rows
+**Problem:** Script runs but reports no migration needed
 
 **Solution:**
 ```bash
-# Check if SQLite db exists
-ls -la /home/user/MetatradeXM/data/trade_memory.db
-
-# If it doesn't exist, migration will skip it (that's OK!)
-# If it does exist, check if it has data:
-sqlite3 /home/user/MetatradeXM/data/trade_memory.db "SELECT COUNT(*) FROM trade_outcomes;"
+This is expected after the Supabase-only cutover.
 ```
 
 ### "Real-time listeners not working"
@@ -456,7 +448,7 @@ You now have:
 ✅ **Real-time Sync** - Changes propagate instantly via WebSocket  
 ✅ **Multi-Environment** - Mac, Ubuntu, Windows all share same DB  
 ✅ **Migration Tool** - Preserved all historical trade data  
-✅ **Fallback Support** - Gracefully falls back to SQLite if Supabase unavailable
+✅ **Single Source of Truth** - Supabase is the only supported database
 
 ---
 

@@ -115,7 +115,7 @@ class BacktestResult:
 
 class HistoricalMarketAnalyzer(MarketAnalyzer):
     def __init__(self, backtest_ts: pd.Timestamp):
-        super().__init__(use_claude=False)
+        super().__init__(use_ai=False)
         self.backtest_ts = backtest_ts
 
     def set_backtest_ts(self, backtest_ts: pd.Timestamp) -> None:

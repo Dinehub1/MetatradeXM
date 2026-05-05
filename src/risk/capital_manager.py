@@ -18,16 +18,14 @@ AGGRESSIVE PROFIT BOOKING:
 """
 
 import json
-import sqlite3
 from core.logger_factory import get_logger
 from datetime import datetime, timezone, timedelta
-from pathlib import Path
-from core.paths import DATA_DIR, STATE_DIR
+from core.paths import STATE_DIR
+from core.supabase_db import SupabaseDB
 
 
 log = get_logger("capital_mgr")
 
-DB_PATH    = DATA_DIR / "trade_memory.db"
 STATE_PATH = STATE_DIR / "capital_state.json"
 
 # ── Configuration ─────────────────────────────────────────────────────────────
@@ -100,21 +98,7 @@ def _save_state(state: dict):
 
 
 def _ensure_table():
-    with sqlite3.connect(str(DB_PATH)) as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS partial_closes (
-                id           INTEGER PRIMARY KEY AUTOINCREMENT,
-                ts           TEXT NOT NULL,
-                ticket       TEXT NOT NULL,
-                symbol       TEXT NOT NULL,
-                direction    TEXT NOT NULL,
-                level_pips   REAL NOT NULL,
-                close_pct    REAL NOT NULL,
-                close_volume REAL NOT NULL,
-                profit_usd   REAL,
-                outcome      TEXT DEFAULT 'BOOKED'
-            )
-        """)
+    return None
 
 
 # ── Capital Manager ──────────────────────────────────────────────────────────
@@ -401,14 +385,21 @@ def _record_partial_close(ticket, symbol, direction, level_pips,
                            close_pct, close_vol, profit_usd):
     ts = datetime.now(timezone.utc).isoformat()
     try:
-        with sqlite3.connect(str(DB_PATH)) as conn:
-            conn.execute("""
-                INSERT INTO partial_closes
-                (ts, ticket, symbol, direction, level_pips, close_pct, close_volume, profit_usd)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (ts, str(ticket), symbol, direction, level_pips,
-                  close_pct, close_vol, profit_usd))
+        SupabaseDB().log_runtime_event(
+            "partial_close",
+            {
+                "ts": ts,
+                "ticket": str(ticket),
+                "direction": direction,
+                "level_pips": level_pips,
+                "close_pct": close_pct,
+                "close_volume": close_vol,
+                "profit_usd": profit_usd,
+                "outcome": "BOOKED",
+            },
+            source="capital_manager",
+            symbol=symbol,
+        )
     except Exception as e:
         log.warning(f"[CAPITAL] DB record failed: {e}")
-
 

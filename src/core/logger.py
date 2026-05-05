@@ -1,19 +1,16 @@
 """
-TradeLogger — SQLite-backed trade/signal journal.
+TradeLogger — Supabase-backed trade/signal journal.
 """
 from __future__ import annotations
 
-import sqlite3
-import json
 import logging
 import logging.handlers
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from core.paths import LOG_DIR, DATA_DIR
+from core.paths import LOG_DIR
 
-DB_FILE = DATA_DIR / "trades.db"
 LOG_FILE = LOG_DIR / "bot.log"
 
 _FMT = logging.Formatter(
@@ -71,46 +68,35 @@ except ImportError:
 
 
 class TradeLogger:
-    def __init__(self, db_path: str = DB_FILE):
-        self.db_path = db_path
-        self._init_db()
+    def __init__(self, db_path: str = None):
+        if db_path:
+            bot_log.warning("Ignoring db_path=%s; Supabase is the only signal journal", db_path)
 
     def _init_db(self):
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS signals (
-                    id        INTEGER PRIMARY KEY AUTOINCREMENT,
-                    ts        TEXT,
-                    symbol    TEXT,
-                    direction TEXT,
-                    confidence REAL,
-                    reason    TEXT,
-                    action    TEXT,
-                    ticket    INTEGER,
-                    order_json TEXT
-                )
-            """)
-            conn.commit()
+        return None
 
     def log(self, signal: dict, action: str = "HOLD",
             order: dict | None = None, ticket: int | None = None,
             symbol: str = ""):
         sym = symbol or signal.get("indicators", {}).get("symbol", "N/A")
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
-                INSERT INTO signals (ts, symbol, direction, confidence, reason, action, ticket, order_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                datetime.now(timezone.utc).isoformat(),
-                sym,
-                signal["direction"],
-                signal["confidence"],
-                signal["reason"],
-                action,
-                ticket,
-                json.dumps(order) if order else None,
-            ))
-            conn.commit()
+        try:
+            from core.supabase_db import SupabaseDB
+            SupabaseDB().log_runtime_event(
+                "signal",
+                {
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                    "direction": signal["direction"],
+                    "confidence": signal["confidence"],
+                    "reason": signal["reason"],
+                    "action": action,
+                    "ticket": ticket,
+                    "order_json": order or None,
+                },
+                source="trade_logger",
+                symbol=sym,
+            )
+        except Exception as e:
+            bot_log.warning("Supabase signal journal failed: %s", e)
 
         # Write to rotating file log
         msg = (f"{sym} {signal['direction']} conf={signal['confidence']:.0%} "
@@ -124,20 +110,30 @@ class TradeLogger:
 
     def print_history(self, limit: int = 20, filter_action: str = None,
                       filter_symbol: str = None):
-        query  = "SELECT ts, symbol, direction, confidence, action, reason FROM signals"
-        params = []
-        conds  = []
-        if filter_action:
-            conds.append("action = ?"); params.append(filter_action.upper())
-        if filter_symbol:
-            conds.append("symbol = ?"); params.append(filter_symbol.upper())
-        if conds:
-            query += " WHERE " + " AND ".join(conds)
-        query += " ORDER BY id DESC LIMIT ?"
-        params.append(limit)
-
-        with sqlite3.connect(self.db_path) as conn:
-            rows = conn.execute(query, params).fetchall()
+        from core.supabase_db import SupabaseDB
+        events = [
+            e for e in SupabaseDB().get_live_events(limit=limit * 5)
+            if e.get("event_type") == "signal"
+        ]
+        rows = []
+        for event in events:
+            payload = event.get("payload") or {}
+            action = payload.get("action", "")
+            sym = event.get("symbol", "")
+            if filter_action and action.upper() != filter_action.upper():
+                continue
+            if filter_symbol and sym.upper() != filter_symbol.upper():
+                continue
+            rows.append((
+                event.get("ts", ""),
+                sym,
+                payload.get("direction", ""),
+                payload.get("confidence", 0),
+                action,
+                payload.get("reason", ""),
+            ))
+            if len(rows) >= limit:
+                break
 
         if not rows:
             print("\n  No trade history yet.")

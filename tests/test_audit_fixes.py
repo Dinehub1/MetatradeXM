@@ -145,25 +145,14 @@ class TestImportPathFix(unittest.TestCase):
 
     def test_record_exit_succeeds(self):
         """_record_exit should not crash (the import should resolve)."""
+        from unittest.mock import patch
         from risk.smart_exit import _record_exit, _ensure_tables
         _ensure_tables()
 
-        # This should succeed without import error
-        _record_exit("TEST-001", "XAUUSD", "BUY", "TEST_EXIT", 5.0, 5.00, "test reason")
-
-        # Verify it was recorded
-        import sqlite3
-        from core.paths import DATA_DIR
-        db = DATA_DIR / "trade_memory.db"
-        with sqlite3.connect(str(db)) as conn:
-            rows = conn.execute(
-                "SELECT * FROM smart_exits WHERE ticket='TEST-001'"
-            ).fetchall()
-            self.assertGreater(len(rows), 0, "Exit was not recorded in DB")
-
-        # Cleanup test data
-        with sqlite3.connect(str(db)) as conn:
-            conn.execute("DELETE FROM smart_exits WHERE ticket='TEST-001'")
+        with patch("risk.smart_exit.SupabaseDB") as mock_db:
+            # This should succeed without import error
+            _record_exit("TEST-001", "XAUUSD", "BUY", "TEST_EXIT", 5.0, 5.00, "test reason")
+            mock_db.return_value.log_runtime_event.assert_called_once()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

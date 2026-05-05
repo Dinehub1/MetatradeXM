@@ -1,9 +1,9 @@
 """
-position_scaler.py — AI-Based Position Scaling (Pyramiding)
+position_scaler.py — NVIDIA-signal-based Position Scaling (Pyramiding)
 
 Adds to winning positions when:
   1. The trade is profitable by a minimum threshold
-  2. AI analysis confirms the trend continues
+  2. The main NVIDIA-confirmed signal says the trend continues
   3. Account balance/margin supports it
   4. Max scale count not exceeded
 
@@ -11,20 +11,12 @@ Inspired by Hermes skill-driven decision pattern.
 """
 
 import json
-import sqlite3
 from core.logger_factory import get_logger
-import requests
 from datetime import datetime, timezone
-from pathlib import Path
-from core.paths import DATA_DIR
-from core.config import get_ollama_url, get_ollama_model
+from core.supabase_db import SupabaseDB
 
 
 log = get_logger("scaler")
-
-OLLAMA_URL   = get_ollama_url()
-OLLAMA_MODEL = get_ollama_model()
-DB_PATH      = DATA_DIR / "trade_memory.db"
 
 # ── Scaling config (mirrors SKILL.md) ────────────────────────────────────────
 SCALE_CFG = {
@@ -40,33 +32,18 @@ SCALE_CFG = {
 # ── Scale tracking table ─────────────────────────────────────────────────────
 
 def _ensure_scale_table():
-    with sqlite3.connect(str(DB_PATH)) as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS scale_history (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                ts          TEXT NOT NULL,
-                parent_ticket TEXT NOT NULL,
-                scale_ticket  TEXT,
-                symbol      TEXT NOT NULL,
-                direction   TEXT NOT NULL,
-                scale_number INTEGER NOT NULL,
-                lot         REAL,
-                entry_price REAL,
-                sl          REAL,
-                ai_confidence REAL,
-                ai_reason   TEXT,
-                outcome     TEXT
-            )
-        """)
+    return None
 
 def _count_scales(parent_ticket: str) -> int:
     try:
-        with sqlite3.connect(str(DB_PATH)) as conn:
-            row = conn.execute(
-                "SELECT COUNT(*) FROM scale_history WHERE parent_ticket=? AND scale_ticket IS NOT NULL",
-                (str(parent_ticket),)
-            ).fetchone()
-            return row[0] if row else 0
+        events = SupabaseDB().get_live_events(limit=500)
+        return sum(
+            1
+            for event in events
+            if event.get("event_type") == "scale_order"
+            and str((event.get("payload") or {}).get("parent_ticket")) == str(parent_ticket)
+            and (event.get("payload") or {}).get("scale_ticket")
+        )
     except Exception as e:
         try: log.debug(f'Caught exception: {e}')
         except: pass
@@ -76,14 +53,23 @@ def _record_scale(parent_ticket, scale_ticket, symbol, direction,
                   scale_num, lot, price, sl, confidence, reason):
     ts = datetime.now(timezone.utc).isoformat()
     try:
-        with sqlite3.connect(str(DB_PATH)) as conn:
-            conn.execute("""
-                INSERT INTO scale_history
-                (ts, parent_ticket, scale_ticket, symbol, direction,
-                 scale_number, lot, entry_price, sl, ai_confidence, ai_reason)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (ts, str(parent_ticket), str(scale_ticket), symbol,
-                  direction, scale_num, lot, price, sl, confidence, reason))
+        SupabaseDB().log_runtime_event(
+            "scale_order",
+            {
+                "ts": ts,
+                "parent_ticket": str(parent_ticket),
+                "scale_ticket": str(scale_ticket),
+                "direction": direction,
+                "scale_number": scale_num,
+                "lot": lot,
+                "entry_price": price,
+                "sl": sl,
+                "ai_confidence": confidence,
+                "ai_reason": reason,
+            },
+            source="position_scaler",
+            symbol=symbol,
+        )
     except Exception as e:
         log.warning(f"[SCALER] Failed to record scale: {e}")
 
@@ -91,7 +77,8 @@ def _record_scale(parent_ticket, scale_ticket, symbol, direction,
 
 class PositionScaler:
     """
-    Evaluates open positions and scales into winning ones when AI confirms.
+    Evaluates open positions and scales into winning ones when the main
+    NVIDIA-confirmed signal remains aligned.
     Called each analysis cycle from continuous_trader.py.
     """
 
@@ -258,90 +245,56 @@ class PositionScaler:
                           signal_data: dict, profit_pips: float,
                           scale_num: int) -> tuple:
         """
-        Ask Ollama if scaling is justified right now.
+        Confirm scaling from the main NVIDIA-confirmed market signal.
+
+        The project uses NVIDIA API as the single AI decision source. This
+        scaler does not make a second AI call; it consumes the already
+        confirmed signal_data produced by analyzer.py.
         Returns (ok: bool, confidence: float, reason: str)
         """
         indicators = signal_data.get("indicators", {})
         factors    = signal_data.get("factor_scores", {})
-        reason_txt = signal_data.get("reason", "")
+        confidence = float(signal_data.get("confidence", 0) or 0)
+        signal_direction = signal_data.get("direction", direction)
+        adx = float(indicators.get("adx", 0) or 0)
+        rsi = float(indicators.get("rsi", 50) or 50)
+        macd = str(indicators.get("macd_signal", "")).upper()
+        score = float(signal_data.get("score", 0) or 0)
 
-        prompt = f"""A trade is open and in profit. Should we ADD to this position?
+        if signal_direction != direction:
+            return False, confidence, "NVIDIA signal no longer aligns with parent trade"
+        if confidence < SCALE_CFG["min_confidence"]:
+            return False, confidence, "NVIDIA confidence below scaling gate"
+        if adx < 25:
+            return False, confidence, "ADX below trend-strength gate"
+        if direction == "BUY" and (rsi > 72 or "BEAR" in macd or score < 0):
+            return False, confidence, "BUY scale blocked by RSI/MACD/score divergence"
+        if direction == "SELL" and (rsi < 28 or "BULL" in macd or score > 0):
+            return False, confidence, "SELL scale blocked by RSI/MACD/score divergence"
 
-Symbol: {symbol}
-Direction: {direction}
-Current profit: {profit_pips:.1f} pips
-Scale number: {scale_num} (adding another partial position)
+        aligned_factors = sum(
+            1
+            for value in factors.values()
+            if isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and ((direction == "BUY" and value > 0) or (direction == "SELL" and value < 0))
+        )
+        if aligned_factors < 4:
+            return False, confidence, "Insufficient factor alignment for scaling"
 
-Current market analysis:
-- Signal: {direction} @ {signal_data.get('confidence', 0):.0%} confidence
-- Reasons: {reason_txt}
-- RSI: {indicators.get('rsi', 0):.1f}
-- ADX: {indicators.get('adx', 0):.1f} (trend strength)
-- MACD: {indicators.get('macd_signal', '')}
-- EMA trend: {indicators.get('ema_trend', '')}
-- ATR: {indicators.get('atr', 0)}
-- Stochastic K: {indicators.get('stoch_k', 0):.0f}
-
-Factor scores (signed, positive=bullish):
-F1 H4: {factors.get('f1_h4_trend', 0):+.1f}
-F2 H1: {factors.get('f2_h1_trend', 0):+.1f}
-F3 RSI: {factors.get('f3_rsi_zone', 0):+.1f}
-F4 MACD: {factors.get('f4_macd_momentum', 0):+.1f}
-F5 ADX: {factors.get('f5_adx_strength', 0):+.1f}
-
-Rules for scaling:
-- Only add if trend is STRONG (ADX > 25, majority of factors agree with direction)
-- Do NOT add if RSI is overbought/oversold against the direction
-- Do NOT add if MACD is diverging against the direction
-- Do NOT add if price is near resistance (BUY) or support (SELL)
-- Prefer adding during momentum, not during pullbacks
-
-Answer: should we add to this {direction} position?
-Respond with ONLY JSON (no markdown):
-{{"scale": true/false, "confidence": 0.0-1.0, "reason": "1 sentence"}}"""
-
-        try:
-            resp = requests.post(OLLAMA_URL, json={
-                "model":  OLLAMA_MODEL,
-                "stream": False,
-                "messages": [
-                    {"role": "system", "content":
-                     "You are a risk-conscious trading advisor. Be conservative with scaling."},
-                    {"role": "user", "content": prompt},
-                ],
-            }, timeout=20)
-            resp.raise_for_status()
-            text = resp.json()["message"]["content"].strip()
-            if "```" in text:
-                for part in text.split("```"):
-                    part = part.strip().lstrip("json").strip()
-                    if part.startswith("{"):
-                        text = part
-                        break
-            data = json.loads(text)
-            ok   = bool(data.get("scale", False))
-            conf = float(data.get("confidence", 0.0))
-            rsn  = data.get("reason", "AI decision")
-            return ok, conf, rsn
-        except Exception as e:
-            log.warning(f"[SCALER] AI confirm error: {e}")
-            # Fallback: allow scale if base signal is strong
-            fallback_ok = signal_data.get("confidence", 0) >= 0.70
-            return fallback_ok, signal_data.get("confidence", 0), "Fallback: base signal"
+        return True, confidence, "NVIDIA-confirmed signal remains aligned for scaling"
 
     def get_scale_stats(self) -> dict:
         """Return scaling performance stats."""
         try:
-            with sqlite3.connect(str(DB_PATH)) as conn:
-                conn.row_factory = sqlite3.Row
-                rows = conn.execute("SELECT * FROM scale_history").fetchall()
-                total = len(rows)
-                placed = sum(1 for r in rows if r["scale_ticket"])
-                return {"total_attempts": total, "placed": placed,
-                        "symbols": list({r["symbol"] for r in rows})}
+            rows = [
+                e for e in SupabaseDB().get_live_events(limit=500)
+                if e.get("event_type") == "scale_order"
+            ]
+            placed = sum(1 for e in rows if (e.get("payload") or {}).get("scale_ticket"))
+            symbols = sorted({e.get("symbol") for e in rows if e.get("symbol")})
+            return {"total_attempts": len(rows), "placed": placed, "symbols": symbols}
         except Exception as e:
             try: log.debug(f'Caught exception: {e}')
             except: pass
             return {"total_attempts": 0, "placed": 0, "symbols": []}
-
-

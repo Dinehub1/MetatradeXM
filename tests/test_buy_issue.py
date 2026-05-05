@@ -19,7 +19,7 @@ for tf in ["M15", "H1", "H4", "D1"]:
     print(f"Got {tf} candles: {len(df) if df is not None else 0}")
 
 from core.analyzer import MarketAnalyzer
-analyzer = MarketAnalyzer(use_claude=False)
+analyzer = MarketAnalyzer(use_ai=False)
 
 res = analyzer.analyze(tf_data, tick, "XAUUSD")
 print("\n--- ANALYSIS RESULT ---")

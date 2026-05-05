@@ -16,17 +16,14 @@ Key mechanics:
 """
 
 import json
-import sqlite3
 from core.logger_factory import get_logger
 from core.utils import now_utc
 import time
-from datetime import datetime, timezone
-from pathlib import Path
-from core.paths import DATA_DIR, STATE_DIR
+from core.paths import STATE_DIR
+from core.supabase_db import SupabaseDB
 
 log = get_logger("pyramid")
 
-DB_PATH = DATA_DIR / "trade_memory.db"
 STATE_PATH = STATE_DIR / "pyramid_state.json"
 
 # ── Pyramid Configuration ─────────────────────────────────────────────────────
@@ -89,26 +86,7 @@ def _save_state(state: dict):
 
 
 def _ensure_table():
-    try:
-        with sqlite3.connect(str(DB_PATH)) as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS pyramid_history (
-                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                    ts          TEXT NOT NULL,
-                    symbol      TEXT NOT NULL,
-                    direction   TEXT NOT NULL,
-                    tranche_num INTEGER NOT NULL,
-                    ticket      TEXT,
-                    lot         REAL,
-                    entry_price REAL,
-                    sl          REAL,
-                    tp          REAL,
-                    pips_from_first REAL,
-                    status      TEXT DEFAULT 'OPEN'
-                )
-            """)
-    except Exception as e:
-        log.warning(f"[PYRAMID] DB init error: {e}")
+    return None
 
 
 # ── Pyramid Session ───────────────────────────────────────────────────────────
@@ -762,14 +740,23 @@ class PyramidManager:
                         lot, price, sl, tp, pips_from_first):
         ts = now_utc().isoformat()
         try:
-            with sqlite3.connect(str(DB_PATH)) as conn:
-                conn.execute("""
-                    INSERT INTO pyramid_history
-                    (ts, symbol, direction, tranche_num, ticket, lot,
-                     entry_price, sl, tp, pips_from_first)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (ts, symbol, direction, tranche_num, str(ticket),
-                      lot, price, sl, tp, pips_from_first))
+            SupabaseDB().log_runtime_event(
+                "pyramid_tranche",
+                {
+                    "ts": ts,
+                    "direction": direction,
+                    "tranche_num": tranche_num,
+                    "ticket": str(ticket),
+                    "lot": lot,
+                    "entry_price": price,
+                    "sl": sl,
+                    "tp": tp,
+                    "pips_from_first": pips_from_first,
+                    "status": "OPEN",
+                },
+                source="pyramid_manager",
+                symbol=symbol,
+            )
         except Exception as e:
             log.warning(f"[PYRAMID] DB record error: {e}")
 
@@ -786,5 +773,4 @@ class PyramidManager:
                 "elapsed_s": int(time.time() - session.started_at),
             }
         return summary
-
 

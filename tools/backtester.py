@@ -16,7 +16,7 @@ def run_backtest(candles: pd.DataFrame, config: dict):
     print(f"  Candles:   {len(candles)}")
     print(f"  SL pips:   {config['sl_pips']}  |  TP pips: {config['tp_pips']}\n")
 
-    analyzer    = MarketAnalyzer(use_claude=False)  # indicators only for speed
+    analyzer    = MarketAnalyzer(use_ai=False)  # indicators only for speed
     pip         = 0.01 if "JPY" in config.get("symbol", "") else 0.0001
     spread_pips = 2                                  # typical EURUSD spread
     sl_pips     = config["sl_pips"]

@@ -55,7 +55,7 @@ def run_test_trade(bridge, direction):
         log.error(f"❌ Failed to place {direction} order. Check broker connection or market hours.")
 
 def main():
-    log.info("Connecting to MetaApi...")
+    log.info("Connecting to Windows bridge...")
     bridge = make_bridge()
     if not connect_with_retry(bridge):
         log.error("Could not connect to broker.")
@@ -73,7 +73,7 @@ def main():
         run_test_trade(bridge, "SELL")
         
     finally:
-        log.info("Disconnecting from MetaApi...")
+        log.info("Disconnecting from Windows bridge...")
         bridge.disconnect()
 
 if __name__ == "__main__":

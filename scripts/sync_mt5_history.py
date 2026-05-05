@@ -1,5 +1,4 @@
 import pandas as pd
-import sqlite3
 import re
 from datetime import datetime
 import json
@@ -8,7 +7,8 @@ import sys
 
 # Add root dir to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from core.paths import DATA_DIR, STATE_DIR
+from core.paths import STATE_DIR
+from core.supabase_db import SupabaseDB
 
 def parse_confidence(comment):
     match = re.search(r'c(\d+)%', str(comment))
@@ -28,9 +28,8 @@ def main():
     entries = df[df['entry'] == 0]
     exits = df[df['entry'] == 1]
     
-    db_path = DATA_DIR / "trade_memory.db"
-    conn = sqlite3.connect(str(db_path))
-    cursor = conn.cursor()
+    db = SupabaseDB()
+    client = db.client
     
     new_outcomes = 0
     
@@ -46,9 +45,14 @@ def main():
             
         entry_row = entry_row.iloc[0]
         
-        # Check if already in trade_outcomes
-        cursor.execute("SELECT id FROM trade_outcomes WHERE ticket=?", (str(pos_id),))
-        if cursor.fetchone():
+        existing = (
+            client.table("trade_outcomes")
+            .select("id")
+            .eq("ticket", str(pos_id))
+            .limit(1)
+            .execute()
+        )
+        if existing.data:
             continue
             
         symbol = exit_row['symbol']
@@ -75,25 +79,22 @@ def main():
         
         duration_min = (exit_row['time'] - entry_row['time']) / 60.0
         
-        cursor.execute("""
-            INSERT INTO trade_outcomes 
-            (ts, ticket, symbol, direction, entry_price, exit_price, pips_result, confidence, duration_min, outcome)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            exit_row['time_str'],
-            str(pos_id),
-            str(symbol),
-            direction,
-            entry_price,
-            exit_price,
-            round(pips_result, 1),
-            confidence,
-            round(duration_min, 1),
-            outcome
-        ))
+        client.table("trade_outcomes").insert({
+            "ts": exit_row["time_str"],
+            "ticket": str(pos_id),
+            "symbol": str(symbol),
+            "direction": direction,
+            "entry_price": float(entry_price),
+            "exit_price": float(exit_price),
+            "pips_result": round(float(pips_result), 1),
+            "confidence": confidence,
+            "duration_min": round(float(duration_min), 1),
+            "outcome": outcome,
+            "profit_usd": float(profit_usd),
+            "volume": float(volume),
+        }).execute()
         new_outcomes += 1
-        
-    conn.commit()
+
     print(f"Inserted {new_outcomes} trade outcomes into memory.")
     
     # Also fix phantom positions in pyramid_manager state and trader_state.json
@@ -114,18 +115,14 @@ def main():
         trader_state = STATE_DIR / "trader_state.json"
         if trader_state.exists():
             state = json.loads(trader_state.read_text())
-            cursor.execute("SELECT COUNT(*), SUM(CASE WHEN outcome='WIN' THEN 1 ELSE 0 END), SUM(CASE WHEN outcome='LOSS' THEN 1 ELSE 0 END) FROM trade_outcomes")
-            row = cursor.fetchone()
-            if row:
-                state['total_trades'] = row[0] or 0
-                state['wins'] = row[1] or 0
-                state['losses'] = row[2] or 0
-                trader_state.write_text(json.dumps(state, indent=2))
-                print(f"Updated trader_state.json: {state}")
+            outcomes = db.get_all_outcomes(limit=5000)
+            state['total_trades'] = len(outcomes)
+            state['wins'] = sum(1 for row in outcomes if row.get("outcome") == "WIN")
+            state['losses'] = sum(1 for row in outcomes if row.get("outcome") == "LOSS")
+            trader_state.write_text(json.dumps(state, indent=2))
+            print(f"Updated trader_state.json: {state}")
     except Exception as e:
         print("Error updating trader_state:", e)
-
-    conn.close()
 
 if __name__ == "__main__":
     main()

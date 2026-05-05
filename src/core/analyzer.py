@@ -4,7 +4,7 @@ MarketAnalyzer — UPGRADED
   - Indicators: RSI, EMA, MACD, Bollinger, ATR, ADX, Stochastic, Williams %R
   - Session detection: London, New York, Asian, Off-hours
   - Confluence scoring: only trade when multiple timeframes agree
-  - Ollama/minimax AI with rich system prompt and structured output
+  - NVIDIA API with rich system prompt and structured output
 """
 
 import json
@@ -76,8 +76,10 @@ Respond with ONLY raw JSON: {"direction": "BUY"|"SELL"|"HOLD", "confidence": 0.0
 
 
 class MarketAnalyzer:
-    def __init__(self, use_claude: bool = True):
-        self.use_claude = use_claude
+    def __init__(self, use_ai: bool = True, **kwargs):
+        if "use_claude" in kwargs:
+            use_ai = kwargs["use_claude"]
+        self.use_ai = use_ai
         self._nemotron_cache: dict = {}  # symbol -> {"ts": float, "context": str}
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -128,7 +130,7 @@ class MarketAnalyzer:
         base_signal = self._multi_tf_signal(ind_m15, ind_h1, ind_h4, ind_d1, weights=weights)
         base_signal["session"] = session
 
-        if self.use_claude:
+        if self.use_ai:
             research_ctx = self._fetch_nemotron_research(symbol, base_signal)
             signal = self._ai_reasoning(symbol, tick, ind_m15, ind_h1, ind_h4,
                                         base_signal, tf_data["M15"],
@@ -217,7 +219,7 @@ class MarketAnalyzer:
         base_signal = self._multi_tf_signal(ind_m15, ind_h1, ind_h4, ind_d1, weights=weights)
         base_signal["session"] = session
 
-        if self.use_claude:
+        if self.use_ai:
             research_ctx = self._fetch_nemotron_research(symbol, base_signal)
             signal = self._ai_reasoning(symbol, tick, ind_m15, ind_h1, ind_h4,
                                         base_signal, m15_candles,
@@ -867,7 +869,7 @@ Silver is a hybrid industrial/precious metal — different from Gold in key ways
 Volatility: {_vol_state} | Recommended approach: {_rec_strategy}
 
 === DATA QUALITY & SOURCES ===
-Source: MetaTrader 5 broker candles (via MetaApi bridge)
+Source: MetaTrader 5 broker candles (via Windows webhook/WebSocket bridge)
 M15 candles: {_n_candles} bars | H1/H4/D1: multi-timeframe confirmed
 Indicators computed: {', '.join(_indicators_list)}
 ADX regime: {fs.get('adx_regime', 'UNKNOWN')} — ADX measures TREND STRENGTH (>25=trending, <18=ranging)
@@ -974,11 +976,10 @@ Williams%R={tv_ind.get('williams_r','?')} Stoch_K={tv_ind.get('stoch_k','?')} St
             except: pass
             pass
 
-        # ── AI signal: Gemini primary → OpenRouter fallback ───────────────────
+        # ── AI signal: NVIDIA primary, indicator fallback only ────────────────
         # HOW THIS WORKS:
-        #   1. Gemini is called first (fast reasoning model).
-        #   2. If Gemini fails/times out, OpenRouter (Llama 3.3 70B) is tried.
-        #   3. If BOTH fail, the indicator score is used directly (Step 3 below).
+        #   1. NVIDIA is called for trade confirmation.
+        #   2. If NVIDIA fails/times out, the indicator score is used directly.
         #
         # WHY YOU SEE "HOLD 55%" IN THE LOGS:
         #   This is NOT a hardcoded fallback. The AI IS being called and responding.
@@ -993,7 +994,7 @@ Williams%R={tv_ind.get('williams_r','?')} Stoch_K={tv_ind.get('stoch_k','?')} St
         ]
         _prompt_chars = len(prompt)
         log.info(
-            f"AI-REQ | {symbol} | chars {_prompt_chars:,} | chain NVIDIA->Gemini | "
+            f"AI-REQ | {symbol} | chars {_prompt_chars:,} | chain NVIDIA | "
             f"ADX {m15.get('adx', 0):.0f} | RSI {m15.get('rsi', 50):.0f} | score {base_signal.get('score', 0):+.1f}"
         )
         data = ask_nvidia(ai_messages, label=symbol)
@@ -1016,9 +1017,9 @@ Williams%R={tv_ind.get('williams_r','?')} Stoch_K={tv_ind.get('stoch_k','?')} St
                     _fb_dir = "SELL"
 
             log.warning(
-                f"[ANALYZER] {symbol}: ALL AI tiers exhausted — using indicator fallback "
+                f"[ANALYZER] {symbol}: NVIDIA unavailable — using indicator fallback "
                 f"(score={_fb_score:.1f} vs thresh={_fb_buy_t}, lowered to {_fb_lower:.1f}) "
-                f"dir={_fb_dir}. Renew GEMINI_API_KEY at aistudio.google.com"
+                f"dir={_fb_dir}."
             )
             data = {
                 "direction":  _fb_dir,

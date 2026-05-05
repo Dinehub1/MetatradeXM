@@ -7,21 +7,14 @@ and processes them in real-time for immediate bot response and monitoring.
 Features:
   - Real-time trade event processing
   - Automatic multi-instance sync
-  - Event replay and audit trail
-  - Fallback to polling if websocket fails
+  - Supabase-backed event audit trail
 """
 
-import json
-import threading
-import time
-from datetime import datetime, timezone
-from typing import Callable, Optional, Dict, List
-from pathlib import Path
-import sqlite3
+from typing import Callable, Dict, List
 
 from core.logger_factory import get_logger
+from core.supabase_db import SupabaseDB
 from core.supabase_realtime import SupabaseRealtimeListener
-from core.utils import now_utc
 
 log = get_logger("realtime_sync")
 
@@ -32,12 +25,11 @@ class RealtimeSyncManager:
     def __init__(self, webhook_log_path: str = None):
         """
         Initialize real-time sync manager.
-
-        Args:
-            webhook_log_path: Path to SQLite DB for webhook event logging/replay
         """
+        if webhook_log_path:
+            log.warning("Ignoring webhook_log_path=%s; Supabase is the only event log", webhook_log_path)
         self.realtime = SupabaseRealtimeListener()
-        self.webhook_log_path = webhook_log_path or str(Path.cwd() / "state" / "webhook_events.db")
+        self.db = SupabaseDB()
         self.callbacks: Dict[str, List[Callable]] = {
             "trade_entry": [],
             "trade_outcome": [],
@@ -45,27 +37,10 @@ class RealtimeSyncManager:
             "learning_insight": [],
         }
         self._running = False
-        self._init_webhook_log()
-
-        log.info(f"RealtimeSyncManager initialized (webhook log: {self.webhook_log_path})")
+        log.info("RealtimeSyncManager initialized (Supabase event log)")
 
     def _init_webhook_log(self):
-        """Initialize SQLite database for webhook event audit trail."""
-        with sqlite3.connect(self.webhook_log_path) as conn:
-            conn.executescript("""
-                CREATE TABLE IF NOT EXISTS webhook_events (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    ts TEXT NOT NULL,
-                    event_type TEXT NOT NULL,
-                    event_name TEXT NOT NULL,
-                    payload JSONB,
-                    processed INTEGER DEFAULT 0,
-                    error TEXT
-                );
-                CREATE INDEX IF NOT EXISTS idx_webhook_ts ON webhook_events(ts);
-                CREATE INDEX IF NOT EXISTS idx_webhook_type ON webhook_events(event_type);
-                CREATE INDEX IF NOT EXISTS idx_webhook_processed ON webhook_events(processed);
-            """)
+        return None
 
     def register_callback(self, event_type: str, callback: Callable):
         """
@@ -112,12 +87,17 @@ class RealtimeSyncManager:
     def _log_webhook_event(self, event_type: str, event_name: str, payload: dict,
                           error: str = None):
         """Log webhook event for audit trail and replay."""
-        ts = now_utc().isoformat()
-        with sqlite3.connect(self.webhook_log_path) as conn:
-            conn.execute("""
-                INSERT INTO webhook_events (ts, event_type, event_name, payload, error)
-                VALUES (?, ?, ?, ?, ?)
-            """, (ts, event_type, event_name, json.dumps(payload), error))
+        self.db.log_runtime_event(
+            "realtime_sync",
+            {
+                "event_name": event_name,
+                "payload": payload,
+                "error": error,
+            },
+            source="realtime_sync",
+            symbol=payload.get("symbol") if isinstance(payload, dict) else None,
+            severity="ERROR" if error else "INFO",
+        )
 
     def _on_trade_entry(self, event_type: str, data: dict):
         """Handle trade entry events (INSERT/UPDATE)."""
@@ -217,47 +197,11 @@ class RealtimeSyncManager:
 
     def get_webhook_history(self, limit: int = 100) -> list:
         """Get recent webhook events for monitoring/debugging."""
-        with sqlite3.connect(self.webhook_log_path) as conn:
-            conn.row_factory = sqlite3.Row
-            rows = conn.execute("""
-                SELECT * FROM webhook_events
-                ORDER BY id DESC LIMIT ?
-            """, (limit,)).fetchall()
-            return [dict(r) for r in rows]
+        return [
+            event for event in self.db.get_live_events(limit=limit * 2)
+            if event.get("event_type") == "realtime_sync"
+        ][:limit]
 
     def replay_unprocessed_events(self):
-        """Replay any webhook events that failed processing."""
-        with sqlite3.connect(self.webhook_log_path) as conn:
-            conn.row_factory = sqlite3.Row
-            rows = conn.execute("""
-                SELECT id, event_type, event_name, payload FROM webhook_events
-                WHERE error IS NOT NULL AND processed = 0
-                ORDER BY id ASC
-            """).fetchall()
-
-        replayed = 0
-        for row in rows:
-            try:
-                payload = json.loads(row["payload"])
-
-                if row["event_type"] == "trade_outcome":
-                    self._on_trade_outcome(row["event_name"], payload)
-                elif row["event_type"] == "trade_entry":
-                    self._on_trade_entry(row["event_name"], payload)
-                elif row["event_type"] == "market_pattern":
-                    self._on_market_pattern(row["event_name"], payload)
-                elif row["event_type"] == "learning_insight":
-                    self._on_learning_log(row["event_name"], payload)
-
-                # Mark as processed
-                with sqlite3.connect(self.webhook_log_path) as conn:
-                    conn.execute(
-                        "UPDATE webhook_events SET processed = 1, error = NULL WHERE id = ?",
-                        (row["id"],)
-                    )
-                replayed += 1
-            except Exception as e:
-                log.error(f"Failed to replay event {row['id']}: {e}")
-
-        if replayed > 0:
-            log.info(f"✅ Replayed {replayed} failed webhook events")
+        """Supabase Realtime replays are handled by querying canonical tables."""
+        log.info("Supabase-only realtime sync does not use a local replay queue")

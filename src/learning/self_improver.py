@@ -8,22 +8,18 @@ Runs daily reviews, adjusts scoring weights, improves/generates skills.
 import json
 from core.logger_factory import get_logger
 import time
-import requests
 from datetime import datetime, timezone
 from pathlib import Path
 
 from learning.memory import TradeMemory
 from learning.skill_manager import SkillManager
 from core.paths import CONFIG_DIR
-from core.config import get_ollama_url, get_ollama_model
 
 
 log = get_logger("improver")
 
 WEIGHTS_PATH     = CONFIG_DIR / "scoring_weights.json"
 LAST_REVIEW_FILE = Path(__file__).parent / ".last_review_date"  # persists across restarts
-OLLAMA_URL = get_ollama_url()
-OLLAMA_MODEL = get_ollama_model()
 
 # Minimum weight floor — prevent score collapse from compounding daily decays
 WEIGHT_FLOOR = 0.85
@@ -356,14 +352,7 @@ class PerformanceAnalyzer:
 
         report.append("")
         report.append("Recent learning insights:")
-        with __import__('sqlite3').connect(self.memory.db_path) as conn:
-            conn.row_factory = __import__('sqlite3').Row
-            insights = conn.execute(
-                "SELECT insight_type, insight_text FROM learning_log ORDER BY id DESC LIMIT 5"
-            ).fetchall()
-            for ins in insights:
-                report.append(f"  [{ins['insight_type']}] {ins['insight_text']}")
+        for ins in self.memory.get_recent_learning(limit=5):
+            report.append(f"  [{ins['insight_type']}] {ins['insight_text']}")
 
         return "\n".join(report)
-
-
