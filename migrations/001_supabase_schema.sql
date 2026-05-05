@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS trade_outcomes (
     duration_min NUMERIC(20, 4),
     outcome TEXT,
     skills_used JSONB,
+    event_type TEXT DEFAULT 'PRIMARY',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
