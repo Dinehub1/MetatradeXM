@@ -607,7 +607,7 @@ HTML = r"""<!DOCTYPE html>
       <table id="tradesTable" style="width: 100%; font-size: 0.85em; border-collapse: collapse;">
         <thead>
           <tr style="border-bottom: 1px solid var(--border); color: var(--text-muted);">
-            <th style="text-align: left; padding: 10px;">Time</th>
+            <th style="text-align: left; padding: 10px;">Time (Most Recent)</th>
             <th style="text-align: center; padding: 10px;">Symbol</th>
             <th style="text-align: center; padding: 10px;">Dir</th>
             <th style="text-align: right; padding: 10px;">Entry</th>
@@ -796,23 +796,31 @@ HTML = r"""<!DOCTYPE html>
       const tbody = document.getElementById('tradeRows');
       if (!tbody) return;
 
-      tbody.innerHTML = trades.length === 0
+      // Sort trades by date descending (most recent first)
+      const sortedTrades = [...trades].sort((a, b) => {
+        const dateA = new Date(a.ts || 0);
+        const dateB = new Date(b.ts || 0);
+        return dateB - dateA;
+      });
+
+      tbody.innerHTML = sortedTrades.length === 0
         ? '<tr><td colspan="10" style="text-align:center;padding:20px;color:var(--text-muted);">No trades yet</td></tr>'
-        : trades.map(t => {
+        : sortedTrades.map(t => {
           const time = t.ts ? new Date(t.ts).toLocaleString() : '—';
           const pnlColor = t.outcome === 'WIN' ? 'color:var(--green)' : 'color:var(--red)';
           const rowBg = t.outcome === 'WIN' ? 'background:rgba(0,255,136,0.05)' : 'background:rgba(255,59,92,0.05)';
+          const pipsColor = t.pips >= 0 ? 'color:var(--green)' : 'color:var(--red)';
           return `<tr style="${rowBg};border-bottom:1px solid var(--border)">
-            <td style="padding:10px">${time}</td>
-            <td style="padding:10px;text-align:center">${t.symbol}</td>
-            <td style="padding:10px;text-align:center;color:${t.direction==='BUY'?'var(--green)':'var(--red)'}">${t.direction}</td>
+            <td style="padding:10px;font-size:0.85em">${time}</td>
+            <td style="padding:10px;text-align:center;font-weight:600">${t.symbol}</td>
+            <td style="padding:10px;text-align:center;color:${t.direction==='BUY'?'var(--green)':'var(--red)';font-weight:600">${t.direction}</td>
             <td style="padding:10px;text-align:right">${t.entry_price.toFixed(2)}</td>
             <td style="padding:10px;text-align:right">${t.exit_price.toFixed(2)}</td>
-            <td style="padding:10px;text-align:right">${t.pips.toFixed(1)}</td>
-            <td style="padding:10px;text-align:right;${pnlColor}">${t.outcome === 'WIN' ? '+' : ''}${t.pnl_usd.toFixed(2)}</td>
+            <td style="padding:10px;text-align:right;${pipsColor};font-weight:600">${t.pips >= 0 ? '+' : ''}${t.pips.toFixed(1)}</td>
+            <td style="padding:10px;text-align:right;${pnlColor};font-weight:600">${t.outcome === 'WIN' ? '+' : ''}${t.pnl_usd.toFixed(2)}</td>
             <td style="padding:10px;text-align:center">${Math.round(t.duration_min)}m</td>
             <td style="padding:10px;text-align:center">${(t.confidence*100).toFixed(0)}%</td>
-            <td style="padding:10px;text-align:center;color:${t.outcome === 'WIN' ? 'var(--green)' : 'var(--red)'}">${t.outcome}</td>
+            <td style="padding:10px;text-align:center;color:${t.outcome === 'WIN' ? 'var(--green)' : 'var(--red)';font-weight:600">${t.outcome}</td>
           </tr>`;
         }).join('');
     } catch (e) {
