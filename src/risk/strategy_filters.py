@@ -35,37 +35,26 @@ class StrategyFilter:
 
 class TimeOfDayFilter(StrategyFilter):
     """
-    2026-05-03 FIX: BLOCKING during proven-losing sessions.
-    30-day live data:
-      - 17:00-21:59 UTC (NY Late): 35% WR, -$827/month
-      - 22:00-00:59 UTC (Asian Late): 35% WR, -$707/month
-    These windows LOSE money at any R:R. Hard block.
-    Premium hours (06-16 UTC) get full lot size.
+    2026-05-06: DISABLED time-based blocking for 24/7 trading.
+    Previously blocked NY Late (17-22 UTC) and Asian Late (22-00 UTC).
+    Now allows all hours while maintaining lot-size adjustments for premium windows.
     """
     name = "time_of_day"
-    # Best hours from 30-day P&L data (less-negative to neutral)
+    # Best hours for full lot size
     PREMIUM_HOURS = {6, 7, 14}           # London open + NY afternoon
-    # 2026-05-04: RESTORED partial blocking for worst losing hours only (22-00 UTC)
-    # Previous full block (17-01 UTC) was too aggressive; this keeps the worst 3 hours blocked
-    BLOCKED_HOURS = {22, 23, 0}  # Asian Late only (worst -$707/month window)
+    BLOCKED_HOURS = {}  # 2026-05-06: DISABLED — allow all hours
 
     def should_trade(self, symbol, direction, context):
         h = datetime.now(timezone.utc).hour
 
-        # HARD BLOCK: NY Late + Asian Late (proven 35% WR)
-        if h in self.BLOCKED_HOURS:
-            return False, (
-                f"Session block: {h:02d}:00 UTC is in blocked window (17-01 UTC). "
-                f"30-day data: 35% WR, -$1,534/month. No trades allowed."
-            )
-
+        # 2026-05-06: Time-based blocking DISABLED for 24/7 trading
         # Premium window — full lot, no reduction
         if h in self.PREMIUM_HOURS:
             return True, ""
 
-        # Standard hours (01-16 UTC excl premium) — slight lot reduction
-        context["_lot_reduction"] = min(context.get("_lot_reduction", 1.0), 0.80)
-        return True, f"Standard hour {h:02d} — lot reduced 20%"
+        # Standard hours — slight lot reduction (optional, keeping for risk management)
+        context["_lot_reduction"] = min(context.get("_lot_reduction", 1.0), 0.90)
+        return True, ""
 
 
 class DayOfWeekFilter(StrategyFilter):
@@ -287,14 +276,14 @@ class FilterChain:
     def __init__(self, filters=None):
         # 2026-04-30: SpreadFilter replaces hour-based blocking
         # 2026-05-04: RsiExtremeFilter added — blocks reversal-zone trades
+        # 2026-05-06: NYLateSessionFilter REMOVED — allow 24/7 trading
         # Order: cheapest checks first, expensive last
         self.filters = filters or [
             DayOfWeekFilter(),       # only blocks 30min Mon open / Fri close
             VolatilityFilter(),      # ATR percentile (size adjustment)
-            TimeOfDayFilter(),       # NON-BLOCKING — premium hours boost
+            TimeOfDayFilter(),       # NON-BLOCKING — premium hours boost (Asian late 22-00 UTC only)
             SpreadFilter(),          # NEW: real cost of off-hours
             RsiExtremeFilter(),      # 2026-05-04: block reversal zones (RSI < 25 or > 75)
-            NYLateSessionFilter(),   # ADX-based check during NY late
             SilverADXFilter(),       # silver-specific (ADX 30+)
             CorrelationFilter(),     # XAU/XAG divergence
         ]
