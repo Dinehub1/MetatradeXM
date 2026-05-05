@@ -17,6 +17,7 @@ Config (.env):
 """
 from __future__ import annotations
 
+import os
 import re
 import json
 import time
@@ -48,6 +49,13 @@ if _NVIDIA_KEY:
 
 if _NVIDIA_KEY_2:
     _TIERS.append(("nvidia", _NVIDIA_URL, _NVIDIA_KEY_2, _NVIDIA_MODEL, _NVIDIA_TIMEOUT, "T2-NVIDIA-B"))
+
+# Optional local Ollama fallback — set OLLAMA_URL (e.g. http://localhost:11434/v1/chat/completions)
+# and OLLAMA_MODEL (e.g. minimax-m2.7:cloud) to enable. Used only if both NVIDIA tiers fail.
+_OLLAMA_URL    = os.getenv("OLLAMA_URL", "").strip()
+_OLLAMA_MODEL  = os.getenv("OLLAMA_MODEL", "minimax-m2.7:cloud").strip()
+if _OLLAMA_URL:
+    _TIERS.append(("ollama", _OLLAMA_URL, "", _OLLAMA_MODEL, 120, "T3-OLLAMA-LOCAL"))
 
 def _validate_api_keys():
     """Validate API key configuration at startup. Fail fast if misconfigured."""
@@ -352,11 +360,30 @@ def _call_nvidia_sync(messages: list, model: str, api_key: str, url: str,
     return resp.json()
 
 
-def _call_nvidia_with_retry(messages: list, model: str, api_key: str, url: str,
-                            max_tokens: int, timeout: int, retries: int = 3) -> dict:
+def _call_ollama_sync(messages: list, model: str, api_key: str, url: str,
+                      max_tokens: int, timeout: int) -> dict:
+    """Local Ollama OpenAI-compatible /v1/chat/completions call. No auth needed."""
+    payload = {
+        "model":       model,
+        "messages":    messages,
+        "max_tokens":  max_tokens,
+        "temperature": _NVIDIA_TEMP,
+        "top_p":       _NVIDIA_TOP_P,
+        "stream":      False,
+    }
+    resp = requests.post(url, json=payload, timeout=timeout)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _call_with_retry(provider: str, messages: list, model: str, api_key: str, url: str,
+                     max_tokens: int, timeout: int, retries: int = 3) -> dict:
     """Retry strategy: 3 attempts with exponential backoff (2s, 5s, 12s).
     NVIDIA NIM free tier rate-limits aggressively — needs space between calls."""
-    caller = _call_nvidia_stream if _NVIDIA_STREAM else _call_nvidia_sync
+    if provider == "ollama":
+        caller = _call_ollama_sync
+    else:
+        caller = _call_nvidia_stream if _NVIDIA_STREAM else _call_nvidia_sync
     backoffs = [2, 5, 12]   # exponential
     for attempt in range(retries + 1):
         try:
@@ -396,8 +423,8 @@ def ask_nvidia(
         try:
             log.info(f"AI-TRY | {tier} | model {model}")
 
-            resp_json = _call_nvidia_with_retry(
-                messages, model, api_key, url, _NVIDIA_TOKENS, timeout
+            resp_json = _call_with_retry(
+                provider, messages, model, api_key, url, _NVIDIA_TOKENS, timeout
             )
 
             msg = resp_json["choices"][0]["message"]

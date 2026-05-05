@@ -27,6 +27,8 @@ from pathlib import Path
 
 # ── Project root setup ──
 ROOT = Path(__file__).resolve().parent.parent
+SRC = ROOT / "src"
+sys.path.insert(0, str(SRC))
 sys.path.insert(0, str(ROOT))
 
 # Load .env
@@ -745,8 +747,8 @@ def run_analysis_cycle():
             prompt=prompt,
             system_prompt=GLM_SYSTEM_PROMPT,
             max_tokens=1200,
-            timeout=90,
-            retries=1,
+            timeout=180,
+            retries=2,
         )
     except Exception as e:
         log.error(f"  ❌ GLM 5.1 failed: {e}")

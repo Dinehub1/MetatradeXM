@@ -7,6 +7,7 @@ Handles all trade memory operations with JSONB columns for factors/conditions.
 
 import json
 import os
+from pathlib import Path
 from typing import Optional, List
 from datetime import datetime, timezone, timedelta
 from supabase import create_client, Client
@@ -16,6 +17,10 @@ from core.utils import now_utc
 
 
 log = get_logger("supabase_db")
+
+# Disk-backed retry queue: when log_live_event fails, append to this file.
+# Drained on the next successful insert so transient outages don't lose events.
+_PENDING_EVENTS_FILE = Path(__file__).resolve().parents[2] / "state" / "pending_events.jsonl"
 
 
 class SupabaseDB(DatabaseAdapter):
@@ -697,7 +702,62 @@ class SupabaseDB(DatabaseAdapter):
             "severity": severity,
             "payload": self._safe_json(payload or {}),
         }
-        self.client.table("live_events").insert(data).execute()
+        try:
+            self.client.table("live_events").insert(data).execute()
+        except Exception as e:
+            self._queue_pending_event(data)
+            log.warning(f"log_live_event failed, queued to {_PENDING_EVENTS_FILE.name}: {e}")
+            return
+        # Best-effort drain of any previously-queued events
+        self._drain_pending_events()
+
+    @staticmethod
+    def _queue_pending_event(data: dict) -> None:
+        try:
+            _PENDING_EVENTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            with _PENDING_EVENTS_FILE.open("a") as f:
+                f.write(json.dumps(data) + "\n")
+        except Exception as e:
+            log.error(f"Failed to queue pending event to disk: {e}")
+
+    def _drain_pending_events(self, max_per_call: int = 50) -> None:
+        if not _PENDING_EVENTS_FILE.exists():
+            return
+        try:
+            lines = _PENDING_EVENTS_FILE.read_text().splitlines()
+        except Exception as e:
+            log.warning(f"pending_events read error: {e}")
+            return
+        if not lines:
+            try: _PENDING_EVENTS_FILE.unlink()
+            except Exception: pass
+            return
+        drained = 0
+        remaining = []
+        for i, line in enumerate(lines):
+            line = line.strip()
+            if not line:
+                continue
+            if drained >= max_per_call:
+                remaining.append(line)
+                continue
+            try:
+                row = json.loads(line)
+                self.client.table("live_events").insert(row).execute()
+                drained += 1
+            except Exception:
+                # Stop draining on first failure — Supabase still flaky
+                remaining.extend(lines[i:])
+                break
+        try:
+            if remaining:
+                _PENDING_EVENTS_FILE.write_text("\n".join(remaining) + "\n")
+            else:
+                _PENDING_EVENTS_FILE.unlink()
+            if drained:
+                log.info(f"Drained {drained} pending live_events from disk queue")
+        except Exception as e:
+            log.warning(f"pending_events rewrite error: {e}")
 
     def log_runtime_event(
         self,

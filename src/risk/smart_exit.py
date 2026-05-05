@@ -35,31 +35,32 @@ log = get_logger("smart_exit")
 EXIT_CFG = {
     # ── 1. Catastrophic backstop ─────────────────────────────────────────────
     # Only fires if the broker SL was never placed or was rejected.
-    # Set wide enough that a normal SL hit ($35 on 0.01 lot gold) never
-    # triggers it.
-    "catastrophic_loss_usd":   100,
+    # 100→200: H4 trades have wider SL so larger floating loss before hit.
+    "catastrophic_loss_usd":   200,
 
     # ── 2. Time-based close ──────────────────────────────────────────────────
-    "max_trade_age_hours":     48,    # was 72 — stale trades rarely come back
-    "stale_check_hours":       8,     # check progress at 8h
-    "stale_min_pip_fraction":  0.25,  # need ≥ 25% of SL distance as profit
+    # H4 swing trades need days to develop — don't close too early.
+    "max_trade_age_hours":     72,    # 48→72: H4 swings can take 3 days
+    "stale_check_hours":       24,    # 8→24: give H4 trades a full day to show progress
+    "stale_min_pip_fraction":  0.10,  # 0.25→0.10: only need 10% of SL as profit at 24h
 
     # ── 3. Profit lock (peak retracement) ────────────────────────────────────
-    # Replaces the old winner_peak / winner_floor / min_lock / profit_floor.
-    "lock_peak_pips":          15,    # arm once we hit +15 pips
-    "lock_giveback_pips":      8,     # close if pulled back to ≤ +8 pips
+    # Old values (15 arm / 8 close) were M15-sized — closed H4 winners at
+    # trivial profit. Scaled to H4 SL of 80–120 pips.
+    "lock_peak_pips":          60,    # 15→60: arm after real H4 profit
+    "lock_giveback_pips":      30,    # 8→30: protect 30 pips once armed
 
     # ── 4. Trailing stop (the profit engine) ─────────────────────────────────
-    # Activates near breakeven so winners actually get a trail. Distance
-    # scales with ADX so chop tightens fast and trends get room.
-    "trail_activate_pips":     12,    # was 35 — avg win is 5.6p, 35 never fires
-    "trail_distance_chop":     8,     # ADX < 22
-    "trail_distance_normal":   12,    # ADX 22–30 (from old config)
-    "trail_distance_strong":   18,    # ADX > 30 — let runners breathe
+    # Old values (12 / 8 / 12 / 18) were M15-sized — trail fired at noise
+    # level and immediately stopped out H4 trades. Scaled to H4 reality.
+    "trail_activate_pips":     50,    # 12→50: don't trail until real H4 profit
+    "trail_distance_chop":     25,    # 8→25: ADX < 22
+    "trail_distance_normal":   40,    # 12→40: ADX 22–30
+    "trail_distance_strong":   60,    # 18→60: ADX > 30, let runners breathe
 
     # ── Legacy keys (kept for test/dashboard compatibility, unused) ──────────
     "loss_cut_pips":           30,    # legacy; SL is single source of truth now
-    "trailing_start_pips":     12,    # alias for trail_activate_pips
+    "trailing_start_pips":     50,    # alias for trail_activate_pips
 }
 
 

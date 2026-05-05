@@ -102,6 +102,22 @@ class MarketAnalyzer:
         ind_h4  = self._compute_indicators(tf_data.get("H4", tf_data["M15"]))
         ind_d1  = self._compute_indicators(tf_data["D1"]) if "D1" in tf_data and len(tf_data["D1"]) >= 30 else None
 
+        # Bail out early if M15 indicators couldn't be computed (bad/empty/stale candles).
+        # Downstream code dereferences ind_m15["ema_trend"] etc. and would KeyError.
+        if not ind_m15:
+            log.warning(f"analyze: M15 indicators unavailable for {symbol} — returning HOLD")
+            return {
+                "direction": "HOLD",
+                "confidence": 0.0,
+                "score": 0,
+                "reason": "indicators_unavailable",
+                "indicators": {},
+                "h1_trend": "UNKNOWN",
+                "h4_trend": "UNKNOWN",
+                "d1_trend": "UNKNOWN",
+                "session": self._get_session(),
+            }
+
         # ── TradingView live override: replace broker-computed values with TV data ──
         # TV indicators are sourced directly from TradingView (institutional data quality).
         # Only override fields that pass sanity checks — startup/stale values are rejected.
@@ -144,6 +160,7 @@ class MarketAnalyzer:
         signal["indicators"] = ind_m15
         signal["h1_trend"]   = ind_h1["ema_trend"]
         signal["h4_trend"]   = ind_h4["ema_trend"]
+        signal["h4_atr"]     = ind_h4.get("atr", 0)
         signal["d1_trend"]   = ind_d1["ema_trend"] if ind_d1 else "UNKNOWN"
         signal["session"]    = session
         return signal
@@ -232,6 +249,7 @@ class MarketAnalyzer:
         signal["indicators"] = ind_m15
         signal["h1_trend"]   = ind_h1.get("ema_trend", "UNKNOWN")
         signal["h4_trend"]   = ind_h4.get("ema_trend", "UNKNOWN")
+        signal["h4_atr"]     = ind_h4.get("atr", 0)
         signal["d1_trend"]   = ind_d1.get("ema_trend", "UNKNOWN") if ind_d1 else "UNKNOWN"
         signal["session"]    = session
         return signal
@@ -286,9 +304,21 @@ class MarketAnalyzer:
         return score
 
     def _compute_indicators(self, df: pd.DataFrame) -> dict:
+        # Guard against empty / stale / NaN-poisoned candle frames.
+        # Without this, divide-by-zero and close[-20] indexing crashes the cycle.
+        if df is None or len(df) < 50:
+            log.warning(f"_compute_indicators: insufficient bars ({0 if df is None else len(df)} < 50) — returning empty")
+            return {}
+        for col in ("c", "h", "l"):
+            if col not in df.columns or df[col].isna().all():
+                log.warning(f"_compute_indicators: column '{col}' missing or all-NaN — returning empty")
+                return {}
         close = df["c"].values
         high  = df["h"].values
         low   = df["l"].values
+        if not np.isfinite(close[-1]) or close[-1] <= 0:
+            log.warning(f"_compute_indicators: last close invalid ({close[-1]}) — returning empty")
+            return {}
 
         rsi_val  = self._rsi(close, 14)
         adx_val, plus_di, minus_di = self._adx(high, low, close, 14)

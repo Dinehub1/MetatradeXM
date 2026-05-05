@@ -132,16 +132,16 @@ SYMBOLS = [
         "lot": 0.01,
         # 2026-05-03: Score threshold raised 9→12. At 9, too many marginal signals
         # passed — every single hour was net-negative. Require 3+ confirming factors.
-        "score_threshold": 12,    # min score magnitude to consider trade (was 9)
+        "score_threshold": 15,    # min score magnitude to consider trade (was 12)
         "min_confidence":  0.70,  # 0.65→0.70: data analysis shows 70%+ confidence has 59% WR, is profitable
         "adx_min":         20,    # min ADX (18→20: slight tightening for trend confirmation)
         "rsi_oversold":    25,
         "rsi_overbought":  75,
         # ATR-based dynamic stops (preferred over fixed pips)
-        "sl_atr_mult":     1.5,   # SL = 1.5 × M15 ATR
-        "tp_atr_mult":     4.5,   # TP = 4.5 × M15 ATR (R:R 3.0)
+        "sl_atr_mult":     1.0,   # SL = 1.0 × H4 ATR
+        "tp_atr_mult":     2.5,   # TP = 2.5 × H4 ATR (R:R 2.5)
         "trail_atr_mult":  1.0,   # trail distance = 1.0 × ATR
-        "max_sl_pips":     25,    # hard cap: capped at 25 pips to align risk/reward
+        "max_sl_pips":     120,   # hard cap: H4 stops need breathing room
         "risk_per_trade_pct": 0.005,
     },
     {
@@ -163,10 +163,10 @@ SYMBOLS = [
         "adx_min":         22,    # 30→22: Silver ADX range 26-32; 30 blocked everything
         "rsi_oversold":    25,    # 20→25: Silver rarely hits 20; 25 = usable signal
         "rsi_overbought":  75,    # 80→75: Silver rarely hits 80; 75 = usable signal
-        "sl_atr_mult":     1.5,
+        "sl_atr_mult":     1.0,
         "tp_atr_mult":     3.5,   # 4.5→3.5: Silver runs shorter than Gold
         "trail_atr_mult":  1.0,   # 1.2→1.0: tighter trail for shorter moves
-        "max_sl_pips":     60,    # hard cap: 60 pips @ pip=0.01; ATR 0.24×1.5=36 pips typical
+        "max_sl_pips":     200,   # hard cap: H4 stops need breathing room
         # 2026-05-04: RESTORED — London avg score -14.14 (0 BUY signals in 81 trades)
         # 2026-05-04: Also block LONDON_NY_OVERLAP (silver structurally down during UK/EU hours)
         "allowed_sessions": ["NEW_YORK", "ASIAN"],  # block LONDON + LONDON_NY_OVERLAP
@@ -195,8 +195,8 @@ CONFIG = {
     # because the AI calibrates 0.55-0.70 as "good" and 0.85+ as "extreme conviction."
     # Session-level gates (SESSION_CONFIG) handle per-session thresholds.
     "min_confidence": 0.55,    # 0.85→0.55: stop blocking valid AI signals
-    "max_trades_per_sym": 3,   # 6→3: fewer concurrent positions = less churn
-    "max_total_positions": 4,  # 6→4: tighter blast radius
+    "max_trades_per_sym": 5,   # up to 5 per symbol
+    "max_total_positions": 10, # up to 10 total
     "dry_run": False,
     "use_ai": True,
     "enable_pyramiding": False,
@@ -377,7 +377,7 @@ def _log_signal(
             symbol=symbol,
         )
     except Exception as e:
-        log.debug(f"Signal log error: {e}")
+        log.warning(f"Signal log error (queued for retry if Supabase outage): {e}")
 
 
 def _load_state() -> dict:
@@ -852,8 +852,10 @@ def build_order_params(
     else:
         kelly_lot = sym_cfg["lot"]
 
-    # Apply confidence multiplier on top (favors higher-conviction trades)
-    conf_mult = max(0.3, min((confidence - 0.5) / 0.35, 1.0))
+    # Apply confidence multiplier on top (favors higher-conviction trades).
+    # Floor 0.6, full size at 0.75 — gentler than the old (0.3,(c-0.5)/0.35) curve
+    # which cut typical 0.65–0.75 confidence trades to 25–40% of intended size.
+    conf_mult = max(0.6, min((confidence - 0.55) / 0.20, 1.0))
     lot = round(max(kelly_lot * conf_mult * lot_reduction, 0.01), 2)
     # Hard cap at 0.50 (safety brake until live track record proves the system)
     lot = min(lot, 0.50)
@@ -998,8 +1000,8 @@ class ContinuousTrader:
         #   - Opposite direction within 90s = legit reversal at level — ALLOW
         self._last_trade_time: dict = {}      # broker_symbol -> epoch time
         self._last_trade_dir:  dict = {}      # broker_symbol -> "BUY"/"SELL"
-        self._TRADE_COOLDOWN_SAME_DIR = 300   # same direction: 5 min
-        self._TRADE_COOLDOWN_ANY_DIR  = 90    # any direction: 90s
+        self._TRADE_COOLDOWN_SAME_DIR = 300    # same direction: 5 min (H4/D1 signal quality gates re-entry naturally)
+        self._TRADE_COOLDOWN_ANY_DIR  = 90     # any direction: 90s
 
         # Set up signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._handle_stop)
@@ -1135,6 +1137,18 @@ class ContinuousTrader:
                     "connection": "DISCONNECTED",
                 }
             )
+            # Surface to dashboard so blanks aren't mistaken for "no signal"
+            try:
+                db = _get_supabase_live()
+                if db:
+                    db.log_live_event(
+                        "bridge_offline",
+                        {"cycle": cycle, "reason": "MetaApi bridge unreachable"},
+                        source="continuous_trader",
+                        severity="WARNING",
+                    )
+            except Exception as _e:
+                log.debug(f"bridge_offline event log failed: {_e}")
             time.sleep(CONFIG["monitor_interval_s"])
             self.bridge = make_bridge()  # fresh bridge
             return False, ""
@@ -1361,7 +1375,16 @@ class ContinuousTrader:
                 )
 
             log.info(f"ANALYSIS | {disp} | fetching candles + live indicators")
-            tick = self.bridge.get_tick(broker_sym)
+            try:
+                tick = self.bridge.get_tick(broker_sym)
+            except Exception as _te:
+                log.warning(f"ACTION | {disp} | skip analysis | tick fetch failed: {_te}")
+                self.connected = False
+                continue
+            if tick is None or getattr(tick, "ask", None) in (None, 0) or getattr(tick, "bid", None) in (None, 0):
+                log.warning(f"ACTION | {disp} | skip analysis | bridge returned empty tick — flagging reconnect")
+                self.connected = False
+                continue
             tf_data = self._fetch_candles(sym_cfg)
             if not tf_data:
                 log.warning(f"ACTION | {disp} | skip analysis | no candle data")
@@ -1526,8 +1549,8 @@ class ContinuousTrader:
                 log.info(f"ACTION | {disp} | {session} session blocked (not in allowed_sessions {_allowed_sessions})")
                 can_open_new = False
 
-            # Loss cooldown: 10 min rest after a loss (was 3 min — too short, caused churn)
-            _LOSS_COOLDOWN_SECS = 600  # 10 minutes — prevents revenge trading
+            # Loss cooldown: 10 min rest after a loss to avoid immediate revenge entry
+            _LOSS_COOLDOWN_SECS = 600  # 10 minutes — short enough to catch the next valid signal
             _cooldown_remaining = _LOSS_COOLDOWN_SECS - (time.time() - self._loss_cooldown.get(broker_sym, 0))
             if can_open_new and _cooldown_remaining > 0:
                 log.info(f"ACTION | {disp} | cooldown after loss | wait {int(_cooldown_remaining)}s")
@@ -1838,7 +1861,8 @@ class ContinuousTrader:
                     )
 
                 # ── Build order with ATR-based SL/TP ─────────────
-                atr = signal_data.get("indicators", {}).get("atr", 0)
+                # Use H4 ATR for stops — M15 ATR is too small and gets hit by noise
+                atr = signal_data.get("h4_atr", 0) or signal_data.get("indicators", {}).get("atr", 0)
                 # Inject balance for Kelly sizing (1% risk per trade)
                 try:
                     _acct_info = self.bridge.get_account_info()

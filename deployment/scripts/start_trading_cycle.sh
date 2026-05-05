@@ -177,7 +177,8 @@ fi
 
 # ── Start GLM 5.1 deep market analyzer ──────────────────────────────────────
 echo -e "${CYN}🧠 Starting GLM 5.1 market analyzer (every 10 min)...${RST}"
-nohup python3 -u "$SCRIPT_DIR/scripts/glm51_cron.py" --loop --interval 10 \
+cd "$SCRIPT_DIR"
+nohup python3 -u scripts/glm51_cron.py --loop --interval 10 \
   >> "$SCRIPT_DIR/logs/glm51_analysis.log" 2>&1 &
 GLM_PID=$!
 sleep 3
@@ -185,7 +186,7 @@ sleep 3
 if kill -0 "$GLM_PID" 2>/dev/null; then
   echo -e "   ${GRN}✅ GLM 5.1 analyzer running (PID $GLM_PID)${RST}"
 else
-  echo -e "   ${YLW}⚠️  GLM 5.1 analyzer did not stay up — check logs/glm51_analysis.log${RST}"
+  echo -e "   ${YLW}⚠️  GLM 5.1 analyzer failed — check logs/glm51_analysis.log${RST}"
 fi
 
 # ── Start watchdog in background ─────────────────────────────────────────────
