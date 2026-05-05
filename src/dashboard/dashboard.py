@@ -779,11 +779,171 @@ HTML = r"""<!DOCTYPE html>
 
   setInterval(poll, 3000);
   setInterval(updateSessions, 60000);
-  
+
   // Init
   poll();
   renderPending();
   updateSessions();
+
+  // ── Trade History & Analytics Initialization ──────────────────────────────
+  let equityChart = null;
+
+  async function loadTradeHistory() {
+    try {
+      const res = await fetch('/api/trades/history');
+      const data = await res.json();
+      const trades = (data.trades || []).slice(0, 50);
+      const tbody = document.getElementById('tradeRows');
+      if (!tbody) return;
+
+      tbody.innerHTML = trades.length === 0
+        ? '<tr><td colspan="10" style="text-align:center;padding:20px;color:var(--text-muted);">No trades yet</td></tr>'
+        : trades.map(t => {
+          const time = t.ts ? new Date(t.ts).toLocaleString() : '—';
+          const pnlColor = t.outcome === 'WIN' ? 'color:var(--green)' : 'color:var(--red)';
+          const rowBg = t.outcome === 'WIN' ? 'background:rgba(0,255,136,0.05)' : 'background:rgba(255,59,92,0.05)';
+          return `<tr style="${rowBg};border-bottom:1px solid var(--border)">
+            <td style="padding:10px">${time}</td>
+            <td style="padding:10px;text-align:center">${t.symbol}</td>
+            <td style="padding:10px;text-align:center;color:${t.direction==='BUY'?'var(--green)':'var(--red)'}">${t.direction}</td>
+            <td style="padding:10px;text-align:right">${t.entry_price.toFixed(2)}</td>
+            <td style="padding:10px;text-align:right">${t.exit_price.toFixed(2)}</td>
+            <td style="padding:10px;text-align:right">${t.pips.toFixed(1)}</td>
+            <td style="padding:10px;text-align:right;${pnlColor}">${t.outcome === 'WIN' ? '+' : ''}${t.pnl_usd.toFixed(2)}</td>
+            <td style="padding:10px;text-align:center">${Math.round(t.duration_min)}m</td>
+            <td style="padding:10px;text-align:center">${(t.confidence*100).toFixed(0)}%</td>
+            <td style="padding:10px;text-align:center;color:${t.outcome === 'WIN' ? 'var(--green)' : 'var(--red)'}">${t.outcome}</td>
+          </tr>`;
+        }).join('');
+    } catch (e) {
+      console.error('Trade history load failed:', e);
+    }
+  }
+
+  async function loadPerformance() {
+    try {
+      const res = await fetch('/api/trades/performance');
+      const p = await res.json();
+
+      const el_total = document.getElementById('perf-total');
+      const el_wr = document.getElementById('perf-wr');
+      const el_avg = document.getElementById('perf-avg');
+      const el_pips = document.getElementById('perf-total-pips');
+      const el_best = document.getElementById('perf-best');
+      const el_worst = document.getElementById('perf-worst');
+      const el_symbols = document.getElementById('perf-symbols');
+
+      if (el_total) el_total.textContent = p.total_trades || '—';
+      if (el_wr) el_wr.textContent = `Win Rate: ${p.win_rate || 0}% (${p.wins || 0}W / ${p.losses || 0}L)`;
+      if (el_avg) el_avg.textContent = (p.avg_pips || 0).toFixed(1);
+      if (el_pips) el_pips.textContent = `Total: ${(p.total_pips || 0).toFixed(1)} pips`;
+      if (el_best) el_best.textContent = (p.best_trade_pips || 0).toFixed(1);
+      if (el_worst) el_worst.textContent = (p.worst_trade_pips || 0).toFixed(1);
+
+      if (el_symbols) {
+        const symHtml = Object.entries(p.by_symbol || {})
+          .map(([sym, s]) => `<div>${sym}: ${s.win_rate}% (${s.wins}/${s.losses+s.wins})</div>`)
+          .join('');
+        el_symbols.innerHTML = symHtml || '—';
+      }
+
+      drawEquityCurve();
+    } catch (e) {
+      console.error('Performance load failed:', e);
+    }
+  }
+
+  async function drawEquityCurve() {
+    try {
+      const res = await fetch('/api/trades/history');
+      const data = await res.json();
+      const trades = data.trades || [];
+      const canvas = document.getElementById('equityChart');
+      if (!canvas) return;
+
+      let cumPnL = 0;
+      const cumulativePnL = [];
+      const labels = [];
+
+      [...trades].reverse().forEach((t, idx) => {
+        cumPnL += (t.exit_price - t.entry_price);
+        cumulativePnL.push(cumPnL);
+        labels.push((idx + 1).toString());
+      });
+
+      const ctx = canvas.getContext('2d');
+      if (equityChart) equityChart.destroy();
+      equityChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Cumulative P&L (USD)',
+            data: cumulativePnL,
+            borderColor: cumulativePnL[cumulativePnL.length-1] > 0 ? 'var(--green)' : 'var(--red)',
+            backgroundColor: cumulativePnL[cumulativePnL.length-1] > 0
+              ? 'rgba(0,255,136,0.1)'
+              : 'rgba(255,59,92,0.1)',
+            tension: 0.4,
+            fill: true,
+            borderWidth: 2,
+            pointRadius: 0
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: { legend: { display: false } },
+          scales: {
+            y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: 'var(--text-muted)' } },
+            x: { grid: { display: false }, ticks: { color: 'var(--text-muted)' } }
+          }
+        }
+      });
+    } catch (e) {
+      console.error('Equity curve failed:', e);
+    }
+  }
+
+  async function loadFactors() {
+    try {
+      const res = await fetch('/api/trades/factors');
+      const factors = await res.json();
+      const tbody = document.getElementById('factorRows');
+      if (!tbody) return;
+
+      const entries = Object.entries(factors || {})
+        .sort((a, b) => b[1].win_rate - a[1].win_rate)
+        .slice(0, 15);
+
+      tbody.innerHTML = entries.length === 0
+        ? '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text-muted);">No factor data</td></tr>'
+        : entries.map(([name, data]) => {
+          const bgIntensity = Math.min(data.win_rate / 100 * 0.3, 0.3);
+          return `<tr style="background:rgba(242,201,76,${bgIntensity});border-bottom:1px solid var(--border)">
+            <td style="padding:10px">${name}</td>
+            <td style="padding:10px;text-align:center;font-weight:600;color:${data.win_rate > 50 ? 'var(--green)' : 'var(--red)'}">${data.win_rate.toFixed(1)}%</td>
+            <td style="padding:10px;text-align:center">${data.sample_size}</td>
+            <td style="padding:10px;text-align:center">${(data.avg_when_win || 0).toFixed(2)}</td>
+            <td style="padding:10px;text-align:center">${(data.avg_when_loss || 0).toFixed(2)}</td>
+          </tr>`;
+        }).join('');
+    } catch (e) {
+      console.error('Factors load failed:', e);
+    }
+  }
+
+  // Load on page load
+  loadTradeHistory();
+  loadPerformance();
+  loadFactors();
+
+  // Auto-refresh every 30 seconds
+  setInterval(() => {
+    loadTradeHistory();
+    loadPerformance();
+    loadFactors();
+  }, 30000);
 
 </script>
 </body>
