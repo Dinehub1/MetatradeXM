@@ -1892,11 +1892,13 @@ let allLogs=[], symbolFilter='all';
 function parseSignals(logs){
   // Walk backwards, build latest state per symbol by grouping nearby lines
   const signals={};
+  let matched = 0;
   for(let i=logs.length-1;i>=0;i--){
     const line=logs[i];
     // Only process SIGNAL lines as anchors
     const sm=/SIGNAL.*?\|\s*([\w]+)\s*\|\s*(BUY|SELL|HOLD)\s*([\d.]+)%.*?score\s*([\+\-]?[\d.]+)/i.exec(line);
     if(!sm) continue;
+    matched++;
     const symbol=sm[1], signal=sm[2], conf=parseFloat(sm[3]), score=parseFloat(sm[4]);
     if(signals[symbol]) continue; // already have latest for this symbol
 
@@ -1950,6 +1952,7 @@ function parseSignals(logs){
     }
     signals[symbol]={symbol,signal,conf,score,time,mtfMult,adx,rsi,macd,bb,price,change,stoch,gate,regime,action,actionTxt,trend,atr,factors};
   }
+  console.log(`[parseSignals] Matched ${matched} SIGNAL lines, extracted ${Object.keys(signals).length} unique symbols: ${Object.keys(signals).join(', ')}`);
   return Object.values(signals);
 }
 
@@ -2017,6 +2020,7 @@ function renderSignals(sigs){
   const filtered=symbolFilter==='all'?sigs:sigs.filter(s=>s.symbol===symbolFilter);
   const buyCount=filtered.filter(x=>x.signal==='BUY').length;
   const sellCount=filtered.filter(x=>x.signal==='SELL').length;
+  console.log(`[renderSignals] Rendering ${filtered.length} of ${sigs.length} total signals (filter: ${symbolFilter})`);
   document.getElementById('count').textContent=`${filtered.length} signals`;
   document.getElementById('buy-count').textContent=`${buyCount} BUY`;
   document.getElementById('sell-count').textContent=`${sellCount} SELL`;
@@ -2029,15 +2033,20 @@ async function loadLogs(){
   try{
     // Phase 2: Add Bearer token if available (embedded in page or from env)
     const token = window.__AUTH_TOKEN || 'changeme';
+    console.log('[loadLogs] Fetching /api/logs with token...');
     const r = await fetch('/api/logs', {
       headers: { 'Authorization': `Bearer ${token}` }
     });
     if(!r.ok)throw new Error(`HTTP ${r.status}: ${r.statusText}`);
     const data=await r.json();
     allLogs=data.logs||[];
-    renderSignals(parseSignals(allLogs));
+    console.log(`[loadLogs] Loaded ${allLogs.length} log lines, source: ${data.source}`);
+    const parsed = parseSignals(allLogs);
+    console.log(`[loadLogs] Parsed ${parsed.length} signals`);
+    renderSignals(parsed);
     document.getElementById('lastUpdate').textContent=new Date().toLocaleTimeString();
   }catch(e){
+    console.error('[loadLogs] Error:', e);
     document.getElementById('logs').innerHTML=`<div style="grid-column:1/-1;color:var(--red);padding:20px;font-family:var(--mono)">Error: ${e.message}</div>`;
   }
 }
@@ -2220,7 +2229,12 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
 
         elif path in ('/logs', '/logs.html'):
             # ── Trading Logs Viewer ────────────────────────────────────────────
-            body = LOGS_HTML.encode()
+            # Inject auth token into page so JavaScript fetch calls use proper auth
+            html = LOGS_HTML.replace(
+                '<script>\nlet allLogs=[], symbolFilter=\'all\';',
+                f'<script>\nwindow.__AUTH_TOKEN = \'{DASHBOARD_TOKEN}\';\nlet allLogs=[], symbolFilter=\'all\';'
+            )
+            body = html.encode()
             self.send_response(200)
             self.send_header('Content-Type', 'text/html; charset=utf-8')
             self.send_header('Content-Length', len(body))
