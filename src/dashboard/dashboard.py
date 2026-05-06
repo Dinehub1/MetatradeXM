@@ -2038,6 +2038,68 @@ function renderSignals(sigs){
     :`<div style="grid-column:1/-1;padding:40px;text-align:center;color:var(--muted);font-family:var(--mono)">No signals in last 150 log lines</div>`;
 }
 
+function renderFormattedLogs(logs){
+  const container=document.getElementById('raw-logs');
+  if(!logs || logs.length===0){
+    container.innerHTML='<div style="color:var(--muted);padding:10px">No logs</div>';
+    return;
+  }
+
+  let html='';
+  for(let i=logs.length-1;i>=0;i--){
+    const line=logs[i];
+    const timeMatch=/(\d{2}:\d{2}:\d{2})/.exec(line);
+    const time=timeMatch?timeMatch[1]:'--:--:--';
+
+    let type='', color='var(--text)', icon='';
+    let brief='';
+
+    if(line.includes('SIGNAL')){
+      type='SIG'; color='#00ff88'; icon='▶';
+      const dirMatch=/(BUY|SELL|HOLD)/.exec(line);
+      const confMatch=/(\d+)%/.exec(line);
+      const scoreMatch=/score\s*([\+\-][\d.]+)/.exec(line);
+      const dir=dirMatch?dirMatch[1]:'?';
+      brief=`${dir} ${confMatch?confMatch[1]+'%':'—'} score ${scoreMatch?scoreMatch[1]:'—'}`;
+    }else if(line.includes('DETAIL')&&line.includes('trend')){
+      type='TRD'; color='#00e5ff'; icon='📊';
+      const m=/trend\s+([D1=\w,\s]+)/.exec(line);
+      brief=m?m[1].replace(/\s+/g,' ').substring(0,30):'—';
+    }else if(line.includes('DETAIL')&&line.includes('ADX')){
+      type='IND'; color='#00e5ff'; icon='📈';
+      const adx=/ADX\s*([\d.]+)/.exec(line);
+      const rsi=/RSI\s*([\d.]+)/.exec(line);
+      brief=`ADX ${adx?adx[1]:'—'} RSI ${rsi?rsi[1]:'—'}`;
+    }else if(line.includes('DETAIL')&&line.includes('Price')){
+      type='PRC'; color='#fbbf24'; icon='💰';
+      const price=/Price\s*([\d.]+)/.exec(line);
+      const change=/Change\s*([\+\-][\d.]+)%/.exec(line);
+      brief=`${price?price[1]:'—'} ${change?change[1]:'—'}%`;
+    }else if(line.includes('ACTION')){
+      type='ACT'; color='#00ff88'; icon='✓';
+      brief='Trade action executed';
+    }else if(line.includes('RISK')){
+      type='RSK'; color='#ff3b5c'; icon='⚠';
+      brief='Risk assessment';
+    }else if(line.includes('bot_status')){
+      type='STS'; color='#64748b'; icon='●';
+      brief='Bot status update';
+    }else{
+      type='LOG'; color='#64748b'; icon='○';
+      brief=line.substring(0,45);
+    }
+
+    html=`<div style="padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:7px;line-height:1.3;display:flex;gap:4px;align-items:center">
+      <span style="color:${color};font-weight:600;width:20px;flex-shrink:0">${time}</span>
+      <span style="color:${color};font-weight:700;width:25px;flex-shrink:0;text-align:center">${type}</span>
+      <span style="color:${color}">${icon}</span>
+      <span style="flex:1;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:var(--mono)">${brief}</span>
+    </div>`+html;
+  }
+
+  container.innerHTML=html;
+}
+
 async function loadLogs(){
   try{
     // Phase 2: Add Bearer token if available (embedded in page or from env)
@@ -2053,9 +2115,8 @@ async function loadLogs(){
     const parsed = parseSignals(allLogs);
     console.log(`[loadLogs] Parsed ${parsed.length} signals`);
     renderSignals(parsed);
-    // Display raw logs in the logs section
-    const logsText = allLogs.map((line, idx) => `${idx+1}. ${line}`).join('\n');
-    document.getElementById('raw-logs').textContent = logsText;
+    // Display formatted logs in the logs section
+    renderFormattedLogs(allLogs);
     document.getElementById('lastUpdate').textContent=new Date().toLocaleTimeString();
   }catch(e){
     console.error('[loadLogs] Error:', e);
