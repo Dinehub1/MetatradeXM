@@ -1,17 +1,17 @@
 {
   "state": "idle",
-  "last_run_at": "2026-05-05T19:32:49.456999+00:00",
-  "last_report": "/Users/mac/Documents/Devlopments/metatradeXM/MetatradeXM/data/glm51_reports/analysis_20260505_193113.md",
+  "last_run_at": "2026-05-05T20:31:34.793878+00:00",
+  "last_report": "/Users/mac/Documents/Devlopments/metatradeXM/MetatradeXM/data/glm51_reports/analysis_20260505_202925.md",
   "latest_report": "/Users/mac/Documents/Devlopments/metatradeXM/MetatradeXM/data/glm51_reports/latest_analysis.md",
   "last_error": null,
-  "cycle_seconds": 95.7,
+  "cycle_seconds": 129.0,
   "trade_summary": {
     "total_closed": 200,
-    "wins": 101,
-    "losses": 99,
-    "win_rate": 50.5,
-    "total_pips": -1432.9,
-    "avg_pips": -7.16
+    "wins": 99,
+    "losses": 101,
+    "win_rate": 49.5,
+    "total_pips": -875.1,
+    "avg_pips": -4.38
   },
   "market_readiness": {
     "bias": "SELL XAGUSD",
@@ -19,14 +19,14 @@
       {
         "symbol": "XAGUSD",
         "direction": "SELL",
-        "confidence": 91.8,
-        "score": -27.1
+        "confidence": 95.0,
+        "score": -29.1
       },
       {
         "symbol": "XAUUSD",
         "direction": "SELL",
-        "confidence": 76.2,
-        "score": -19.7
+        "confidence": 95.0,
+        "score": -24.5
       }
     ],
     "warnings": [

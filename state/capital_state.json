@@ -1,8 +1,8 @@
 {
   "consecutive_wins": 0,
-  "consecutive_losses": 1,
+  "consecutive_losses": 2,
   "peak_balance": 5928.11,
-  "booked_profit_usd": 329.6,
-  "total_booked_trades": 135,
+  "booked_profit_usd": 336.48,
+  "total_booked_trades": 137,
   "partial_closes_done": {}
 }
