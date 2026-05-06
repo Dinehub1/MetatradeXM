@@ -88,8 +88,8 @@ def _check_config_integrity():
     try:
         w = json.loads((CONFIG_DIR / "scoring_weights.json").read_text())
         bt = w.get("buy_threshold", 12)
-        if bt < 8 or bt > 20:
-            log.warning(f"CONFIG: buy_threshold={bt} outside valid 8-20 range — analyzer will clamp on next read")
+        if bt < 5 or bt > 20:
+            log.warning(f"CONFIG: buy_threshold={bt} outside valid 5-20 range — analyzer will clamp on next read")
     except Exception as e:
         try: log.debug(f'Caught exception: {e}')
         except: pass
