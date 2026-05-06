@@ -1880,7 +1880,16 @@ header{background:rgba(6,9,15,.92);backdrop-filter:blur(14px);border-bottom:1px 
   <div style="font-size:10px;color:#64748b;margin-bottom:10px;text-transform:uppercase;letter-spacing:.12em;font-weight:600">💰 Open Trades</div>
   <div id="position-content" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;grid-auto-rows:max-content">Loading...</div>
 </div>
-<div id="logs">Loading signals...</div>
+<div style="display:flex;flex:1;overflow:hidden;gap:0">
+  <div style="flex:0.6;display:flex;flex-direction:column;overflow:hidden;border-right:1px solid var(--border)">
+    <div style="padding:8px 16px;border-bottom:1px solid var(--border);font-size:10px;color:var(--muted);font-weight:600">📊 SIGNALS</div>
+    <div id="logs" style="flex:1;overflow-y:auto;padding:8px 16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px;align-content:start">Loading signals...</div>
+  </div>
+  <div style="flex:0.4;display:flex;flex-direction:column;overflow:hidden">
+    <div style="padding:8px 16px;border-bottom:1px solid var(--border);font-size:10px;color:var(--muted);font-weight:600">📋 RAW LOGS</div>
+    <div id="raw-logs" style="flex:1;overflow-y:auto;padding:8px 16px;font-family:var(--mono);font-size:9px;color:var(--text);white-space:pre-wrap;word-break:break-word">Loading logs...</div>
+  </div>
+</div>
 <div id="status-bar">
   <span id="count">0 signals</span>
   <span id="buy-count" style="color:var(--green)">0 BUY</span>
@@ -2044,10 +2053,14 @@ async function loadLogs(){
     const parsed = parseSignals(allLogs);
     console.log(`[loadLogs] Parsed ${parsed.length} signals`);
     renderSignals(parsed);
+    // Display raw logs in the logs section
+    const logsText = allLogs.map((line, idx) => `${idx+1}. ${line}`).join('\n');
+    document.getElementById('raw-logs').textContent = logsText;
     document.getElementById('lastUpdate').textContent=new Date().toLocaleTimeString();
   }catch(e){
     console.error('[loadLogs] Error:', e);
     document.getElementById('logs').innerHTML=`<div style="grid-column:1/-1;color:var(--red);padding:20px;font-family:var(--mono)">Error: ${e.message}</div>`;
+    document.getElementById('raw-logs').textContent=`Error loading logs: ${e.message}`;
   }
 }
 function setSymbol(sym,btn){
