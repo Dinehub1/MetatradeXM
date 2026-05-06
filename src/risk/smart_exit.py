@@ -30,37 +30,42 @@ from core.supabase_db import SupabaseDB
 log = get_logger("smart_exit")
 
 # ── Exit Configuration ───────────────────────────────────────────────────────
-# All thresholds in pips unless suffixed _usd, _hours, _minutes.
-# Pip values are symbol-agnostic; conversion to USD uses contract_size×volume.
+# All thresholds in pips unless suffixed _usd, _hours, _r (R-multiples), or _minutes.
+# Rules 3 & 4 use R-multiples of each position's actual SL distance so they
+# automatically adapt to both M15 (30 pip) and H4 (60–120 pip) sized entries.
 EXIT_CFG = {
     # ── 1. Catastrophic backstop ─────────────────────────────────────────────
     # Only fires if the broker SL was never placed or was rejected.
-    # 100→200: H4 trades have wider SL so larger floating loss before hit.
     "catastrophic_loss_usd":   200,
 
     # ── 2. Time-based close ──────────────────────────────────────────────────
-    # H4 swing trades need days to develop — don't close too early.
-    "max_trade_age_hours":     72,    # 48→72: H4 swings can take 3 days
-    "stale_check_hours":       24,    # 8→24: give H4 trades a full day to show progress
-    "stale_min_pip_fraction":  0.10,  # 0.25→0.10: only need 10% of SL as profit at 24h
+    "max_trade_age_hours":     72,    # H4 swings can take 3 days
+    "stale_check_hours":       24,    # require visible progress after 24 h
+    "stale_min_pip_fraction":  0.10,  # need ≥ 10% of SL in profit at stale check
 
-    # ── 3. Profit lock (peak retracement) ────────────────────────────────────
-    # Old values (15 arm / 8 close) were M15-sized — closed H4 winners at
-    # trivial profit. Scaled to H4 SL of 80–120 pips.
-    "lock_peak_pips":          60,    # 15→60: arm after real H4 profit
-    "lock_giveback_pips":      30,    # 8→30: protect 30 pips once armed
+    # ── 3. Profit lock — R-relative (adapts to each position's SL) ───────────
+    # lock_r: arm once profit reaches this multiple of the SL distance.
+    # lock_giveback_r: close if profit falls below this multiple (protect floor).
+    # Hard-pip minimums guard against positions with tiny or missing SL data.
+    "lock_r":                  2.0,   # arm at 2R (was fixed 60 pips — missed M15 entries)
+    "lock_giveback_r":         1.0,   # protect 1R floor once armed
+    "lock_peak_min_pips":      25,    # absolute minimum to arm (safety floor)
+    "lock_giveback_min_pips":  10,    # absolute minimum giveback threshold
 
-    # ── 4. Trailing stop (the profit engine) ─────────────────────────────────
-    # Old values (12 / 8 / 12 / 18) were M15-sized — trail fired at noise
-    # level and immediately stopped out H4 trades. Scaled to H4 reality.
-    "trail_activate_pips":     50,    # 12→50: don't trail until real H4 profit
-    "trail_distance_chop":     25,    # 8→25: ADX < 22
-    "trail_distance_normal":   40,    # 12→40: ADX 22–30
-    "trail_distance_strong":   60,    # 18→60: ADX > 30, let runners breathe
+    # ── 4. Trailing stop — R-relative activation ─────────────────────────────
+    # Activates at trail_activate_r × SL distance; distance itself is ADX-based.
+    "trail_activate_r":        1.5,   # trail from 1.5R (was fixed 50 pips)
+    "trail_activate_min_pips": 15,    # absolute minimum activation guard
+    "trail_distance_chop":     25,    # pip distance: ADX < 22
+    "trail_distance_normal":   40,    # pip distance: ADX 22–30
+    "trail_distance_strong":   60,    # pip distance: ADX > 30, let runners breathe
 
-    # ── Legacy keys (kept for test/dashboard compatibility, unused) ──────────
-    "loss_cut_pips":           30,    # legacy; SL is single source of truth now
-    "trailing_start_pips":     50,    # alias for trail_activate_pips
+    # ── Legacy keys (kept for test/dashboard compatibility) ──────────────────
+    "lock_peak_pips":          50,    # legacy alias — no longer used by engine
+    "lock_giveback_pips":      25,    # legacy alias — no longer used by engine
+    "trail_activate_pips":     38,    # legacy alias — no longer used by engine
+    "loss_cut_pips":           30,    # legacy; SL is single source of truth
+    "trailing_start_pips":     38,    # legacy alias
 }
 
 
@@ -188,11 +193,32 @@ class SmartExitManager:
         usd_per_pip   = pip * contract_size * volume
         profit_pips   = profit_usd / usd_per_pip if usd_per_pip > 0 else 0.0
 
+        # Derive R-based exit thresholds from this position's actual SL distance.
+        # This makes rules 3 & 4 scale correctly regardless of entry timeframe
+        # (M15 entries have ~30 pip SL; H4 entries have ~60-120 pip SL).
+        if current_sl > 0 and open_price > 0 and pip > 0:
+            sl_dist_pips = abs(open_price - current_sl) / pip
+        else:
+            sl_dist_pips = 0.0
+
+        if sl_dist_pips >= 5:
+            lock_peak_thresh     = max(sl_dist_pips * EXIT_CFG["lock_r"],
+                                       EXIT_CFG["lock_peak_min_pips"])
+            lock_giveback_thresh = max(sl_dist_pips * EXIT_CFG["lock_giveback_r"],
+                                       EXIT_CFG["lock_giveback_min_pips"])
+            trail_thresh         = max(sl_dist_pips * EXIT_CFG["trail_activate_r"],
+                                       EXIT_CFG["trail_activate_min_pips"])
+        else:
+            # No usable SL on record — fall back to legacy absolute values.
+            lock_peak_thresh     = EXIT_CFG["lock_peak_pips"]
+            lock_giveback_thresh = EXIT_CFG["lock_giveback_pips"]
+            trail_thresh         = EXIT_CFG["trail_activate_pips"]
+
         # Track peak for profit-lock arming.
         if profit_pips > self._peak_pips.get(ticket, 0):
             self._peak_pips[ticket] = profit_pips
         peak = self._peak_pips.get(ticket, 0)
-        if peak >= EXIT_CFG["lock_peak_pips"]:
+        if peak >= lock_peak_thresh:
             self._lock_armed.add(ticket)
 
         # ── Rule 1: catastrophic backstop ────────────────────────────────────
@@ -215,9 +241,9 @@ class SmartExitManager:
 
         # ── Rule 3: profit lock ──────────────────────────────────────────────
         if (ticket in self._lock_armed
-                and profit_pips <= EXIT_CFG["lock_giveback_pips"]):
+                and profit_pips <= lock_giveback_thresh):
             reason = (f"PROFIT LOCK: peaked +{peak:.1f}p, now +{profit_pips:.1f}p "
-                      f"(≤ +{EXIT_CFG['lock_giveback_pips']}p giveback)")
+                      f"(≤ +{lock_giveback_thresh:.0f}p = 1R giveback, SL={sl_dist_pips:.0f}p)")
             return self._close(bridge, ticket, symbol, direction,
                                profit_pips, profit_usd, "PROFIT_LOCK",
                                reason, state, dry_run)
@@ -226,6 +252,7 @@ class SmartExitManager:
         return self._check_trail(
             bridge, ticket, symbol, direction,
             open_price, current_sl, profit_pips, pip, sym_cfg, dry_run,
+            trail_activate=trail_thresh,
         )
 
     # ── Rule 2 helper: time-based close ─────────────────────────────────────
@@ -278,8 +305,9 @@ class SmartExitManager:
 
     def _check_trail(self, bridge, ticket, symbol, direction,
                      open_price, current_sl, profit_pips, pip,
-                     sym_cfg, dry_run):
-        if profit_pips < EXIT_CFG["trail_activate_pips"]:
+                     sym_cfg, dry_run, trail_activate=None):
+        activate = trail_activate if trail_activate is not None else EXIT_CFG["trail_activate_pips"]
+        if profit_pips < activate:
             return None
 
         adx = sym_cfg.get("_last_adx", 0.0)

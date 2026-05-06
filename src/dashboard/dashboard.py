@@ -8,6 +8,9 @@ from socketserver import ThreadingMixIn
 from pathlib import Path
 import sys
 
+# ── Authentication ─────────────────────────────────────────────────────────────
+DASHBOARD_TOKEN = os.getenv("DASHBOARD_TOKEN", "changeme")  # env override: DASHBOARD_TOKEN=<secret>
+
 PORT         = 8889
 BASE_DIR     = Path(__file__).resolve().parent.parent.parent   # src/dashboard/ -> src/ -> project root
 STATUS_FILE  = BASE_DIR / "state" / "bot_status.json"
@@ -154,6 +157,7 @@ def _live_snapshot_from_supabase() -> dict:
             "session": row.get("session") or raw.get("session") or snap["session"],
             "indicators": indicators,
             "timeframes": timeframes,
+            "factor_scores": row.get("factor_scores") or raw.get("factor_scores") or {},
             "_last_update": _epoch(ts),
             "_age_s": _age_s(ts),
             "source": row.get("source") or "supabase",
@@ -184,6 +188,7 @@ def _status_from_supabase() -> dict:
             "session": row.get("session"),
             "indicators": row.get("indicators") or {},
             "timeframes": row.get("timeframes") or {},
+            "factor_scores": row.get("factor_scores") or {},
             "bid": row.get("bid"),
             "ask": row.get("ask"),
         }
@@ -759,19 +764,21 @@ HTML = r"""<!DOCTYPE html>
       <div style="margin-bottom: 20px;">
         <div style="display:flex; justify-content:space-between; margin-bottom: 5px;">
           <span style="font-size:12px; color:var(--gold); font-weight: 600;">XAUUSD</span>
-          <span style="font-family:'JetBrains Mono'; font-size:12px;" id="conf-gold-txt">85%</span>
+          <span style="font-family:'JetBrains Mono'; font-size:12px;" id="conf-gold-txt">--%</span>
         </div>
-        <div class="signal-badge buy" id="sig-gold">BUY</div>
-        <div class="progress-bar"><div class="progress-fill gold" id="conf-gold-bar" style="width: 85%"></div></div>
+        <div class="signal-badge neutral" id="sig-gold">WAITING</div>
+        <div class="progress-bar"><div class="progress-fill gold" id="conf-gold-bar" style="width: 0%"></div></div>
+        <div id="factors-gold" style="margin-top: 8px; min-height: 15px;"></div>
       </div>
 
       <div>
         <div style="display:flex; justify-content:space-between; margin-bottom: 5px;">
           <span style="font-size:12px; color:var(--silver); font-weight: 600;">XAGUSD</span>
-          <span style="font-family:'JetBrains Mono'; font-size:12px;" id="conf-silver-txt">40%</span>
+          <span style="font-family:'JetBrains Mono'; font-size:12px;" id="conf-silver-txt">--%</span>
         </div>
-        <div class="signal-badge neutral" id="sig-silver">HOLD</div>
-        <div class="progress-bar"><div class="progress-fill silver" id="conf-silver-bar" style="width: 40%"></div></div>
+        <div class="signal-badge neutral" id="sig-silver">WAITING</div>
+        <div class="progress-bar"><div class="progress-fill silver" id="conf-silver-bar" style="width: 0%"></div></div>
+        <div id="factors-silver" style="margin-top: 8px; min-height: 15px;"></div>
       </div>
     </div>
 
@@ -1019,6 +1026,44 @@ HTML = r"""<!DOCTYPE html>
       pe.textContent = (pnl >= 0 ? '+' : '') + pnl.toFixed(2) + ' ' + (ac.currency || 'USD');
       pe.className = 'stat-val ' + (pnl >= 0 ? 'profit-pos' : 'profit-neg');
       document.getElementById('acc-currency').textContent = ac.currency || 'USD';
+    }
+    
+    if (d.symbols) {
+      updateSignal('gold', d.symbols['XAUUSD']);
+      updateSignal('silver', d.symbols['XAGUSD']);
+    }
+  }
+
+  function updateSignal(metalId, data) {
+    if (!data) return;
+    const sigBadge = document.getElementById(`sig-${metalId}`);
+    const confTxt = document.getElementById(`conf-${metalId}-txt`);
+    const confBar = document.getElementById(`conf-${metalId}-bar`);
+    
+    if (sigBadge) {
+      const sig = (data.signal || 'HOLD').toUpperCase();
+      let scoreStr = '';
+      if (data.score !== undefined) {
+         scoreStr = ` (Score: ${data.score > 0 ? '+' : ''}${parseFloat(data.score).toFixed(1)})`;
+      }
+      sigBadge.textContent = sig + scoreStr;
+      sigBadge.className = 'signal-badge ' + (sig === 'BUY' ? 'buy' : sig === 'SELL' ? 'sell' : 'neutral');
+    }
+    
+    if (confTxt) {
+      const conf = parseFloat(data.confidence || 0);
+      const pct = Math.round((conf <= 1 && conf > 0 ? conf * 100 : conf));
+      confTxt.textContent = pct + '%';
+      if (confBar) confBar.style.width = pct + '%';
+    }
+
+    const factorDiv = document.getElementById(`factors-${metalId}`);
+    if (factorDiv && data.factor_scores) {
+      const factors = Object.entries(data.factor_scores)
+        .filter(([k,v]) => typeof v === 'number' && v !== 0 && !k.endsWith('_regime'))
+        .map(([k,v]) => `<span style="display:inline-block; margin-right:8px; font-size:10px;"><span style="color:var(--text-muted)">${k.split('_').slice(1).join('_')}:</span> <span style="color:${v > 0 ? 'var(--green)' : 'var(--red)'}">${v > 0 ? '+' : ''}${v.toFixed(1)}</span></span>`)
+        .join('');
+      factorDiv.innerHTML = factors || '<span style="color:var(--text-muted); font-size:10px;">No active factors</span>';
     }
   }
 
@@ -2063,6 +2108,18 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _check_auth(self) -> bool:
+        """Validate Bearer token. Return True if valid, else send 401 and return False."""
+        auth_header = self.headers.get('Authorization', '')
+        if not auth_header.startswith('Bearer '):
+            self._json({'error': 'Unauthorized: missing Bearer token'}, 401)
+            return False
+        token = auth_header[7:]  # strip "Bearer "
+        if token != DASHBOARD_TOKEN:
+            self._json({'error': 'Unauthorized: invalid token'}, 401)
+            return False
+        return True
+
     def do_GET(self):
         path = self.path.split('?')[0]
 
@@ -2075,6 +2132,8 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(body)
 
         elif path == '/api/status':
+            if not self._check_auth():
+                return
             try:
                 data = _get_cached("live_status", _status_from_supabase)
                 self._json(data)
@@ -2082,6 +2141,8 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
                 self._json({'state': 'error', 'source': 'supabase', 'error': str(e)}, 503)
 
         elif path == '/api/history':
+            if not self._check_auth():
+                return
             try:
                 events = _require_supabase().get_live_events(limit=200)
                 rows = []
@@ -2101,6 +2162,8 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
                 self._json({'source': 'supabase', 'error': str(e)}, 503)
 
         elif path == '/api/candles':
+            if not self._check_auth():
+                return
             try:
                 snap = _get_cached("live_snapshot", _live_snapshot_from_supabase)
                 rows = _require_supabase().get_live_market_snapshots()
@@ -2132,6 +2195,8 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(body)
 
         elif path == '/api/live-snapshot':
+            if not self._check_auth():
+                return
             try:
                 self._json(_get_cached("live_snapshot", _live_snapshot_from_supabase))
             except Exception as e:
@@ -2147,6 +2212,8 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(body)
 
         elif path == '/api/logs':
+            if not self._check_auth():
+                return
             try:
                 logs = _get_cached("live_logs", lambda: _logs_from_supabase(150))
                 self._json({'logs': logs, 'source': 'supabase:live_events'})
@@ -2154,6 +2221,8 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
                 self._json({'logs': [f'Supabase live_events error: {e}'], 'source': 'supabase', 'error': str(e)}, 503)
 
         elif path == '/api/open-positions':
+            if not self._check_auth():
+                return
             try:
                 positions = _get_cached("live_positions", _positions_from_supabase)
                 self._json({'positions': positions, 'source': 'supabase'})
@@ -2162,6 +2231,8 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
 
         elif path == '/api/trades/history':
             # ── API: Complete trade history (entries merged with outcomes) ──────────
+            if not self._check_auth():
+                return
             trades = []
             try:
                 if _supabase:
@@ -2203,6 +2274,8 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
 
         elif path == '/api/trades/performance':
             # ── API: Performance metrics (win rate, pips, P&L by category) ────────
+            if not self._check_auth():
+                return
             perf = {}
             try:
                 if _supabase:

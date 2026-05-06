@@ -6,6 +6,7 @@ Runs daily reviews, adjusts scoring weights, improves/generates skills.
 """
 
 import json
+import os
 from core.logger_factory import get_logger
 import time
 from datetime import datetime, timezone
@@ -25,9 +26,13 @@ LAST_REVIEW_FILE = Path(__file__).parent / ".last_review_date"  # persists acros
 WEIGHT_FLOOR = 0.85
 WEIGHT_CEIL  = 1.20
 
-# SAFETY: Weight adjustments are enabled, guarded by minimum sample sizes
-# and bounded floor/ceiling values to prevent score collapse.
-WEIGHT_ADJUSTMENT_ENABLED = True
+# SAFETY: Weight adjustments can be disabled at runtime via env var
+# without code changes: WEIGHT_ADJUSTMENT_ENABLED=false pm2 restart trader
+WEIGHT_ADJUSTMENT_ENABLED = os.getenv("WEIGHT_ADJUSTMENT_ENABLED", "true").lower() != "false"
+
+# Minimum number of recent trades required before any review runs.
+# n=3 is statistically meaningless; 20 gives ~±22% confidence interval on win rate.
+MIN_REVIEW_TRADES = int(os.getenv("MIN_REVIEW_TRADES", "20"))
 
 # Explicit mapping from factor stat keys (analyzer) to weight keys (scoring_weights.json)
 FACTOR_TO_WEIGHT = {
@@ -71,9 +76,9 @@ class PerformanceAnalyzer:
         if self._last_review == today:
             return False
 
-        # Check if we have enough data
+        # Require statistically meaningful sample before running
         outcomes = self.memory.get_recent_outcomes(hours=24)
-        return len(outcomes) >= 3
+        return len(outcomes) >= MIN_REVIEW_TRADES
 
     def daily_review(self):
         """
@@ -94,8 +99,8 @@ class PerformanceAnalyzer:
         log.info("[SELF-IMPROVE] Starting daily performance review")
 
         outcomes = self.memory.get_recent_outcomes(hours=24)
-        if len(outcomes) < 3:
-            log.info("[SELF-IMPROVE] Not enough trades for review (need 3+)")
+        if len(outcomes) < MIN_REVIEW_TRADES:
+            log.info(f"[SELF-IMPROVE] Not enough trades for review (have {len(outcomes)}, need {MIN_REVIEW_TRADES})")
             return
 
         log.info(f"[SELF-IMPROVE] Analyzing {len(outcomes)} trades from last 24h")
@@ -326,6 +331,20 @@ class PerformanceAnalyzer:
             # Keep last 30 adjustments
             weights["adjustment_history"] = history[-30:]
             weights["version"] = int(weights.get("version", 1)) + 1
+
+            # Back up current weights before overwriting — roll back by copying
+            # any scoring_weights.backup.YYYYMMDD_HHMMSS.json over scoring_weights.json
+            try:
+                import shutil
+                ts_str = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+                backup = WEIGHTS_PATH.parent / f"scoring_weights.backup.{ts_str}.json"
+                shutil.copy2(WEIGHTS_PATH, backup)
+                # Prune old backups — keep most recent 7 (one per day retention)
+                old_backups = sorted(WEIGHTS_PATH.parent.glob("scoring_weights.backup.*.json"))
+                for stale in old_backups[:-7]:
+                    stale.unlink(missing_ok=True)
+            except Exception as e:
+                log.warning(f"[SELF-IMPROVE] Backup failed (write blocked): {e}")
 
             WEIGHTS_PATH.write_text(json.dumps(weights, indent=4))
             log.info(f"[SELF-IMPROVE] Applied weight adjustments: {changes}")

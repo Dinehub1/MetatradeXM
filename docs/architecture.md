@@ -34,16 +34,16 @@ The core asynchronous loop running 24/7. It reads from the Windows webhook/WebSo
 These bridge classes convert generic bot commands (`place_order`, `get_tick`) into the HTTP and WebSocket calls handled by the Windows MT5 bridge.
 
 ### 3. `analyzer.py` & `ai_client.py` (The Brains)
-- **`analyzer.py`**: Fetches M15, H1, and H4 candles. Computes RSI, MACD, ADX, Bollinger Bands, Stochastic, and ATR using `pandas_ta`. It scores these into 9 distinct factors.
-- **`ai_client.py`**: Packages the raw indicator data into a prompt and asks NVIDIA for trade confirmation. Returns a final confidence score.
+- **`analyzer.py`**: Fetches M15, H1, H4, and D1 candles. Computes 12 technical factors (H4+D1 trend, RSI, MACD, ADX, Bollinger Bands, Stochastic, etc.) using `pandas_ta`. Scores factors with weights from `scoring_weights.json` (threshold: ±6 for H4/D1 alignment).
+- **`ai_client.py`**: Packages the raw indicator data into a prompt and asks NVIDIA API (or fallback Ollama) for trade confirmation. Returns a final confidence score (70%+ is profitable; <70% filtered out).
 
 ### 4. `smart_exit.py` & `position_scaler.py` (The Managers)
-- **`smart_exit.py`**: Intercepts open positions and intelligently decides if they should be closed early due to time decay or momentum reversal, or if SL should trail the price.
-- **`position_scaler.py`**: If a trade is successfully in profit and the current analysis says the trend is continuing, it enters a secondary, smaller position (pyramiding).
+- **`smart_exit.py`**: 4-rule exit hierarchy: (1) catastrophic backstop ($200 USD loss), (2) time-based close (72h max age, 24h stale check), (3) profit-lock (arm at 2R, protect 1R), (4) trailing stop (ADX-adaptive, activates at 1.5R). All R-based thresholds dynamically scale to each position's actual SL distance.
+- **`position_scaler.py`**: If a trade is successfully in profit and the current analysis says the trend is continuing, it enters a secondary, smaller position (pyramiding — currently disabled).
 
 ### 5. `self_improver.py` & `memory.py` (The Adaptors)
-- **`memory.py`**: Logs every closed trade (with JSON contexts of *why* it was opened) into Supabase.
-- **`self_improver.py`**: Runs daily to observe which factors (e.g. `f1_h4_trend`) correlated heavily with Wins, and adjusting `scoring_weights.json` accordingly.
+- **`memory.py`**: Logs every closed trade (with JSON contexts of indicators, confidence, timeframe) into Supabase. Tracks per-factor effectiveness (win rate, avg pips when winning/losing).
+- **`self_improver.py`**: Runs daily (only if 20+ trades in last 24h). Analyzes factor effectiveness, detects session/direction biases, adjusts `scoring_weights.json` (±3% per factor, floor 0.85–ceil 1.20). Backup created before each write; roll back by copying any `scoring_weights.backup.*.json` file over the live one.
 
 ### 6. `dashboard.py` (The Interface)
 A lightweight Flask server serving a single responsive HTML page backed by Supabase live tables and recent runtime events.

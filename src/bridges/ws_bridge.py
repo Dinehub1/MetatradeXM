@@ -269,12 +269,15 @@ class WSBridge:
 
     def get_candles(self, symbol: str, timeframe: str, count: int = 200) -> pd.DataFrame | None:
         """Get candles — from WS cache if available, else HTTP fallback."""
+        # Copy DataFrame INSIDE lock to prevent race with _append_candle modifying buffers
         with self._lock:
             sym_buffers = self._candle_buffers.get(symbol, {})
             cached_df = sym_buffers.get(timeframe)
+            if cached_df is not None:
+                cached_df = cached_df.copy()  # deep copy while lock held
 
         if cached_df is not None and len(cached_df) >= min(count, 30):
-            return cached_df.tail(count).copy()
+            return cached_df.tail(count)
 
         # Fallback to HTTP
         return self._webhook.get_candles(symbol, timeframe, count)

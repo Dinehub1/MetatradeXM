@@ -138,8 +138,8 @@ SYMBOLS = [
         "rsi_oversold":    25,
         "rsi_overbought":  75,
         # ATR-based dynamic stops (preferred over fixed pips)
-        "sl_atr_mult":     1.0,   # SL = 1.0 × H4 ATR
-        "tp_atr_mult":     2.5,   # TP = 2.5 × H4 ATR (R:R 2.5)
+        "sl_atr_mult":     1.5,   # SL = 1.5 × H4 ATR (1.0 was too tight; H4 noise = ~1 ATR)
+        "tp_atr_mult":     2.5,   # TP = 2.5 × H4 ATR (R:R ~1.67 after min_rr=2.5 enforcement)
         "trail_atr_mult":  1.0,   # trail distance = 1.0 × ATR
         "max_sl_pips":     120,   # hard cap: H4 stops need breathing room
         "risk_per_trade_pct": 0.005,
@@ -147,7 +147,7 @@ SYMBOLS = [
     {
         "broker": "SILVER.i#",
         "display": "XAGUSD",
-        "enabled": False,
+        "enabled": True,
         "pip": 0.01,
         "digits": 3,
         "contract_size": 5000,
@@ -163,7 +163,7 @@ SYMBOLS = [
         "adx_min":         22,    # 30→22: Silver ADX range 26-32; 30 blocked everything
         "rsi_oversold":    25,    # 20→25: Silver rarely hits 20; 25 = usable signal
         "rsi_overbought":  75,    # 80→75: Silver rarely hits 80; 75 = usable signal
-        "sl_atr_mult":     1.0,
+        "sl_atr_mult":     1.5,   # 1.0→1.5: match GOLD; H4 noise = ~1 ATR, need room
         "tp_atr_mult":     3.5,   # 4.5→3.5: Silver runs shorter than Gold
         "trail_atr_mult":  1.0,   # 1.2→1.0: tighter trail for shorter moves
         "max_sl_pips":     200,   # hard cap: H4 stops need breathing room
@@ -200,8 +200,8 @@ CONFIG = {
     "dry_run": False,
     "use_ai": True,
     "enable_pyramiding": False,
-    "max_reconnect_attempts": 5,
-    "reconnect_backoff_s": 10,
+    "max_reconnect_attempts": int(os.getenv("MAX_RECONNECT_ATTEMPTS", "5")),   # env override for broker outages
+    "reconnect_backoff_s": int(os.getenv("RECONNECT_BACKOFF_S", "10")),        # env override: escalate faster
 }
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -532,7 +532,10 @@ def make_bridge():
     return MT5Bridge()
 
 
-def connect_with_retry(bridge, max_attempts: int = 5) -> bool:
+def connect_with_retry(bridge, max_attempts: int = None) -> bool:
+    """Reconnect with exponential backoff. Configurable via env vars (MAX_RECONNECT_ATTEMPTS, RECONNECT_BACKOFF_S)."""
+    if max_attempts is None:
+        max_attempts = CONFIG["max_reconnect_attempts"]
     for attempt in range(1, max_attempts + 1):
         try:
             log.info(
@@ -864,6 +867,7 @@ def build_order_params(
         f"(${risk_dollars:.2f}) | sl=${sl_dollars_per_lot:.2f}/lot | lot={lot}"
     )
 
+    idempotency_key = f"{sym_cfg['broker']}_{direction}_{int(time.time() * 1000)}"
     return {
         "symbol": sym_cfg["broker"],
         "direction": direction,
@@ -874,8 +878,22 @@ def build_order_params(
         "sl_pips": sl_pips,
         "tp_pips": tp_pips,
         "comment": f"CT-{direction}-c{confidence:.0%}",
+        "idempotency_key": idempotency_key,  # prevent duplicate submissions on webhook timeout
     }
 
+
+# ── Order idempotency tracking ──────────────────────────────────────────────
+# Track recently-placed orders to prevent duplicates on webhook timeouts
+_recent_orders = {}  # idempotency_key -> (placement_timestamp, order_result)
+_recent_orders_lock = threading.Lock()
+
+def _clean_old_orders(max_age_s=300):
+    """Remove orders older than max_age_s from tracking (default 5 min)."""
+    now = time.time()
+    with _recent_orders_lock:
+        keys_to_del = [k for k, (ts, _) in _recent_orders.items() if now - ts > max_age_s]
+        for k in keys_to_del:
+            del _recent_orders[k]
 
 # ── Main trading cycle ───────────────────────────────────────────────────────
 
@@ -1954,8 +1972,26 @@ class ContinuousTrader:
                         log.info(f"ACTION | {disp} | skip entry | pyramid already active")
                         continue
 
-                    result = self.bridge.place_order(order)
+                    # Check for recent duplicate submission (idempotency)
+                    idempotency_key = order.get("idempotency_key", "")
+                    result = None
+                    with _recent_orders_lock:
+                        if idempotency_key in _recent_orders:
+                            ts_placed, cached_result = _recent_orders[idempotency_key]
+                            age_s = time.time() - ts_placed
+                            if age_s < 300:  # 5 min window
+                                log.warning(f"ACTION | {disp} | duplicate order suppressed (age {age_s:.0f}s) | key {idempotency_key[:20]}...")
+                                result = cached_result
+
+                    if result is None:
+                        result = self.bridge.place_order(order)
+
                     if result and hasattr(result, "order"):
+                        # Track order to prevent future duplicates
+                        with _recent_orders_lock:
+                            _recent_orders[idempotency_key] = (time.time(), result)
+                        _clean_old_orders(max_age_s=300)
+
                         log.info(
                             f"ACTION | {disp} | opened tranche 1/10 #{result.order} | {direction} @{order['price']:.2f} | "
                             f"sl {order['sl']} | tp {order['tp']} | lot 0.01 | conf {confidence:.0%}"

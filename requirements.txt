@@ -1,14 +1,14 @@
-# ── Core dependencies ─────────────────────────────────────────────────────────
+# ── Core dependencies (pinned for reproducibility & stability) ───────────────
 websocket-client==1.6.1           # WebSocket client (ws_bridge.py on Ubuntu)
-websockets>=12.0                  # WebSocket server (win_webhook_mt5.py on Windows)
+websockets==13.0                  # WebSocket server (win_webhook_mt5.py on Windows)
 requests==2.31.0                  # OpenRouter / WebhookBridge REST calls
-numpy>=1.24.3                     # Indicator math
-pandas>=2.0.3                     # Candle DataFrame processing
+numpy==1.24.3                     # Indicator math (pinned: breaking changes in 2.x)
+pandas==2.0.3                     # Candle DataFrame processing (pinned: API stability)
 python-dotenv==1.0.0              # .env loading helper (optional, manual loader in place)
-Flask>=2.3.2                      # Webhook server for the Windows MT5 bridge
-MetaTrader5>=5.0.45               # Native Windows MT5 terminal bridge used by win_webhook_mt5.py
-supabase>=2.0.0                   # Supabase PostgreSQL client for cloud database
-postgrest-py>=0.13.0              # PostgreSQL REST client (supabase dependency)
+Flask==2.3.2                      # Webhook server for the Windows MT5 bridge
+MetaTrader5==5.0.45               # Native Windows MT5 terminal bridge used by win_webhook_mt5.py
+supabase==2.0.5                   # Supabase PostgreSQL client for cloud database
+postgrest-py==0.13.0              # PostgreSQL REST client (supabase dependency)
 
 # ── Python stdlib (no install needed) ─────────────────────────────────────────
 # http.server — dashboard.py (no Flask needed)
