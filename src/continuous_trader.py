@@ -130,10 +130,12 @@ SYMBOLS = [
         "sl_pips": 35,           # fallback if ATR unavailable
         "tp_pips": 70,
         "lot": 0.01,
-        # 2026-05-06: H4/D1 weighting at 2.0× each. Old threshold 15 required M15 noise.
-        # With new weights, ±8 = H4 BULLISH+MACD aligned = strong confluence.
-        "score_threshold": 6,     # 8→6: catch H4 MACD+ADX signals while EMA is still lagging
-        "min_confidence":  0.70,  # 0.65→0.70: data analysis shows 70%+ confidence has 59% WR, is profitable
+        # 2026-05-06 PHASE A: rebalanced weights (H4/D1 1.5×, M15 0.6-0.8×). Score threshold 6→8
+        # to offset restored M15 contribution. Confidence floor 0.70→0.62: AI rarely returns >0.70
+        # in mixed-timeframe markets; combined with stricter score gate, this creates a *gradient*
+        # gate: high score (8+) at moderate conf (62%+) OR strong AI conf (75%+) at threshold score.
+        "score_threshold": 8,     # 6→8: tighter signal floor (offsets restored M15 weights)
+        "min_confidence":  0.62,  # 0.70→0.62: AI rarely returns >0.70; gradual gate via score+conf
         "adx_min":         20,    # min ADX (18→20: slight tightening for trend confirmation)
         "rsi_oversold":    25,
         "rsi_overbought":  75,
@@ -158,8 +160,10 @@ SYMBOLS = [
         # Root causes of 33% WR fixed: wrong session (London avg score -14.14),
         # Gold-tuned thresholds, and 4.5× TP that Silver never reaches.
         # Strategy: NEW_YORK mean-reversion + ASIAN ranging only. London blocked.
-        "score_threshold": 6,     # 8→6: catch H4 MACD+ADX signals while EMA lags the breakout
-        "min_confidence":  0.70,  # 0.62→0.70: data analysis shows 70%+ confidence filters out losing trades
+        # 2026-05-06 PHASE A: matched Gold rebalance. Silver keeps slightly higher floor (0.65)
+        # because it's historically more whipsaw-prone and benefits from higher conviction.
+        "score_threshold": 8,     # 6→8: tighter signal floor (offsets restored M15 weights)
+        "min_confidence":  0.65,  # 0.70→0.65: gradual gate (slightly above Gold's 0.62)
         "adx_min":         22,    # 30→22: Silver ADX range 26-32; 30 blocked everything
         "rsi_oversold":    25,    # 20→25: Silver rarely hits 20; 25 = usable signal
         "rsi_overbought":  75,    # 80→75: Silver rarely hits 80; 75 = usable signal

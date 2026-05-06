@@ -1,20 +1,20 @@
 {
   "_note": "buy_threshold HARD-CAPPED at 20 by analyzer._load_weights(). Valid range 5-20. Setting >20 halts all trading.",
-  "buy_threshold": 6,
-  "sell_threshold": -6,
+  "buy_threshold": 8,
+  "sell_threshold": -8,
   "ranging_penalty": 0.70,
-  "f1_h4_trend": 2.0,
+  "f1_h4_trend": 1.5,
   "f2_h1_trend": 0.8,
-  "f3_rsi": 0.5,
-  "f4_macd": 0.6,
+  "f3_rsi": 0.8,
+  "f4_macd": 0.8,
   "f5_adx": 1.0,
-  "f6_stoch": 0.4,
-  "f7_bb": 0.4,
+  "f6_stoch": 0.6,
+  "f7_bb": 0.6,
   "f8_h1_rsi": 0.7,
   "f9_h1_macd": 0.7,
-  "f10_d1": 2.0,
+  "f10_d1": 1.5,
   "f11_candle": 0.3,
-  "f12_h4_macd": 1.5,
+  "f12_h4_macd": 1.2,
   "last_adjusted": "2026-05-06",
   "adjustment_history": [
     {
@@ -56,6 +56,10 @@
     {
       "date": "2026-05-06",
       "change": "H4/DAILY SWING SHIFT: f1_h4_trend 1.0->2.0, f10_d1 0.7->2.0 (gate entries on H4+D1 alignment). M15 factors de-weighted: f3_rsi 0.9->0.5, f4_macd 1.0->0.6, f6_stoch 1.0->0.4, f7_bb 1.0->0.4, f11_candle 0.8->0.3. H1 boosted: f8_h1_rsi 0.5->0.7, f9_h1_macd 0.5->0.7. Fewer, better entries targeting H4 candle closes."
+    },
+    {
+      "date": "2026-05-06",
+      "change": "PHASE A REBALANCE: weight gradient was too binary (H4/D1 at 2.0 dominated everything; M15 at 0.4-0.6 was dormant). Rebalanced to gradual: f1_h4_trend 2.0->1.5, f10_d1 2.0->1.5, f12_h4_macd 1.5->1.2 (still primary but not gating). M15 restored: f3_rsi 0.5->0.8, f4_macd 0.6->0.8, f6_stoch 0.4->0.6, f7_bb 0.4->0.6. Threshold 6->8 (offsets restored M15). Goal: score reflects gradient confluence, not binary H4 reading. Live data showed 31% WR over 220 trades — system was over-restricted by binary weights."
     }
   ]
 }
