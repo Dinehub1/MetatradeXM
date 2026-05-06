@@ -1812,27 +1812,45 @@ LOGS_HTML = r"""<!DOCTYPE html>
   --text:#e2e8f0;--muted:#64748b;
   --font:'Inter',system-ui,sans-serif;--mono:'JetBrains Mono','Fira Code',monospace;
 }
-html{height:100%}body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:12px;height:100vh;display:flex;flex-direction:column;overflow:hidden;
+html{height:100%}body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px;height:100vh;display:flex;flex-direction:column;overflow:hidden;
   background-image:radial-gradient(ellipse 90% 55% at 50% -10%,rgba(0,229,255,.05) 0%,transparent 100%);}
 header{background:rgba(6,9,15,.92);backdrop-filter:blur(14px);border-bottom:1px solid var(--border);
-  padding:0 16px;height:44px;display:flex;align-items:center;gap:12px;flex-shrink:0}
-.logo{color:var(--cyan);font-family:var(--mono);font-size:13px;font-weight:500}
-.back{color:var(--muted);text-decoration:none;font-size:11px;margin-left:10px;transition:color .2s}
+  padding:0 16px;height:50px;display:flex;align-items:center;gap:12px;flex-shrink:0}
+.logo{color:var(--cyan);font-family:var(--mono);font-size:15px;font-weight:500}
+.back{color:var(--muted);text-decoration:none;font-size:13px;margin-left:10px;transition:color .2s}
+@media(max-width:640px){
+  header{height:56px}
+  .logo{font-size:16px}
+  .back{font-size:14px}
+}
 .back:hover{color:var(--cyan)}
 .hdr-r{margin-left:auto;display:flex;align-items:center;gap:10px;font-size:10px}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green);animation:pulse 2s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
-.toolbar{display:flex;align-items:center;gap:8px;padding:8px 16px;background:var(--bg1);border-bottom:1px solid var(--border);flex-shrink:0}
-.btn{padding:4px 10px;border:1px solid var(--border2);border-radius:5px;background:var(--bg2);color:var(--text);font-family:var(--mono);font-size:11px;cursor:pointer;transition:all .2s}
+.toolbar{display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--bg1);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap}
+.btn{padding:8px 14px;border:1px solid var(--border2);border-radius:6px;background:var(--bg2);color:var(--text);font-family:var(--mono);font-size:12px;cursor:pointer;transition:all .2s;min-height:40px}
 .btn:hover{border-color:var(--cyan);color:var(--cyan)}
-.filter-btns{display:flex;gap:4px;margin-left:auto}
-.fbtn{padding:3px 8px;border-radius:10px;font-size:10px;font-family:var(--mono);cursor:pointer;border:1px solid var(--border2);background:var(--bg2);color:var(--muted);transition:all .2s}
+.filter-btns{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap}
+.fbtn{padding:6px 12px;border-radius:12px;font-size:11px;font-family:var(--mono);cursor:pointer;border:1px solid var(--border2);background:var(--bg2);color:var(--muted);transition:all .2s;min-height:36px;display:flex;align-items:center}
 .fbtn.active{border-color:var(--cyan);color:var(--cyan);background:rgba(0,229,255,.1)}
+@media(max-width:640px){
+  .toolbar{flex-direction:column;align-items:stretch;gap:8px}
+  .filter-btns{margin-left:0;justify-content:space-between}
+  .btn,.fbtn{font-size:13px;min-height:44px}
+}
 #logs{flex:1;overflow-y:auto;padding:8px 16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px;align-content:start}
 @media(max-width:768px){#logs{grid-template-columns:1fr}}
 @media(max-width:480px){#logs{grid-template-columns:1fr;padding:6px 12px}}
-.signal-card{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px;backdrop-filter:blur(6px)}
+.signal-card{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px;backdrop-filter:blur(6px)}
 .signal-card:hover{border-color:var(--border2);box-shadow:0 0 12px rgba(0,229,255,.1)}
+@media(max-width:768px){
+  .signal-card{padding:14px}
+  .card-header{font-size:14px;margin-bottom:10px}
+  .symbol{font-size:16px}
+  .signal-badge{font-size:13px;padding:4px 10px}
+  .ind-label{font-size:10px}
+  .ind-value{font-size:12px}
+}
 .card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;border-bottom:1px solid var(--border);padding-bottom:6px}
 .symbol{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--cyan)}
 .time{font-family:var(--mono);font-size:9px;color:var(--muted)}
@@ -1858,7 +1876,10 @@ header{background:rgba(6,9,15,.92);backdrop-filter:blur(14px);border-bottom:1px 
 .action{font-size:9px;color:var(--amber)}
 .action.success{color:var(--green);border-left-color:var(--green)}
 .action.skip{color:var(--muted);border-left-color:var(--muted)}
-#status-bar{padding:6px 16px;background:var(--bg1);border-top:1px solid var(--border);font-family:var(--mono);font-size:10px;color:var(--muted);flex-shrink:0;display:flex;gap:20px}
+#status-bar{padding:8px 16px;background:var(--bg1);border-top:1px solid var(--border);font-family:var(--mono);font-size:12px;color:var(--muted);flex-shrink:0;display:flex;gap:20px;flex-wrap:wrap}
+@media(max-width:640px){
+  #status-bar{font-size:13px;gap:12px;padding:10px 16px}
+}
 ::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:var(--bg1)}::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.2)}
 </style>
 </head>
@@ -1880,16 +1901,23 @@ header{background:rgba(6,9,15,.92);backdrop-filter:blur(14px);border-bottom:1px 
   <div style="font-size:10px;color:#64748b;margin-bottom:10px;text-transform:uppercase;letter-spacing:.12em;font-weight:600">💰 Open Trades</div>
   <div id="position-content" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;grid-auto-rows:max-content">Loading...</div>
 </div>
-<div style="display:flex;flex:1;overflow:hidden;gap:0">
-  <div style="flex:0.6;display:flex;flex-direction:column;overflow:hidden;border-right:1px solid var(--border)">
-    <div style="padding:8px 16px;border-bottom:1px solid var(--border);font-size:10px;color:var(--muted);font-weight:600">📊 SIGNALS</div>
-    <div id="logs" style="flex:1;overflow-y:auto;padding:8px 16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px;align-content:start">Loading signals...</div>
+<div style="display:flex;flex:1;overflow:hidden;gap:0;flex-direction:column">
+  <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;border-bottom:1px solid var(--border)">
+    <div style="padding:10px 16px;border-bottom:1px solid var(--border);font-size:12px;color:var(--muted);font-weight:600">📊 SIGNALS</div>
+    <div id="logs" style="flex:1;overflow-y:auto;padding:10px 16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;align-content:start">Loading signals...</div>
   </div>
-  <div style="flex:0.4;display:flex;flex-direction:column;overflow:hidden">
-    <div style="padding:8px 16px;border-bottom:1px solid var(--border);font-size:10px;color:var(--muted);font-weight:600">📋 RAW LOGS</div>
-    <div id="raw-logs" style="flex:1;overflow-y:auto;padding:8px 16px;font-family:var(--mono);font-size:9px;color:var(--text);white-space:pre-wrap;word-break:break-word">Loading logs...</div>
+  <div style="flex:0.8;display:flex;flex-direction:column;overflow:hidden">
+    <div style="padding:10px 16px;border-bottom:1px solid var(--border);font-size:12px;color:var(--muted);font-weight:600">📋 RAW LOGS</div>
+    <div id="raw-logs" style="flex:1;overflow-y:auto;padding:10px 16px;font-family:var(--mono);font-size:10px;color:var(--text)">Loading logs...</div>
   </div>
 </div>
+<style>
+@media(min-width:1024px){
+  body > div:nth-child(3) { flex-direction:row !important; }
+  body > div:nth-child(3) > div:first-child { flex:0.6 !important; border-bottom:none !important; border-right:1px solid var(--border) !important; }
+  body > div:nth-child(3) > div:last-child { flex:0.4 !important; }
+}
+</style>
 <div id="status-bar">
   <span id="count">0 signals</span>
   <span id="buy-count" style="color:var(--green)">0 BUY</span>
@@ -2089,11 +2117,11 @@ function renderFormattedLogs(logs){
       brief=line.substring(0,45);
     }
 
-    html=`<div style="padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:7px;line-height:1.3;display:flex;gap:4px;align-items:center">
-      <span style="color:${color};font-weight:600;width:20px;flex-shrink:0">${time}</span>
-      <span style="color:${color};font-weight:700;width:25px;flex-shrink:0;text-align:center">${type}</span>
-      <span style="color:${color}">${icon}</span>
-      <span style="flex:1;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:var(--mono)">${brief}</span>
+    html=`<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:10px;line-height:1.4;display:flex;gap:6px;align-items:center">
+      <span style="color:${color};font-weight:600;width:40px;flex-shrink:0;font-size:9px">${time}</span>
+      <span style="color:${color};font-weight:700;width:35px;flex-shrink:0;text-align:center;font-size:9px">${type}</span>
+      <span style="color:${color};font-size:11px">${icon}</span>
+      <span style="flex:1;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:var(--mono);font-size:10px">${brief}</span>
     </div>`+html;
   }
 
