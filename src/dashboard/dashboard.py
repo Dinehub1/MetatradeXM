@@ -998,7 +998,9 @@ HTML = r"""<!DOCTYPE html>
   // --- Real API Polling ---
   async function poll() {
     try {
-      const opts = {};
+      // Phase 2: All API calls need Bearer token for auth
+      const token = window.__AUTH_TOKEN || 'changeme';
+      const opts = { headers: { 'Authorization': `Bearer ${token}` } };
       const [status, positionsRes, history, snap] = await Promise.all([
         fetch('/api/status', opts).then(r => r.ok ? r.json() : null).catch(() => null),
         fetch('/api/open-positions', opts).then(r => r.ok ? r.json() : null).catch(() => null),
@@ -1467,9 +1469,12 @@ function startPoll(){
   addLog('system','Started HTTP poll mode for AI indicators');
   fetchPoll();setInterval(fetchPoll,15000);}
 function fetchPoll(){
+  // Phase 2: Include auth in fallback poll
+  const token = window.__AUTH_TOKEN || 'changeme';
+  const opts = { headers: { 'Authorization': `Bearer ${token}` } };
   Promise.all([
-    fetch('/api/live-snapshot').then(r=>r.json()).catch(()=>({})),
-    fetch('/api/status').then(r=>r.json()).catch(()=>({}))
+    fetch('/api/live-snapshot', opts).then(r=>r.json()).catch(()=>({})),
+    fetch('/api/status', opts).then(r=>r.json()).catch(()=>({}))
   ]).then(([snap, status]) => {
     mc++;
     document.getElementById('mc').textContent=mc;
@@ -2022,8 +2027,12 @@ function renderSignals(sigs){
 
 async function loadLogs(){
   try{
-    const r=await fetch('/api/logs');
-    if(!r.ok)throw new Error(`HTTP ${r.status}`);
+    // Phase 2: Add Bearer token if available (embedded in page or from env)
+    const token = window.__AUTH_TOKEN || 'changeme';
+    const r = await fetch('/api/logs', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if(!r.ok)throw new Error(`HTTP ${r.status}: ${r.statusText}`);
     const data=await r.json();
     allLogs=data.logs||[];
     renderSignals(parseSignals(allLogs));
@@ -2038,11 +2047,18 @@ function setSymbol(sym,btn){
   btn.classList.add('active');
   renderSignals(parseSignals(allLogs));
 }
-function downloadLogs(){window.location.href='/api/logs/download';}
+function downloadLogs(){
+  // Phase 2: Include Bearer token in download URL (fallback for browser file downloads)
+  const token = window.__AUTH_TOKEN || 'changeme';
+  window.location.href = `/api/logs/download?token=${encodeURIComponent(token)}`;
+}
 
 async function loadPositions(){
   try{
-    const r=await fetch('/api/open-positions');
+    const token = window.__AUTH_TOKEN || 'changeme';
+    const r=await fetch('/api/open-positions', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
     if(!r.ok)throw new Error(`HTTP ${r.status}`);
     const data=await r.json();
     const positions=data.positions||[];
@@ -2219,6 +2235,33 @@ class DashHandler(http.server.BaseHTTPRequestHandler):
                 self._json({'logs': logs, 'source': 'supabase:live_events'})
             except Exception as e:
                 self._json({'logs': [f'Supabase live_events error: {e}'], 'source': 'supabase', 'error': str(e)}, 503)
+
+        elif path == '/api/pm2-logs':
+            # Return raw PM2 bot logs
+            if not self._check_auth():
+                return
+            try:
+                from collections import deque
+                lines = int(self.path.split('lines=')[1].split('&')[0]) if 'lines=' in self.path else 400
+            except:
+                lines = 400
+            
+            def tail_file(path, n):
+                if not path.exists():
+                    return f"[File not found: {path}]"
+                try:
+                    with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                        return ''.join(deque(f, n))
+                except Exception as e:
+                    return f"[Error reading {path}: {e}]"
+            
+            bot_out = tail_file(Path("/home/ubuntu/.pm2/logs/metatradeXM-bot-out.log"), lines)
+            bot_err = tail_file(Path("/home/ubuntu/.pm2/logs/metatradeXM-bot-error.log"), lines)
+            
+            self._json({
+                'logs': bot_out + "\n--- ERRORS ---\n" + bot_err,
+                'source': 'pm2'
+            })
 
         elif path == '/api/open-positions':
             if not self._check_auth():
