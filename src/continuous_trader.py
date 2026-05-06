@@ -132,7 +132,7 @@ SYMBOLS = [
         "lot": 0.01,
         # 2026-05-06: H4/D1 weighting at 2.0× each. Old threshold 15 required M15 noise.
         # With new weights, ±8 = H4 BULLISH+MACD aligned = strong confluence.
-        "score_threshold": 8,     # 15→8: H4/D1 dominant scoring
+        "score_threshold": 6,     # 8→6: catch H4 MACD+ADX signals while EMA is still lagging
         "min_confidence":  0.70,  # 0.65→0.70: data analysis shows 70%+ confidence has 59% WR, is profitable
         "adx_min":         20,    # min ADX (18→20: slight tightening for trend confirmation)
         "rsi_oversold":    25,
@@ -158,7 +158,7 @@ SYMBOLS = [
         # Root causes of 33% WR fixed: wrong session (London avg score -14.14),
         # Gold-tuned thresholds, and 4.5× TP that Silver never reaches.
         # Strategy: NEW_YORK mean-reversion + ASIAN ranging only. London blocked.
-        "score_threshold": 8,     # 15→8: with H4/D1 at 2.0× each, need only ±8 for valid signal
+        "score_threshold": 6,     # 8→6: catch H4 MACD+ADX signals while EMA lags the breakout
         "min_confidence":  0.70,  # 0.62→0.70: data analysis shows 70%+ confidence filters out losing trades
         "adx_min":         22,    # 30→22: Silver ADX range 26-32; 30 blocked everything
         "rsi_oversold":    25,    # 20→25: Silver rarely hits 20; 25 = usable signal

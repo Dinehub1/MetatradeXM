@@ -1,7 +1,7 @@
 {
   "_note": "buy_threshold HARD-CAPPED at 20 by analyzer._load_weights(). Valid range 8-20. Setting >20 halts all trading.",
-  "buy_threshold": 15,
-  "sell_threshold": -15,
+  "buy_threshold": 6,
+  "sell_threshold": -6,
   "ranging_penalty": 0.70,
   "f1_h4_trend": 2.0,
   "f2_h1_trend": 0.8,

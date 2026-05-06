@@ -650,7 +650,7 @@ class MarketAnalyzer:
         and effectively halts the bot — so we cap and warn instead of silently
         breaking trading.
         """
-        _THRESHOLD_MIN = 8    # below 8 → too permissive, low-quality signals
+        _THRESHOLD_MIN = 5    # 8→5: H4/D1 dominant scoring produces lower absolute scores
         _THRESHOLD_MAX = 20   # above 20 → impossible to achieve, stops trading
 
         weights: dict = {}
