@@ -376,10 +376,19 @@ class MarketAnalyzer:
 
     def _ema_trend(self, close: np.ndarray) -> str:
         e20, e50, e200 = self._ema(close, 20)[-1], self._ema(close, 50)[-1], self._ema(close, 200)[-1]
+        price = close[-1]
+        # Classic EMA stack alignment
         if e20 > e50 > e200:   return "BULLISH"
-        if e20 < e50 < e200:   return "BEARISH"
+        if e20 < e50 < e200:
+            # EMA stack is bearish, but if price has already broken above EMA50
+            # the breakout has happened — EMA is just lagging. Treat as MILD_BULL.
+            if price > e50:    return "MILD_BULL"
+            return "BEARISH"
+        # Partially aligned — also check price location for recovery signals
         if e20 > e50:          return "MILD_BULL"
-        if e20 < e50:          return "MILD_BEAR"
+        if e20 < e50:
+            if price > e50:    return "MILD_BULL"  # price led the recovery
+            return "MILD_BEAR"
         return "MIXED"
 
     def _macd_cross(self, close: np.ndarray) -> str:
@@ -601,6 +610,16 @@ class MarketAnalyzer:
         # F11: Candlestick pattern confirmation on M15
         f11 = m15.get('candle_pattern_score', 0)
 
+        # F12: H4 MACD — the most reliable momentum signal for H4 trading.
+        # Previously ignored entirely; M15 MACD was used instead. For H4 strategy,
+        # H4 MACD cross is a genuine trend signal, not M15 noise.
+        h4_macd = h4.get('macd_signal', 'NONE')
+        if h4_macd == 'BULLISH_CROSS':    f12 = 8
+        elif h4_macd == 'BULLISH':        f12 = 5
+        elif h4_macd == 'BEARISH_CROSS':  f12 = -8
+        elif h4_macd == 'BEARISH':        f12 = -5
+        else:                             f12 = 0
+
         # Advanced regime detection
         regime_data = RegimeDetector.detect(m15, h1, h4)
 
@@ -616,6 +635,7 @@ class MarketAnalyzer:
             'f9_h1_macd':           round(f9  * weights.get('f9_h1_macd', 0.5), 1),
             'f10_d1_trend':         round(f10 * weights.get('f10_d1', 0.7), 1),
             'f11_candle_pattern':   round(f11 * weights.get('f11_candle', 0.8), 1),
+            'f12_h4_macd':          round(f12 * weights.get('f12_h4_macd', 1.5), 1),
             'adx_regime':           regime_data['regime_label'],
             'volatility_state':     regime_data['volatility'],
             'recommended_strategy': regime_data['recommended_strategy'],
@@ -689,7 +709,8 @@ class MarketAnalyzer:
             scores.get('f8_h1_rsi', 0) +
             scores.get('f9_h1_macd', 0) +
             scores.get('f10_d1_trend', 0) +
-            scores.get('f11_candle_pattern', 0)
+            scores.get('f11_candle_pattern', 0) +
+            scores.get('f12_h4_macd', 0)
         )
 
         # ── ADX ranging penalty ──────────────────────────────────────────
@@ -705,7 +726,7 @@ class MarketAnalyzer:
         # Count how many factors agree with the direction
         factor_vals = [scores[k] for k in ['f1_h4_trend', 'f2_h1_trend',
                        'f3_rsi_zone', 'f4_macd_momentum', 'f5_adx_strength',
-                       'f6_stoch_confirm', 'f7_bb_action'] if scores[k] != 0]
+                       'f6_stoch_confirm', 'f7_bb_action', 'f12_h4_macd'] if scores.get(k, 0) != 0]
         if factor_vals:
             same_sign = sum(1 for v in factor_vals if (v > 0) == (signed_score > 0))
             confluence_ratio = same_sign / len(factor_vals)
@@ -799,7 +820,8 @@ class MarketAnalyzer:
         # Count factor agreement
         factor_vals = [fs.get(k, 0) for k in ['f1_h4_trend', 'f2_h1_trend',
                        'f3_rsi_zone', 'f4_macd_momentum', 'f5_adx_strength',
-                       'f6_stoch_confirm', 'f7_bb_action', 'f8_h1_rsi', 'f9_h1_macd']]
+                       'f6_stoch_confirm', 'f7_bb_action', 'f8_h1_rsi', 'f9_h1_macd',
+                       'f12_h4_macd']]
         bullish_count = sum(1 for v in factor_vals if v > 0)
         bearish_count = sum(1 for v in factor_vals if v < 0)
 
