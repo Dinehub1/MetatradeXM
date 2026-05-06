@@ -271,6 +271,18 @@ class PerformanceAnalyzer:
         total_wins = sum(1 for o in outcomes if (o.get("pips_result") or 0) > 0)
         baseline_wr = total_wins / len(outcomes) if outcomes else 0.5
 
+        # CIRCUIT BREAKER: If win rate is catastrophic (<30%), the system is broken
+        # in ways weight tweaks won't fix. Skip adjustments and log a warning so a
+        # human reviews instead of compounding bad calibration.
+        _CIRCUIT_BREAKER_WR = float(os.getenv("SELF_IMPROVER_MIN_WR", "0.30"))
+        if baseline_wr < _CIRCUIT_BREAKER_WR:
+            log.warning(
+                f"[SELF-IMPROVE] CIRCUIT BREAKER: baseline_wr={baseline_wr:.0%} "
+                f"< {_CIRCUIT_BREAKER_WR:.0%} threshold — skipping weight adjustments. "
+                f"Manual review required (weights won't fix systemic issues)."
+            )
+            return {}
+
         for factor_name, stats in factor_stats.items():
             # GUARDRAIL: Require statistically significant sample size
             if stats['sample_size'] < 15:

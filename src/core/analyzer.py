@@ -161,8 +161,23 @@ class MarketAnalyzer:
         signal["h1_trend"]   = ind_h1["ema_trend"]
         signal["h4_trend"]   = ind_h4["ema_trend"]
         signal["h4_atr"]     = ind_h4.get("atr", 0)
+        signal["h4_adx"]     = ind_h4.get("adx", 0)
         signal["d1_trend"]   = ind_d1["ema_trend"] if ind_d1 else "UNKNOWN"
         signal["session"]    = session
+
+        # Phase B: H4 candle-close confirmation — age of the most recent H4 candle in minutes.
+        # Trader gates entries when this exceeds threshold (catching mid-candle reversals).
+        try:
+            h4_df = tf_data.get("H4")
+            if h4_df is not None and len(h4_df) > 0 and "time" in h4_df.columns:
+                last_t = pd.to_datetime(h4_df["time"].iloc[-1], utc=True)
+                now_utc = pd.Timestamp.now(tz="UTC")
+                signal["h4_candle_age_min"] = max(0, int((now_utc - last_t).total_seconds() / 60))
+            else:
+                signal["h4_candle_age_min"] = None
+        except Exception as _e:
+            log.debug(f"h4_candle_age compute failed: {_e}")
+            signal["h4_candle_age_min"] = None
         return signal
 
     # ── TradingView live data integration ─────────────────────────────────────
@@ -250,8 +265,11 @@ class MarketAnalyzer:
         signal["h1_trend"]   = ind_h1.get("ema_trend", "UNKNOWN")
         signal["h4_trend"]   = ind_h4.get("ema_trend", "UNKNOWN")
         signal["h4_atr"]     = ind_h4.get("atr", 0)
+        signal["h4_adx"]     = ind_h4.get("adx", 0)
         signal["d1_trend"]   = ind_d1.get("ema_trend", "UNKNOWN") if ind_d1 else "UNKNOWN"
         signal["session"]    = session
+        # TV path doesn't have H4 candle timestamps — leave age unknown
+        signal["h4_candle_age_min"] = None
         return signal
 
     # ── Session detection ─────────────────────────────────────────────────────

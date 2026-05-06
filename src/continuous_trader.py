@@ -206,6 +206,20 @@ CONFIG = {
     "enable_pyramiding": False,
     "max_reconnect_attempts": int(os.getenv("MAX_RECONNECT_ATTEMPTS", "5")),   # env override for broker outages
     "reconnect_backoff_s": int(os.getenv("RECONNECT_BACKOFF_S", "10")),        # env override: escalate faster
+
+    # 2026-05-06 PHASE B: H4 candle-close confirmation. Block entries if H4 candle is "stale"
+    # (deep into its 4-hour cycle), since alignment that survives full candle close is more reliable.
+    # 0 = disabled. Default 90min = "first 1.5h of the H4 candle is fresh enough" — generous.
+    # Stricter 30 = "first 30min only" enforces breakout-style entries on H4 close.
+    "h4_max_candle_age_min": int(os.getenv("H4_MAX_CANDLE_AGE_MIN", "90")),
+
+    # 2026-05-06 PHASE C: regime-adaptive routing thresholds (using H4 ADX, not M15).
+    # H4 ADX > 30 = TRENDING, allow normal entries.
+    # H4 ADX 20-30 = TRANSITION, block all entries (historically the highest-loss regime).
+    # H4 ADX < 20 = RANGING, only allow mean-reversion (RSI extreme + counter-trend signal).
+    "h4_trending_adx": float(os.getenv("H4_TRENDING_ADX", "30")),
+    "h4_ranging_adx":  float(os.getenv("H4_RANGING_ADX", "20")),
+    "regime_routing_enabled": os.getenv("REGIME_ROUTING_ENABLED", "true").lower() != "false",
 }
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -1443,9 +1457,12 @@ class ContinuousTrader:
                     "m15": _ind.get("ema_trend", ""),
                 },
             )
+            _h4_age_disp = signal_data.get("h4_candle_age_min")
+            _h4_age_str = f"{_h4_age_disp}min" if _h4_age_disp is not None else "?"
             log.info(
                 f"DETAIL | {disp} | trend D1={signal_data.get('d1_trend', '?')} H4={signal_data.get('h4_trend', '?')} "
-                f"H1={signal_data.get('h1_trend', '?')} M15={_ind.get('ema_trend', '?')}"
+                f"H1={signal_data.get('h1_trend', '?')} M15={_ind.get('ema_trend', '?')} | "
+                f"H4 ADX {signal_data.get('h4_adx', 0):.1f} | H4 age {_h4_age_str}"
             )
             log.info(
                 f"DETAIL | {disp} | ADX {_ind.get('adx', 0):.1f} {_adx_regime(_ind.get('adx', 0))} | "
@@ -1746,6 +1763,53 @@ class ContinuousTrader:
                     f"per-symbol min {_sym_adx_min}"
                 )
                 continue
+
+            # ── Phase B: H4 candle-close confirmation ──────────────────────
+            # H4 alignment that's been intact since the candle opened is more reliable
+            # than alignment formed mid-candle (which can flip on the next print).
+            # Skip entries when the current H4 candle has been running too long.
+            _h4_age = signal_data.get("h4_candle_age_min")
+            _h4_max_age = CONFIG.get("h4_max_candle_age_min", 0)
+            if _h4_max_age > 0 and _h4_age is not None and _h4_age > _h4_max_age:
+                log.info(
+                    f"ACTION | {disp} | skip entry | H4 candle age {_h4_age}min > {_h4_max_age}min "
+                    f"(stale alignment, wait for next H4 close)"
+                )
+                continue
+
+            # ── Phase C: regime-adaptive routing (H4 ADX-based) ────────────
+            # TRENDING (H4 ADX > 30): allow normal entries.
+            # TRANSITION (H4 ADX 20-30): block — historically the highest-loss regime.
+            # RANGING (H4 ADX < 20): only allow counter-trend mean-reversion (RSI extreme).
+            if CONFIG.get("regime_routing_enabled", True):
+                _h4_adx = float(signal_data.get("h4_adx", 0) or 0)
+                _trending_thr = CONFIG.get("h4_trending_adx", 30.0)
+                _ranging_thr  = CONFIG.get("h4_ranging_adx", 20.0)
+                _rsi_now = float(signal_data.get("indicators", {}).get("rsi", 50))
+
+                if _ranging_thr <= _h4_adx < _trending_thr:
+                    # TRANSITION zone — skip
+                    log.info(
+                        f"ACTION | {disp} | skip entry | H4 regime=TRANSITION "
+                        f"(ADX {_h4_adx:.1f} in [{_ranging_thr},{_trending_thr})) — historically loss-prone"
+                    )
+                    continue
+                elif _h4_adx < _ranging_thr:
+                    # RANGING — allow only mean-reversion (counter-trend at RSI extremes)
+                    _is_mean_rev_buy  = direction == "BUY"  and _rsi_now < 30
+                    _is_mean_rev_sell = direction == "SELL" and _rsi_now > 70
+                    if not (_is_mean_rev_buy or _is_mean_rev_sell):
+                        log.info(
+                            f"ACTION | {disp} | skip entry | H4 regime=RANGING "
+                            f"(ADX {_h4_adx:.1f}<{_ranging_thr}) requires mean-reversion entry "
+                            f"(RSI<30 BUY or RSI>70 SELL); got {direction} with RSI {_rsi_now:.0f}"
+                        )
+                        continue
+                    log.info(
+                        f"REGIME | {disp} | RANGING mean-reversion entry allowed "
+                        f"(ADX {_h4_adx:.1f}, RSI {_rsi_now:.0f}, {direction})"
+                    )
+                # TRENDING (_h4_adx >= _trending_thr) — fall through to normal logic
 
             # ── Regime direction block ─────────────────────────────────────
             # 2026-04-30: Tightened threshold 0.88→0.78. Anti-fade rule:
